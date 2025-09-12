@@ -1,0 +1,10 @@
+{
+    "default": {
+        "recipient": "jordan@sparrowcleaning.co.uk",
+        "subject": "General Contact Form Submission"
+    },
+    "support": {
+        "recipient": "jordan@sparrowcleaning.co.uk",
+        "subject": "Support Request Submission"
+    }
+}

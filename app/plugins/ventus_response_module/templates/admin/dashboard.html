@@ -1,0 +1,127 @@
+{% extends "admin/base.html" %}
+{% block title %}Patient Management - Sparrow ERP{% endblock %}
+{% block content %}
+<div class="container mt-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Response Management</h1>
+    <p>Not yet active!</p>
+  <!-- Persistent Modal for Personal PIN Entry -->
+  <div class="modal fade"
+       id="pinModal"
+       tabindex="-1"
+       aria-labelledby="pinModalLabel"
+       aria-hidden="true"
+       data-mdb-backdrop="static"
+       data-mdb-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="pinModalLabel">Enter Your Personal PIN</h5>
+        </div>
+        <div class="modal-body">
+          <div class="form-outline mb-3">
+            <input type="password" id="personalPinInput" class="form-control" maxlength="6" placeholder="6-digit PIN" required>
+            <label class="form-label" for="personalPinInput">Personal PIN</label>
+          </div>
+          <div id="pinError" class="text-danger" style="display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="verifyPinButton" class="btn btn-primary">Verify PIN</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal fade"
+       id="pinModal"
+       tabindex="-1"
+       aria-labelledby="pinModalLabel"
+       aria-hidden="true"
+       data-mdb-backdrop="static"
+       data-mdb-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="pinModalLabel">Enter Your Personal PIN</h5>
+        </div>
+        <div class="modal-body">
+          <div class="form-outline mb-3">
+            <input
+              type="password"
+              id="personalPinInput"
+              class="form-control"
+              maxlength="6"
+              placeholder="6-digit PIN"
+              required
+            >
+            <label class="form-label" for="personalPinInput">Personal PIN</label>
+          </div>
+          <div id="pinError" class="text-danger" style="display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="verifyPinButton" class="btn btn-primary">Verify PIN</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MDB / Bootstrap JS -->
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/6.3.1/mdb.min.js"
+  ></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      const pinModalEl = document.getElementById("pinModal");
+      const pinModal = new mdb.Modal(pinModalEl);
+
+      // Show the modal as soon as the page loads
+      pinModal.show();
+
+      // On modal show, modify the backdrop with !important
+      pinModalEl.addEventListener("show.mdb.modal", function() {
+        setTimeout(function() {
+          const backdrop = document.querySelector(".modal-backdrop.show");
+          if (backdrop) {
+            // Force heavy overlay + blur with !important
+            backdrop.style.setProperty("background-color", "rgba(0,0,0,0.98)", "important");
+            backdrop.style.setProperty("backdrop-filter", "blur(50px)", "important");
+            backdrop.style.setProperty("-webkit-backdrop-filter", "blur(50px)", "important");
+          }
+        }, 10);
+      });
+
+      // Example PIN verification
+      document.getElementById("verifyPinButton").addEventListener("click", function() {
+        const pinValue = document.getElementById("personalPinInput").value.trim();
+        if (pinValue.length !== 6) {
+          document.getElementById("pinError").innerText = "Enter a 6-digit PIN.";
+          document.getElementById("pinError").style.display = "block";
+          return;
+        }
+
+        // Replace with your verification logic
+        fetch("{{ url_for('medical_records_internal.verify_pin') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ personal_pin: pinValue })
+        })
+        .then(response => response.json().then(data => ({ status: response.status, data })))
+        .then(obj => {
+          if (obj.status !== 200) {
+            document.getElementById("pinError").innerText = obj.data.error || "Invalid PIN.";
+            document.getElementById("pinError").style.display = "block";
+          } else {
+            pinModal.hide();
+          }
+        })
+        .catch(error => {
+          console.error("Error verifying PIN:", error);
+        });
+      });
+    });
+  </script>
+
+
+{% endblock %}

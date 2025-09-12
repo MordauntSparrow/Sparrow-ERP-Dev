@@ -1,0 +1,31 @@
+[
+    {
+        "title": "Home",
+        "route": "/",
+        "header": true,
+        "footer": true,
+        "meta": {
+            "title": "Sparrow ERP - Build with Ease",
+            "description": "Discover the power of Sparrow ERP's modular, Flask-based architecture...",
+            "keywords": [
+                "Sparrow ERP",
+                "modular development",
+                "Flask",
+                "ERP system"
+            ]
+        }
+    },
+    {
+        "title": "About",
+        "route": "/about",
+        "header": true,
+        "footer": true,
+        "meta": {
+            "title": "About",
+            "description": "",
+            "keywords": [
+                ""
+            ]
+        }
+    }
+]

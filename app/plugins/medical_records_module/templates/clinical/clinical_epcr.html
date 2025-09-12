@@ -1,0 +1,99 @@
+{% extends 'admin/base.html' %}
+{% block title %}Clinical Lead Dashboard - Sparrow ERP{% endblock %}
+{% block content %}
+<div class="container mt-5">
+  <h1 class="mb-4">Clinical Lead Dashboard - EPCR Cases</h1>
+  <p>Welcome, {{ current_user.username }}. Use the search bar to narrow down the list of cases.</p>
+  
+  <!-- Search bar -->
+  <div class="mb-3">
+    <input type="text" id="searchInput" class="form-control" placeholder="Search by ID, Assigned User, Status, Date, etc.">
+  </div>
+
+  <!-- Cases Table -->
+  <div class="table-responsive">
+    <table class="table table-striped" id="casesTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Assigned Users</th>
+          <th>Status</th>
+          <th>Created At</th>
+          <th>Updated At</th>
+          <th>Closed At</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for case in epcr_cases %}
+        <tr id="case-{{ case.id }}">
+          <td>{{ case.id }}</td>
+          <td>
+            {% if case.assignedUsers %}
+              {{ case.assignedUsers | join(', ') }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>{{ case.status }}</td>
+          <td>{{ case.created_at }}</td>
+          <td>{{ case.updated_at }}</td>
+          <td>{{ case.closed_at or 'N/A' }}</td>
+          <td>
+            <!-- Adjust the view URL to point to your detail page if available -->
+            <a href="{{ url_for('medical_records_internal.view_epcr_case', case_id=case.id) }}" class="btn btn-sm btn-info">View</a>
+            <button class="btn btn-sm btn-danger delete-case-btn" data-case-id="{{ case.id }}">Delete</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Optional: Include MDB UI Kit JS if you're using MDB components -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/6.0.0/mdb.min.js"></script>
+<!-- JavaScript to filter table rows based on the search input and handle deletion -->
+<script>
+document.addEventListener("DOMContentLoaded", function(){
+  // Search filtering
+  const searchInput = document.getElementById('searchInput');
+  const tableRows = document.querySelectorAll("#casesTable tbody tr");
+
+  searchInput.addEventListener("keyup", function() {
+    const filterText = searchInput.value.toLowerCase();
+    tableRows.forEach(function(row) {
+      const rowText = row.textContent.toLowerCase();
+      row.style.display = rowText.indexOf(filterText) > -1 ? "" : "none";
+    });
+  });
+
+  // Delete case handler
+  document.querySelectorAll('.delete-case-btn').forEach(function(button) {
+    button.addEventListener('click', function(){
+      if(confirm('Are you sure you want to delete this case?')) {
+        const caseId = this.getAttribute('data-case-id');
+        fetch("{{ url_for('medical_records_internal.delete_epcr', case_id=0) }}".replace('0', caseId), {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if(data.success) {
+            // Remove the corresponding table row if deletion was successful.
+            var row = document.getElementById('case-' + caseId);
+            if (row) row.remove();
+          } else {
+            alert('Error deleting case: ' + data.error);
+          }
+        })
+        .catch(error => {
+          console.error('Error deleting case:', error);
+          alert('Error deleting case.');
+        });
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

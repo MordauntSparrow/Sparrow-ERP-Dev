@@ -1,0 +1,1047 @@
+{
+    "page_views": [
+        {
+            "timestamp": "2025-02-05T22:57:43.581913",
+            "page": "/",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-05T22:57:47.038803",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/"
+        },
+        {
+            "timestamp": "2025-02-05T23:05:34.422028",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/"
+        },
+        {
+            "timestamp": "2025-02-05T23:11:17.384580",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-06T00:08:34.676159",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-06T00:09:01.280219",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-06T00:09:02.516188",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-06T00:09:04.396199",
+            "page": "/about",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T08:16:43.259695",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T08:16:46.661647",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-02-11T08:16:50.357685",
+            "page": "/about",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-02-11T08:16:52.636648",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/about"
+        },
+        {
+            "timestamp": "2025-02-11T08:20:25.517871",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T08:20:29.647896",
+            "page": "/about",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-02-11T08:22:59.104474",
+            "page": "/about",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T08:23:02.551471",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/about"
+        },
+        {
+            "timestamp": "2025-02-11T08:25:10.250251",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T12:13:55.132048",
+            "page": "/",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T12:13:56.594077",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/"
+        },
+        {
+            "timestamp": "2025-02-11T22:44:13.165883",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-11T22:44:16.655248",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-02-12T07:34:30.408863",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-12T18:56:35.301685",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-12T18:56:38.816690",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-02-12T18:57:07.002355",
+            "page": "/care_company",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-20T17:48:08.814951",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/care_company/login"
+        },
+        {
+            "timestamp": "2025-02-22T10:20:05.241671",
+            "page": "/",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-22T10:20:08.380943",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/"
+        },
+        {
+            "timestamp": "2025-02-22T14:56:06.331358",
+            "page": "/",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-24T19:59:13.311447",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-24T19:59:15.058295",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://127.0.0.1/"
+        },
+        {
+            "timestamp": "2025-02-26T01:17:37.366776",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-27T23:25:55.233010",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-28T07:16:45.609729",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://127.0.0.1/care_company/"
+        },
+        {
+            "timestamp": "2025-02-28T09:03:41.099576",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-02-28T10:35:18.836408",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/care_company/login"
+        },
+        {
+            "timestamp": "2025-03-02T08:23:08.906845",
+            "page": "/",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-02T08:23:12.118849",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/"
+        },
+        {
+            "timestamp": "2025-03-10T16:37:53.359946",
+            "page": "/favicon.ico",
+            "ip": "192.168.0.134",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.0.134/care_company/login"
+        },
+        {
+            "timestamp": "2025-03-10T20:50:56.042033",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T17:53:12.345809",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:41:32.094938",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:41:34.399092",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": "http://127.0.0.1/"
+        },
+        {
+            "timestamp": "2025-03-13T18:42:21.722768",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:42:34.747737",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:42:52.160018",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:44:07.513449",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-03-13T18:44:24.649973",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-05T01:22:09.137795",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-05T01:22:12.260551",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-04-05T01:22:15.970566",
+            "page": "/case-access",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:48:04.344880",
+            "page": "/care_company/case-access",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:48:05.190849",
+            "page": "/favicon.ico",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.2.3/care_company/case-access"
+        },
+        {
+            "timestamp": "2025-04-06T17:48:47.509037",
+            "page": "/",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:49:01.979915",
+            "page": "/care_company/case-access",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:49:06.311132",
+            "page": "/care-company/case-access",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:49:54.941425",
+            "page": "/care_company/case-access",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:50:09.931660",
+            "page": "/care_company/login",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T17:50:12.645475",
+            "page": "/care_company/login",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T20:37:04.997093",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:20:08.629004",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:24:06.609180",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:27:00.642104",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:36:27.177905",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:38:42.738148",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:43:31.813242",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T21:51:23.242813",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:10:04.815967",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:17:05.175602",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:21:20.025124",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:21:28.462051",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:22:43.286061",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:25:04.736591",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:26:38.235326",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:28:45.657387",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:28:54.481612",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:36:30.629102",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:38:36.503496",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:39:54.856228",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:51:04.057637",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T22:57:21.512899",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:04:05.744552",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:13:38.273978",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:13:41.965038",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:14:01.550163",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:14:27.761717",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:15:14.065032",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:15:45.976944",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:19:15.212109",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:19:22.798811",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:19:46.317350",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:22:22.598624",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:27:45.865972",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:32:09.019921",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:32:12.328843",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:32:41.990570",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:35:03.271159",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:36:53.064652",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:37:27.099844",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:44:27.953973",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:45:18.368271",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:45:21.134370",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:45:59.389089",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:46:12.424254",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:50:35.559815",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:52:48.051011",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-06T23:54:00.402863",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:01:03.800428",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:04:00.049603",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:05:41.636137",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:06:44.562928",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:08:39.854441",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:10:23.300336",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:12:26.206339",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:12:52.507212",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:14:36.381939",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:16:01.411456",
+            "page": "/care_company/styles.css.map",
+            "ip": "192.168.2.3",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T00:52:23.283138",
+            "page": "/favicon.ico",
+            "ip": "192.168.1.12",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.1.12/care_company/case-access"
+        },
+        {
+            "timestamp": "2025-04-07T17:12:26.578171",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-07T17:12:29.179809",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-04-09T13:20:01.593412",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-09T13:20:01.930414",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-13T18:49:26.675153",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-13T18:49:27.142110",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-13T18:49:28.937338",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-13T18:49:29.314341",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-14T15:03:24.526990",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-14T15:03:25.657886",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-15T14:33:36.985756",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-15T14:33:38.037756",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-15T14:33:38.893761",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-15T14:33:39.197762",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-04-19T13:40:38.405739",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/care_company/"
+        },
+        {
+            "timestamp": "2025-04-19T17:04:29.149605",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/care_company/login"
+        },
+        {
+            "timestamp": "2025-04-26T17:27:58.750015",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/care_company/case-access"
+        },
+        {
+            "timestamp": "2025-04-29T03:09:51.231767",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/care_company/case-access"
+        },
+        {
+            "timestamp": "2025-05-04T18:06:38.262789",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-05-04T18:06:40.025789",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-05-22T18:10:27.705325",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-05-22T18:10:29.341770",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-10T22:58:39.477976",
+            "page": "/",
+            "ip": "192.168.5.2",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-10T22:58:41.661281",
+            "page": "/favicon.ico",
+            "ip": "192.168.5.2",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://192.168.5.2/"
+        },
+        {
+            "timestamp": "2025-09-10T22:59:02.793985",
+            "page": "/",
+            "ip": "192.168.5.2",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-10T23:01:04.652450",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-10T23:01:07.633251",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-09-12T12:29:11.430085",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-12T12:29:11.918084",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-12T12:29:13.719120",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-12T12:29:14.495122",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        }
+    ]
+}

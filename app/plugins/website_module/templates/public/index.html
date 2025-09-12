@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Sparrow ERP - Build with Ease{% endblock %}
+
+{% block content %}
+<!-- Main Content Section -->
+<section class="container text-center mt-5">
+    <h1 class="display-4">Home</h1>
+    <p class="lead">Discover the power of Sparrow ERP's modular, Flask-based architecture.</p>
+    <!-- Get Started Button -->
+    <button type="button" class="btn btn-primary btn-lg" data-mdb-toggle="modal" data-mdb-target="#getStartedModal">
+        Get Started
+    </button>
+</section>
+
+<!-- Features Section -->
+<section class="features container text-center mt-5">
+    <div class="row">
+        <div class="col-md-4 mb-4">
+            <div class="feature-icon mb-3">
+                <i class="bi bi-gear" style="font-size: 2rem; color: #007bff;"></i>
+            </div>
+            <h5>Modular Design</h5>
+            <p>Extend functionality seamlessly with plug-and-play modules.</p>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="feature-icon mb-3">
+                <i class="bi bi-lightning" style="font-size: 2rem; color: #007bff;"></i>
+            </div>
+            <h5>Fast and Flexible</h5>
+            <p>Built on Flask for rapid, lightweight web development.</p>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="feature-icon mb-3">
+                <i class="bi bi-code-slash" style="font-size: 2rem; color: #007bff;"></i>
+            </div>
+            <h5>Developer-Friendly</h5>
+            <p>Write clean, extendable code with easy integration.</p>
+        </div>
+    </div>
+</section>
+
+<!-- Modal for Get Started -->
+<div class="modal fade" id="getStartedModal" tabindex="-1" aria-labelledby="getStartedModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="getStartedModalLabel">Get Started with Sparrow ERP</h5>
+                <button type="button" class="btn-close" data-mdb-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>To create and edit your website, log in to the admin portal at:</p>
+                <a href="http://localhost:82/"><p><strong>http://localhost:82/</strong></p></a>
+                <p>Enhance your frontend by installing and activating additional modules.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-mdb-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
