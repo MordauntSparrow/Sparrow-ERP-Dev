@@ -1,3 +1,18 @@
 {
-    "page_views": []
+    "page_views": [
+        {
+            "timestamp": "2025-09-14T03:13:37.809973",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-14T03:13:37.821791",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        }
+    ]
 }

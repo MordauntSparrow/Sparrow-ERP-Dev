@@ -2,7 +2,7 @@
     "system_name": "website_module",
     "name": "Website Module",
     "description": "Manages the website's content and display",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "icon": "icon.png",
     "control_mode": "erp",
     "repository": "official",
@@ -11,5 +11,6 @@
     "repository_token": "",
     "enabled": true,
     "settings": {},
-    "update_available": false
+    "update_available": false,
+    "installed": true
 }

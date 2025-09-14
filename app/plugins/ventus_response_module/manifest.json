@@ -2,7 +2,7 @@
     "system_name": "ventus_response_module",
     "name": "VENTUS Response Module",
     "description": "Manages Ambulatory Triage and Response",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "icon": "icon.png",
     "settings": {},
     "enabled": true,
@@ -14,5 +14,6 @@
     "download_url": "",
     "changelog": "Initial release of Official Plugin.",
     "repository_token": "",
-    "update_available": false
+    "update_available": false,
+    "installed": true
 }

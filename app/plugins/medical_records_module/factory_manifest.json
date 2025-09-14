@@ -2,7 +2,7 @@
     "system_name": "medical_records_module",
     "name": "VITA Patient Record Management",
     "description": "Manages patient records",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "icon": "icon.png",
     "settings": {},
     "enabled": false,
