@@ -134,8 +134,6 @@ def has_permission(permission):
         return True
     return permission in current_user.permissions
 
-
-
 def permission_required(permission):
     """
     Decorator to require a specific permission for a route.
@@ -152,17 +150,6 @@ def permission_required(permission):
             return redirect(url_for('routes.dashboard'))
         return wrapper
     return decorator
-
-class AuthManager:
-    @staticmethod
-    def hash_password(password):
-        salt = bcrypt.gensalt()
-        return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-
-    @staticmethod
-    def verify_password(stored_password, provided_password):
-        return bcrypt.checkpw(provided_password.encode('utf-8'), stored_password.encode('utf-8'))
-
 
 def ensure_core_data_folder():
     """Ensure that a 'data' folder exists in the core module directory (/app/data)."""
@@ -240,7 +227,6 @@ class UpdateManager:
 
     UPDATE_DIR = "app/updates"
     BACKUP_DIR = "app/backups"
-    PLUGIN_PATH = "app/plugins"
     LOG_PATH = "app/logs/update_history.json"
     CORE_PATH = "app/core"  # Not used directly for core updates; we apply to system root
 
@@ -316,7 +302,7 @@ class UpdateManager:
 
         if factory_manifest.get('repository') == 'official':
             encoded_name = quote(plugin_name, safe='')
-            plugin_manifest_url = f"https://gitlab.com/api/v4/projects/sparrow-erp%2FCore/repository/files/plugins/{encoded_name}/manifest.json/raw?ref=main"
+            plugin_manifest_url = f"https://gitlab.com/api/v4/projects/65546585/repository/files/plugins%2F{encoded_name}%2Fmanifest.json/raw?ref=main"
         else:
             base_repo = (factory_manifest.get('repository') or '').rstrip('/')
             if not base_repo:
@@ -441,13 +427,57 @@ class UpdateManager:
 
     # ------------- Backup and Restore -------------
     def backup(self, backup_name="whole_system_backup"):
-        system_root = os.path.dirname(self.BACKUP_DIR)  # typically "app"
+        import zipfile
+        system_root = os.path.dirname(self.BACKUP_DIR) # typically "app"
         os.makedirs(self.BACKUP_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_filename = f"{backup_name}_{timestamp}"
+        backup_filename = f"{backup_name}_{timestamp}.zip"
         backup_path = os.path.join(self.BACKUP_DIR, backup_filename)
-        shutil.make_archive(backup_path, 'zip', system_root)
-        return f"{backup_path}.zip"
+        # Exclude heavy or generated directories
+        exclude_dirs = {
+            os.path.normpath(self.BACKUP_DIR),                          # app/backups
+            os.path.normpath(self.UPDATE_DIR),                          # app/updates
+            os.path.normpath(os.path.join(system_root, "logs")),        # app/logs
+            os.path.normpath(os.path.join(system_root, "tmp")),         # app/tmp
+            os.path.normpath(os.path.join(system_root, "node_modules")),
+            os.path.normpath(os.path.join(system_root, "venv")),
+            os.path.normpath(os.path.join(system_root, ".venv")),
+            os.path.normpath(os.path.join(system_root, "__pycache__")),
+            os.path.normpath(os.path.join(system_root, "media")),
+            os.path.normpath(os.path.join(system_root, "uploads")),
+        }
+
+        def is_excluded(path):
+            p = os.path.normpath(path)
+            for ex in exclude_dirs:
+                if p == ex or p.startswith(ex + os.sep):
+                    return True
+            return False
+
+        # Optional: print some progress every N files
+        file_counter = 0
+        progress_step = 1000
+
+        with zipfile.ZipFile(backup_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(system_root):
+                # prune excluded dirs to speed up traversal
+                dirs[:] = [d for d in dirs if not is_excluded(os.path.join(root, d))]
+                for fn in files:
+                    fp = os.path.join(root, fn)
+                    if is_excluded(fp):
+                        continue
+                    arcname = os.path.relpath(fp, system_root)
+                    try:
+                        zf.write(fp, arcname)
+                    except FileNotFoundError:
+                        # File changed/removed during walk — skip
+                        continue
+                    file_counter += 1
+                    if file_counter % progress_step == 0:
+                        print(f"Backup progress: {file_counter} files zipped...")
+
+        print(f"Backup completed: {backup_path} ({file_counter} files)")
+        return backup_path
 
     def restore_backup(self, backup_name, restore_to):
         backup_zip = os.path.join(self.BACKUP_DIR, f"{backup_name}.zip")
@@ -512,7 +542,8 @@ class UpdateManager:
     # ------------- Update Application -------------
     def apply_update(self, update_type, plugin_name=None, update_mode="manual"):
         backup_archive = None
-        system_root = os.path.dirname(self.BACKUP_DIR)  # typically "app"
+        system_root = os.path.dirname(self.BACKUP_DIR) # already defined earlier as "app"
+        plugin_path = os.path.join(system_root, "plugins", plugin_name)
         old_version = None
         try:
             # Determine old version
@@ -576,7 +607,7 @@ class UpdateManager:
                 zip_path = os.path.join(self.UPDATE_DIR, f"{plugin_name}_update.zip")
                 self.download_update(download_url, zip_path)
 
-                plugin_path = os.path.join(self.PLUGIN_PATH, plugin_name)
+                plugin_path = os.path.join(plugin_path, plugin_name)
                 print(f"Applying plugin update for {plugin_name}...")
                 os.makedirs(plugin_path, exist_ok=True)
                 self.apply_zip(zip_path, plugin_path)
@@ -939,7 +970,7 @@ import importlib
 from pathlib import Path
 
 class PluginManager:
-    def __init__(self, plugins_dir='app/plugins'):
+    def __init__(self, plugins_dir='plugins'):
         # Use the absolute path to avoid confusion.
         app_root = os.path.abspath(os.path.dirname(__file__))  # e.g. sparrow-erp/app
         self.plugins_dir = os.path.join(app_root, plugins_dir)
@@ -947,6 +978,43 @@ class PluginManager:
         print(f"[DEBUG] PluginManager initialized with plugins_dir: {self.plugins_dir}")
         self.plugins = self.load_plugins()  # Loads manifest data for all plugins.
         print(f"[DEBUG] Loaded plugins (manifests): {list(self.plugins.keys())}")
+
+    def get_factory_manifest_by_name(self, plugin_name):
+        """
+        Return a minimal 'factory' descriptor for a plugin by name.
+        Priority:
+        1) Local manifest.json (repository field if present)
+        2) factory_manifest.json inside the plugin folder
+        3) Default to 'official'
+        """
+        plugin_folder = os.path.join(self.plugins_dir, plugin_name)
+        # Try local manifest.json
+        manifest_path = os.path.join(plugin_folder, 'manifest.json')
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, 'r') as f:
+                    man = json.load(f)
+                repo = man.get('repository')
+                if repo:
+                    return {"repository": repo}
+            except json.JSONDecodeError:
+                pass
+        # Try local factory_manifest.json
+        factory_manifest = self.get_factory_manifest(plugin_folder)
+        if factory_manifest and isinstance(factory_manifest, dict):
+            repo = factory_manifest.get('repository')
+            if repo:
+                return {"repository": repo}
+        # Fallback
+        return {"repository": "official"}
+
+    def get_repository_for_plugin(self, plugin_name):
+        """
+        Convenience wrapper to return the repository string for a plugin:
+        - 'official' or a base URL (e.g., https://gitlab.com/yourgroup/yourrepo)
+        """
+        data = self.get_factory_manifest_by_name(plugin_name)
+        return (data or {}).get('repository', 'official')
 
     def load_plugin_modules(self):
         """
