@@ -13,6 +13,762 @@
             "ip": "192.168.1.1",
             "user_agent": "",
             "referrer": null
+        },
+        {
+            "timestamp": "2025-09-14T13:13:49.498579",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost:82/"
+        },
+        {
+            "timestamp": "2025-09-14T13:13:49.995547",
+            "page": "/favicon.ico",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/"
+        },
+        {
+            "timestamp": "2025-09-14T13:13:52.722880",
+            "page": "/about",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost:82/"
+        },
+        {
+            "timestamp": "2025-09-14T17:42:24.091400",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-14T18:08:22.462277",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-14T18:21:08.858818",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T02:39:37.401585",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:08:52.364410",
+            "page": "/billing",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:10:38.957849",
+            "page": "/time-billing",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:11:11.026637",
+            "page": "/login",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:11:19.315056",
+            "page": "/time-billing/login",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:11:31.663828",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:12:56.725298",
+            "page": "/time-billing/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:13:58.635652",
+            "page": "/time-billing/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:13:59.727186",
+            "page": "/time-billing/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:14:17.767453",
+            "page": "/time-billing/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:18:08.740932",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:18:08.757923",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:28:40.588692",
+            "page": "/logout",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:28:46.851852",
+            "page": "/login",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:28:59.417505",
+            "page": "/logout",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:36:51.583038",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:36:52.297787",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:42:44.317471",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T03:42:45.058499",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T12:26:39.709415",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T21:40:56.231626",
+            "page": "/time-billing/api/refs/clients",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-15T21:41:00.856440",
+            "page": "/time-billing/api/refs/clients",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-15T21:41:18.881642",
+            "page": "/time-billing/weeks/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-15T22:11:22.503556",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T22:25:53.524846",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T22:26:33.846981",
+            "page": "/time-billing/weeks/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-15T23:04:28.994518",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T23:04:38.432547",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T23:05:00.304094",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T23:54:06.280904",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-15T23:58:17.496153",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-16T14:25:43.948016",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-16T14:25:44.081928",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-16T22:46:28.912693",
+            "page": "/time-billing/weeks/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-16T22:46:50.129124",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T00:47:58.841469",
+            "page": "/api/refs/job-types",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T00:48:51.116869",
+            "page": "/api/refs/job-types",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T01:06:36.934646",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:07:07.924038",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:07:18.472220",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:08:45.424435",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:29:25.599967",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:29:33.313130",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:30:03.237602",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T12:30:34.808919",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:35:46.888103",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:40:13.218151",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:41:11.908091",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:41:23.928892",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T12:57:41.007623",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T13:02:39.151683",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T13:52:30.021893",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:07:31.099667",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:09:07.379421",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:11:56.930233",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:12:53.500536",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:13:14.012216",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T14:13:14.745263",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T14:13:14.985995",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T14:13:15.063237",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T19:42:00.331015",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T19:42:00.615040",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-17T20:47:25.058026",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T20:47:25.322896",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-17T20:47:39.286082",
+            "page": "/time-billing/api/weeks/202538/totals",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-18T20:24:44.377609",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T20:24:44.657612",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:13:34.055318",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:16:08.334321",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:16:33.851185",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:21:05.495715",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:22:47.842097",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:29:43.131565",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:46:26.546611",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:52:08.235422",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T21:59:55.951831",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T22:00:57.160776",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-18T22:18:18.561558",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/weeks/202538"
+        },
+        {
+            "timestamp": "2025-09-19T21:26:10.382016",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:26:11.273929",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:29:06.208754",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:29:06.342202",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:29:30.511615",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:29:31.277893",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:30:40.988899",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:30:41.557907",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:34:27.700860",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:34:28.796540",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:37:20.373355",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T21:37:21.218670",
+            "page": "/time-billing/styles.css.map",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T23:29:07.467511",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T23:33:30.720779",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-19T23:57:22.822219",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": "http://localhost/time-billing/"
+        },
+        {
+            "timestamp": "2025-09-20T00:22:04.630393",
+            "page": "/",
+            "ip": "192.168.1.39",
+            "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T00:22:04.923552",
+            "page": "/favicon.ico",
+            "ip": "192.168.1.39",
+            "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+            "referrer": "http://192.168.1.10/"
+        },
+        {
+            "timestamp": "2025-09-20T00:35:50.382557",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T11:18:12.608571",
+            "page": "/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T11:18:12.677571",
+            "page": "/HNAP1/",
+            "ip": "192.168.1.1",
+            "user_agent": "",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T14:45:16.594299",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T14:45:45.609656",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T15:43:33.368921",
+            "page": "/",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
+        },
+        {
+            "timestamp": "2025-09-20T15:47:57.256573",
+            "page": "/.well-known/appspecific/com.chrome.devtools.json",
+            "ip": "127.0.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "referrer": null
         }
     ]
 }

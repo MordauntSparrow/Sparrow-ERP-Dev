@@ -1,0 +1,14 @@
+{
+  "id": "823f45f1",
+  "title": "Home",
+  "route": "/",
+  "seo": {
+    "title": "Home",
+    "description": ""
+  },
+  "vars": {},
+  "blocks": [],
+  "draft": true,
+  "version": 1,
+  "updated_at": "2025-09-14T16:01:19.107564"
+}

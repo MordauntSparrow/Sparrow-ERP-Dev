@@ -1,0 +1,14 @@
+{
+  "id": "ed8c28d8",
+  "title": " P A T H : P A G E _ R O U T E ",
+  "route": "/path:page_route",
+  "seo": {
+    "title": " P A T H : P A G E _ R O U T E ",
+    "description": ""
+  },
+  "vars": {},
+  "blocks": [],
+  "draft": true,
+  "version": 1,
+  "updated_at": "2025-09-14T16:28:30.308879"
+}

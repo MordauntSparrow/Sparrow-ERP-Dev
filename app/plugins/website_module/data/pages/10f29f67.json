@@ -1,0 +1,14 @@
+{
+  "id": "10f29f67",
+  "title": "About",
+  "route": "/about",
+  "seo": {
+    "title": "About",
+    "description": ""
+  },
+  "vars": {},
+  "blocks": [],
+  "draft": true,
+  "version": 1,
+  "updated_at": "2025-09-14T17:01:15.417984"
+}

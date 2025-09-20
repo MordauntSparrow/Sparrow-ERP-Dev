@@ -16,154 +16,114 @@
 /* ===== Theme-aware base ===== */
 body {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #121212 !important;
-    color: #ffffff !important;
+    background-color: #121212;
+    color: #ffffff;
   {% elif config.theme_settings.theme == 'modern' %}
-    background-color: #f0f2f5 !important;
-    color: #212529 !important;
+    background-color: #f0f2f5;
+    color: #212529;
   {% else %}
-    background-color: #ffffff !important;
-    color: #212529 !important;
+    background-color: #ffffff;
+    color: #212529;
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* ===== Navbar ===== */
 .navbar {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1f1f1f !important;
+    background-color: #1f1f1f;
   {% else %}
-    background-color: #ffffff !important;
+    background-color: #ffffff;
   {% endif %}
-  transition: background-color 0.3s ease;
 }
 .navbar .nav-link, .navbar-brand {
   {% if config.theme_settings.theme == 'dark' %}
-    color: #e6e6e6 !important;
+    color: #e6e6e6;
   {% else %}
-    color: #212529 !important;
+    color: #212529;
   {% endif %}
-  transition: color 0.3s ease;
 }
 .navbar .nav-link:hover, .navbar .nav-link:focus {
   {% if config.theme_settings.theme == 'dark' %}
-    color: #1e90ff !important;
+    color: #1e90ff;
   {% else %}
-    color: #0d6efd !important;
+    color: #0d6efd;
   {% endif %}
   text-decoration: none;
 }
-.navbar .nav-link { font-size: 0.95rem; }
 .navbar .nav-link i { transition: transform 0.2s ease; }
 .navbar .nav-link:hover i { transform: scale(1.2); }
 
-@media (max-width: 576px) {
-  .navbar .nav-link { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
-  .navbar-brand img { max-height: 32px !important; object-fit: contain; }
-}
-
-/* Active nav link underline animation */
-.navbar .nav-link[aria-current="page"] {
-  font-weight: 600;
-  position: relative;
-}
-.navbar .nav-link[aria-current="page"]::after {
-  content: "";
-  position: absolute;
-  left: 0.75rem;
-  right: 0.75rem;
-  bottom: 0.2rem;
-  height: 2px;
-  border-radius: 2px;
-  {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1e90ff;
-  {% else %}
-    background-color: #0d6efd;
-  {% endif %}
-  transition: all 0.3s ease;
-}
-
 /* ===== Links ===== */
-a { {% if config.theme_settings.theme == 'dark' %} color: #1e90ff !important; {% else %} color: #007bff !important {% endif %}; transition: color 0.3s ease; }
-a:hover { {% if config.theme_settings.theme == 'dark' %} color: #87ceeb !important; {% else %} color: #0056b3 !important {% endif %}; text-decoration: none; }
+a { 
+  {% if config.theme_settings.theme == 'dark' %} color: #1e90ff; {% else %} color: #007bff; {% endif %} 
+}
+a:hover { 
+  {% if config.theme_settings.theme == 'dark' %} color: #87ceeb; {% else %} color: #0056b3; {% endif %} 
+  text-decoration: none;
+}
 
 /* ===== List groups ===== */
 .list-group {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1e1e1e !important; color: #fff !important; border: 1px solid #444 !important;
+    background-color: #1e1e1e; color: #fff; border: 1px solid #444;
   {% else %}
-    background-color: #fff !important; color: #212529 !important; border: 1px solid #ced4da !important;
+    background-color: #fff; color: #212529; border: 1px solid #ced4da;
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 .list-group-item {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1e1e1e !important; color: #fff !important; border-bottom: 1px solid #444 !important;
+    background-color: #1e1e1e; color: #fff; border-bottom: 1px solid #444;
   {% else %}
-    background-color: #fff !important; color: #212529 !important; border-bottom: 1px solid #ced4da !important;
+    background-color: #fff; color: #212529; border-bottom: 1px solid #ced4da;
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 .list-group-item:hover {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #292929 !important;
+    background-color: #292929;
   {% else %}
-    background-color: #f8f9fa !important;
+    background-color: #f8f9fa;
   {% endif %}
-  transform: scale(1.02);
 }
 
 /* ===== Buttons ===== */
-.btn {
-  transition: all 0.2s ease;
-}
-.btn:hover {
-  opacity: 0.9 !important;
-  transform: scale(1.03);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-.btn-primary { background-color: {% if config.theme_settings.theme == 'dark' %} #1e90ff !important {% else %} #007bff !important {% endif %}; color: #fff !important; }
-.btn-danger { background-color: #dc3545 !important; color: #fff !important; }
-.btn-warning { background-color: #ffc107 !important; color: #212529 !important; }
-.btn-secondary { background-color: #6c757d !important; color: #fff !important; }
+.btn-primary { background-color: {% if config.theme_settings.theme == 'dark' %} #1e90ff {% else %} #007bff {% endif %}; color: #fff; }
+.btn-danger { background-color: #dc3545; color: #fff; }
+.btn-warning { background-color: #ffc107; color: #212529; }
+.btn-secondary { background-color: #6c757d; color: #fff; }
 
-/* ===== Inputs ===== */
+/* ===== Inputs (checkboxes/radios untouched) ===== */
 input, textarea, select, .form-control {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1f1f1f !important; color: #fff !important; border: 1px solid #444 !important;
+    background-color: #1f1f1f; color: #fff; border: 1px solid #444;
   {% else %}
-    background-color: #fff !important; color: #212529 !important; border: 1px solid #ced4da !important;
+    background-color: #fff; color: #212529; border: 1px solid #ced4da;
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 /* ===== Modals ===== */
 .modal-content {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1e1e1e !important; color: #fff !important;
+    background-color: #1e1e1e; color: #fff;
   {% else %}
-    background-color: #fff !important; color: #212529 !important;
+    background-color: #fff; color: #212529;
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 .modal-header, .modal-footer {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #292929 !important; color: #fff !important;
+    background-color: #292929; color: #fff;
   {% else %}
-    background-color: #f8f9fa !important; color: #212529 !important;
+    background-color: #f8f9fa; color: #212529;
   {% endif %}
 }
 
 /* ===== Cards ===== */
 .card {
   {% if config.theme_settings.theme == 'dark' %}
-    background-color: #1e1e1e !important; color: #fff !important; border: 1px solid #444 !important;
+    background-color: #1e1e1e; color: #fff; border: 1px solid #444;
   {% else %}
-    background-color: #fff !important; color: #212529 !important; border: 1px solid #ced4da !important; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    background-color: #fff; color: #212529; border: 1px solid #ced4da; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
   {% endif %}
-  transition: background-color 0.3s ease, color 0.3s ease, transform 0.2s ease;
 }
-.card:hover { transform: translateY(-2px); }
 
 /* Footer separation */
 .footer { {% if config.theme_settings.theme != 'dark' %} border-top: 1px solid rgba(0,0,0,.06); {% endif %} }
@@ -175,13 +135,9 @@ input, textarea, select, .form-control {
 <nav class="navbar navbar-expand-lg navbar-light sticky-top shadow-sm">
 <div class="container-fluid px-3">
   {% if session['site_settings']['branding'] == 'logo' and session['site_settings']['logo_path'] %}
-<a class="navbar-brand" href="/">
-  <img src="{{ url_for('static', filename=session['site_settings']['logo_path']) }}" alt="Logo" height="36" style="max-height:36px">
-</a>
+<a class="navbar-brand" href="/"><img src="{{ url_for('static', filename=session['site_settings']['logo_path']) }}" alt="Logo" height="60" style="max-height:60px"></a>
 {% else %}
-<a class="navbar-brand fw-semibold" href="/">
-  {{ session['site_settings']['company_name'] or 'Sparrow ERP' }}
-</a>
+<a class="navbar-brand fw-semibold" href="/">{{ session['site_settings']['company_name'] or 'Sparrow ERP' }}</a>
 {% endif %}
 
   <button class="navbar-toggler" type="button" data-mdb-toggle="collapse" data-mdb-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -190,6 +146,11 @@ input, textarea, select, .form-control {
 
   <div class="collapse navbar-collapse" id="navbarNav">
     <ul class="navbar-nav ms-auto align-items-lg-center">
+      <li class="nav-item">
+        <a class="nav-link py-2 px-3" href="/" aria-current="{{ 'page' if request.path == '/' else 'false' }}">
+          <i class="bi bi-house me-1"></i> Home
+        </a>
+      </li>
       <li class="nav-item">
         <a class="nav-link py-2 px-3" href="/plugins" aria-current="{{ 'page' if request.path.startswith('/plugins') else 'false' }}">
           <i class="bi bi-boxes me-1"></i> Plugins
@@ -207,9 +168,7 @@ input, textarea, select, .form-control {
           <span class="text-truncate" style="max-width:160px">{{ session.get('site_settings', {}).get('user_name', 'User') }}</span>
         </a>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-          <li>
-            <h6 class="dropdown-header d-flex align-items-center"><i class="bi bi-info-circle me-2"></i> Account</h6>
-          </li>
+          <li><h6 class="dropdown-header d-flex align-items-center"><i class="bi bi-info-circle me-2"></i> Account</h6></li>
           <li><a class="dropdown-item" href="/logout"><i class="bi bi-box-arrow-right me-2"></i> Logout</a></li>
         </ul>
       </li>

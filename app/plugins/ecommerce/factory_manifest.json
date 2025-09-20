@@ -1,0 +1,19 @@
+{
+    "system_name": "ecommerce",
+    "name": "E-Commerce",
+    "description": "DEPENDENCY DEMONSTRATOR - Manages the website's E-Commerce Functionality",
+    "version": "0.0.1",
+    "icon": "icon.png",
+    "settings": {
+        "store_name": {
+            "value": "My E-commerce Store",
+            "editable": true
+        }
+    },
+    "enabled": false,
+    "dependencies": ["website_module"],
+    "repository": "official",
+    "download_url": "https://gitlab.com/sparrow-erp/Core/repository/files/plugins/official_plugin.zip",
+    "changelog": "Initial release of Official Plugin.",
+    "repository_token": ""
+}

@@ -1,0 +1,12 @@
+{
+    "system_name": "ecommerce",
+    "version": "0.0.1",
+    "installed": true,
+    "enabled": false,
+    "name": "Ecommerce",
+    "description": "",
+    "dependencies": [
+        "website_module"
+    ],
+    "icon": "icon.png"
+}

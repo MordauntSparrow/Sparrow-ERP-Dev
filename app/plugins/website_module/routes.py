@@ -1,4 +1,12 @@
-from flask import Blueprint, render_template, abort
+from flask import (
+    Blueprint,
+    render_template,
+    request,
+    jsonify,
+    make_response,
+    url_for,
+    render_template_string
+)
 from jinja2 import TemplateNotFound
 import os
 import importlib.util
@@ -219,7 +227,7 @@ PAGES_JSON_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 
 
 # Resolve the absolute path to the admin templates folder
 admin_template_folder = os.path.join(os.path.dirname(__file__), 'templates')
-
+print(f"[Website Admin] Admin template folder: {admin_template_folder}")
 
 website_admin_routes = Blueprint(
     'website_admin_routes',
@@ -232,68 +240,438 @@ def get_blueprint():
     return website_admin_routes
 
 
+# ------------------------
+# Pages persistence
+# ------------------------
+PAGES_JSON_PATH = os.path.join(os.path.dirname(__file__), "pages.json")
+
 def load_pages():
     """Loads pages from pages.json."""
     if not os.path.exists(PAGES_JSON_PATH):
         return []
-    with open(PAGES_JSON_PATH, "r") as f:
+    with open(PAGES_JSON_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
-
 
 def save_pages(pages):
     """Saves pages to pages.json."""
-    with open(PAGES_JSON_PATH, "w") as f:
+    with open(PAGES_JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(pages, f, indent=4)
+
+
+# ------------------------
+# Helpers
+# ------------------------
+def _module_dir():
+    """Returns the absolute path to this module directory."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _data_dir():
+    """Returns the data folder path, creating it if necessary."""
+    return ensure_data_folder(_module_dir())
+
+def _normalize_route(route_str: str) -> str:
+    """Ensure a leading slash, collapse whitespace, and strip trailing spaces."""
+    route_str = (route_str or '').strip()
+    return '/' + route_str.lstrip('/')
+
+def _load_page_by_route(store, route_str: str):
+    """Scan builder store for a page with the given route. Return page dict or None."""
+    pages_dir = os.path.join(store.pages_dir)
+    if not os.path.isdir(pages_dir):
+        return None
+    norm = _normalize_route(route_str)
+    for fname in os.listdir(pages_dir):
+        if not fname.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(pages_dir, fname), 'r', encoding='utf-8') as f:
+                pj = json.load(f)
+        except Exception:
+            continue
+        if pj.get('route') == norm:
+            return pj
+    return None
+
+def _get_or_create_page(store, route_str: str):
+    """Return existing builder page for route or create a new one with sensible defaults."""
+    page = _load_page_by_route(store, route_str)
+    if page:
+        return page
+    norm = _normalize_route(route_str)
+    title = 'Home' if norm == '/' else norm.strip('/').replace('-', ' ').replace('_', ' ').title()
+    return store.create(title=title, route=norm)
+
+
+# ------------------------
+# Builder UI
+# ------------------------
+@website_admin_routes.route('/builder', methods=['GET'], endpoint='builder_ui_root')
+def builder_ui_root():
+    """Open builder for the home route ('/'). Auto-creates if missing."""
+    app_root = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..')
+    )
+    plugins_dir = os.path.abspath(os.path.join(app_root, 'plugins'))
+    plugin_manager = PluginManager(plugins_dir)
+    core_manifest = plugin_manager.get_core_manifest()
+
+    store = BuilderPageStore(_data_dir())
+    registry = BlocksRegistry()
+    page = _get_or_create_page(store, '/')
+    return render_template(
+        'builder/builder.html',
+        title=f"Website Builder — {page.get('title', '/')}",
+        page=page,
+        blocks_registry=registry.safe_registry(),
+        config=core_manifest
+    )
+
+
+@website_admin_routes.route('/builder/<path:page_route>', methods=['GET'], endpoint='builder_ui')
+def builder_ui(page_route):
+    """Website Builder UI for a given route. Auto-creates if missing."""
+    app_root = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..')
+    )
+    plugins_dir = os.path.abspath(os.path.join(app_root, 'plugins'))
+    plugin_manager = PluginManager(plugins_dir)
+    core_manifest = plugin_manager.get_core_manifest()
+
+    store = BuilderPageStore(_data_dir())
+    registry = BlocksRegistry()
+    page = _get_or_create_page(store, page_route)
+    return render_template(
+        'builder/builder.html',
+        title=f"Website Builder — {page.get('title', page_route)}",
+        page=page,
+        blocks_registry=registry.safe_registry(),
+        config=core_manifest
+    )
+
+
+# ------------------------
+# Live preview (iframe)
+# ------------------------
+@website_admin_routes.route('/builder/preview', methods=['GET'], endpoint='builder_preview_root')
+@website_admin_routes.route('/builder/<path:page_route>/preview', methods=['GET'], endpoint='builder_preview')
+def builder_preview(page_route: str = ''):
+    """Preview live merged builder output with public HTML templates."""
+    effective_route = '/' if not page_route else '/' + page_route.lstrip('/')
+
+    app_root = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..')
+    )
+    plugins_dir = os.path.abspath(os.path.join(app_root, 'plugins'))
+    plugin_manager = PluginManager(plugins_dir)
+    core_manifest = plugin_manager.get_core_manifest()
+
+    store = BuilderPageStore(_data_dir())
+    renderer = BuilderRenderer()
+
+    # Builder page/state
+    page = _get_or_create_page(store, effective_route)
+    builder_html = renderer.render_page(page) or ''
+
+    # Manual HTML render for public template
+    pages_json_path = os.path.join(os.path.dirname(__file__), 'pages.json')
+    try:
+        with open(pages_json_path, 'r', encoding='utf-8') as f:
+            pages = json.load(f)
+    except Exception as e:
+        print(f"[Preview] Failed to load public pages.json at {pages_json_path}: {e}")
+        pages = []
+
+    page_data = next((p for p in pages if p.get('route') == effective_route), None)
+
+    manual_html = ''
+    if page_data:
+        public_dir = os.path.join(os.path.dirname(__file__), 'templates', 'public')
+        tpl_file = 'index.html' if effective_route == '/' else f"{effective_route.strip('/')}.html"
+        candidate = os.path.join(public_dir, tpl_file)
+
+        # Debug diagnostics
+        print(f"[Preview] effective_route={effective_route}")
+        print(f"[Preview] public_dir={public_dir}")
+        print(f"[Preview] tpl_file={tpl_file}")
+        print(f"[Preview] candidate_path={candidate}")
+        print(f"[Preview] candidate_exists={os.path.exists(candidate)}")
+
+        try:
+            files = [f for f in os.listdir(public_dir) if f.endswith('.html')]
+            print(f"[Preview] public templates list={files}")
+        except Exception as e:
+            print(f"[Preview] listdir error for {public_dir}: {e}")
+
+        try:
+            manual_html = render_template(
+                tpl_file,
+                page_data=page_data,
+                pages=pages,
+                config=core_manifest
+            )
+            print(f"[Preview] render_template OK for {tpl_file}")
+        except Exception as e:
+            print(f"[Preview] Manual template render failed for {tpl_file}: {e}")
+            # Fallback: read file and render with Flask's environment so url_for works
+            try:
+                with open(candidate, 'r', encoding='utf-8') as f:
+                    tpl_source = f.read()
+                # Hint Flask about template name to keep extends/includes relative
+                manual_html = render_template_string(
+                    tpl_source,
+                    page_data=page_data,
+                    pages=pages,
+                    config=core_manifest
+                )
+                print(f"[Preview] Fallback render_template_string OK for {candidate}")
+            except Exception as ee:
+                print(f"[Preview] Fallback render_template_string error for {candidate}: {ee}")
+
+    # Merge policy
+    merge_mode = (page.get('settings') or {}).get('merge_mode', 'augment')
+    if not builder_html:
+        final_render = manual_html
+    else:
+        if merge_mode == 'replace':
+            final_render = builder_html
+        elif merge_mode == 'prepend':
+            final_render = (builder_html or '') + (manual_html or '')
+        else:
+            final_render = (manual_html or '') + (builder_html or '')
+
+    html = render_template(
+        'builder/preview_base.html',
+        title=page.get('seo', {}).get('title') or page.get('title') or effective_route,
+        page=page,
+        rendered=final_render,
+        config=core_manifest,
+        pages=pages
+    )
+    resp = make_response(html)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
+# ------------------------
+# Save draft (by route)
+# ------------------------
+@website_admin_routes.route('/builder/<path:page_route>/save', methods=['POST'], endpoint='builder_save')
+def builder_save(page_route):
+    """Saves a builder page draft including nested blocks and validates them."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'ok': False, 'error': 'Invalid JSON payload'}), 400
+
+    data_dir = _data_dir()
+    store = BuilderPageStore(data_dir)
+    registry = BlocksRegistry()
+    page = _get_or_create_page(store, page_route)
+
+    def clean_block(blk):
+        btype = blk.get('type')
+        if not btype or not registry.exists(btype):
+            return None
+
+        merged = registry.normalize(btype, blk.get('props'))
+        ok, err = registry.validate(btype, merged)
+        if not ok:
+            raise ValueError(f"{btype}: {err}")
+
+        if btype == 'section':
+            nested = []
+            for child in blk.get('props', {}).get('blocks', []):
+                c = clean_block(child)
+                if c:
+                    nested.append(c)
+            return {'type': btype, 'props': {**merged, 'blocks': nested}}
+
+        if btype == 'columns':
+            cols = []
+            for col in blk.get('props', {}).get('columns', []):
+                cleaned_col = []
+                for child in col:
+                    c = clean_block(child)
+                    if c:
+                        cleaned_col.append(c)
+                cols.append(cleaned_col)
+            return {'type': btype, 'props': {**merged, 'columns': cols}}
+
+        return {'type': btype, 'props': merged}
+
+    try:
+        cleaned_blocks = []
+        for blk in payload.get('blocks', []):
+            c = clean_block(blk)
+            if c:
+                cleaned_blocks.append(c)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+    page['blocks'] = cleaned_blocks
+    page['vars'] = payload.get('vars', page.get('vars', {}))
+    page['seo'] = payload.get('seo', page.get('seo', {}))
+    page['draft'] = True
+    page['version'] = int(page.get('version', 0)) + 1
+    page['updated_at'] = datetime.utcnow().isoformat()
+    store.save(page)
+    return jsonify({'ok': True, 'version': page['version']})
+
+# ------------------------
+# Publish (by route)
+# ------------------------
+@website_admin_routes.route('/builder/<path:page_route>/publish', methods=['POST'], endpoint='builder_publish')
+def builder_publish(page_route):
+    """Publishes the current draft. Auto-creates page if needed."""
+    data_dir = _data_dir()
+    store = BuilderPageStore(data_dir)
+    page = _get_or_create_page(store, page_route)
+    page['draft'] = False
+    page['published_at'] = datetime.utcnow().isoformat()
+    page['updated_at'] = datetime.utcnow().isoformat()
+    store.save(page)
+    return jsonify({'ok': True})
+
+# ------------------------
+# Create page (explicit route)
+# ------------------------
+@website_admin_routes.route('/builder/create', methods=['POST'], endpoint='builder_create_page')
+def builder_create_page():
+    """Creates a new builder-managed page and returns canonical builder URL."""
+    data = request.get_json(silent=True) or request.form
+    title = (data.get('title') or '').strip()
+    route = (data.get('route') or '').strip()
+    if not title or not route or not route.startswith('/'):
+        return jsonify({'ok': False, 'error': "Provide title and a route starting with '/'" }), 400
+
+    data_dir = _data_dir()
+    store = BuilderPageStore(data_dir)
+
+    existing = _load_page_by_route(store, route)
+    if existing:
+        return jsonify({
+            'ok': True,
+            'builder_url': url_for('website_admin_routes.builder_ui', page_route=route.lstrip('/'))
+        })
+
+    new_page = store.create(title=title, route=route)
+    return jsonify({
+        'ok': True,
+        'builder_url': url_for('website_admin_routes.builder_ui', page_route=route.lstrip('/'))
+    })
+
+# ------------------------
+# Blocks registry (client-safe)
+# ------------------------
+@website_admin_routes.route('/builder/blocks/registry', methods=['GET'], endpoint='builder_blocks_registry')
+def builder_blocks_registry():
+    """Returns safe block metadata (label, icon, defaults, schema)."""
+    return jsonify(BlocksRegistry().safe_registry())
+
 
 
 @website_admin_routes.route('/', methods=['GET'])
 def admin_index():
     """
-    Displays the website module dashboard (index.html) with analytics graphs,
-    popular pages with percentage changes, and a chart of requests by country.
+    Website Admin Dashboard with time-range filtering, deltas, ordered charts,
+    popular pages with real % change, and country breakdown.
     """
-    # Import analytics functionality from the website module objects.py
-    from .objects import AnalyticsManager, ensure_data_folder
 
+    # Initialize analytics
     module_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = ensure_data_folder(module_dir)
     analytics_manager = AnalyticsManager(data_dir)
-    
-    total_views = len(analytics_manager.get_page_views())
-    views_by_hour = analytics_manager.get_views_by_hour()
-    views_by_weekday = analytics_manager.get_views_by_weekday()
-    
-    # Get the selected period from query parameters (default "alltime")
-    period = request.args.get("period", "alltime")
-    popular_pages = analytics_manager.get_popular_pages(period)
-    # Compute a dummy percentage change (replace with your real logic if available)
+
+    # Valid periods
+    valid_periods = {
+        "today": "Today",
+        "weekly": "Last 7 days",
+        "monthly": "Last 30 days",
+        "year": "Last 12 months",
+        "alltime": "All time",
+    }
+
+    # Period handling
+    period = request.args.get("period", "alltime").lower()
+    if period not in valid_periods:
+        period = "alltime"
+
+    # Time ranges
+    current_range = analytics_manager.get_timerange(period)
+    prev_range = analytics_manager.get_previous_timerange(period)
+
+    # Totals and delta
+    if current_range != (None, None):
+        total_views_current = sum(1 for _ in analytics_manager._iter_views(current_range))
+    else:
+        total_views_current = len(analytics_manager.get_page_views())
+
+    if prev_range != (None, None):
+        total_views_prev = sum(1 for _ in analytics_manager._iter_views(prev_range))
+    else:
+        total_views_prev = 0
+
+    views_delta = None
+    if total_views_prev:
+        views_delta = round(
+            (total_views_current - total_views_prev) * 100.0 / total_views_prev, 1
+        )
+
+    # Charts (stable ordering)
+    views_by_hour = analytics_manager.get_views_by_hour(current_range)        # dict int 0..23
+    views_by_weekday = analytics_manager.get_views_by_weekday(current_range)  # dict int 0..6
+
+    # Popular pages with real delta vs previous range
+    popular_now = analytics_manager.get_popular_pages(time_range=current_range)
+    prev_dict = (
+        dict(analytics_manager.get_popular_pages(time_range=prev_range))
+        if prev_range != (None, None)
+        else {}
+    )
+
     popular_pages_detailed = []
-    for page, views in popular_pages:
-        # Example calculation: change = ((views mod 20) - 10)
-        change = ((views % 20) - 10)
+    for page, views in popular_now:
+        prev = prev_dict.get(page, 0)
+        change = round(((views - prev) * 100.0 / prev), 1) if prev else None
         popular_pages_detailed.append({
             "page": page,
             "views": views,
-            "change": change
+            "change": change,
         })
-    
-    requests_by_country = analytics_manager.get_requests_by_country()
-    
+
+    # Countries
+    requests_by_country = analytics_manager.get_requests_by_country(current_range)
+    top_countries = sorted(
+        requests_by_country.items(), key=lambda x: x[1], reverse=True
+    )[:10]
+    total_country_views = sum(requests_by_country.values()) or 0
+
+    # Plugin manifest (path-safe)
+    app_root = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'app')
+    )
+    plugins_dir = os.path.abspath(os.path.join(app_root, 'plugins'))
+    plugin_manager = PluginManager(plugins_dir)
+    core_manifest = plugin_manager.get_core_manifest()
+
+    # Analytics data for template
     analytics_data = {
-        "total_views": total_views,
+        "total_views": total_views_current,
+        "views_delta": views_delta,
         "views_by_hour": views_by_hour,
         "views_by_weekday": views_by_weekday,
         "popular_pages_detailed": popular_pages_detailed,
         "requests_by_country": requests_by_country,
-        "current_period": period
+        "top_countries": top_countries,
+        "total_country_views": total_country_views,
+        "current_period": period,
+        "period_label": valid_periods[period],
     }
-    
-    # Load core manifest using PluginManager (assuming plugins folder is at app/plugins)
-    plugin_manager = PluginManager(os.path.abspath('app/plugins'))
-    core_manifest = plugin_manager.get_core_manifest()
-    
-    return render_template("admin/index.html", config=core_manifest, 
-                           title="Website Module Dashboard", analytics=analytics_data)
+
+    return render_template(
+        "admin/index.html",
+        config=core_manifest,
+        title="Website Admin Dashboard",
+        analytics=analytics_data,
+    )
 
 @website_admin_routes.route('/contact-config', methods=['GET', 'POST'])
 def contact_config():
