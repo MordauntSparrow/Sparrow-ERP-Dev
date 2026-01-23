@@ -208,7 +208,7 @@ if __name__ == "__main__":
     admin_thread.start()
 
     # Optionally start website module (safe if uninstalled/disabled)
-    try_start_website()
+    # try_start_website()
 
     # Always watch restart.flag (PluginManager lifecycle actions should touch it)
     watcher_thread = threading.Thread(
