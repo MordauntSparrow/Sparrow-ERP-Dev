@@ -2,7 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-
 # =============================================================================
 # Bootstrap import paths (project/app/plugin)
 # =============================================================================
@@ -16,6 +15,7 @@ for p in (str(PROJECT_ROOT), str(APP_ROOT), str(PLUGIN_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 from app.objects import get_db_connection, AuthManager  # noqa: E402
+
 # =============================================================================
 # Migration Constants
 # =============================================================================
@@ -25,6 +25,8 @@ MIGRATIONS_TABLE = "tb_time_billing_migrations"  # per-module ledger
 # =============================================================================
 # Internal Helpers
 # =============================================================================
+
+
 def _ensure_ledger(conn):
     """Ensure the migrations ledger table exists."""
     cur = conn.cursor()
@@ -45,7 +47,8 @@ def _already_applied(conn, filename):
     """Check if a migration file has already been applied."""
     cur = conn.cursor()
     try:
-        cur.execute(f"SELECT 1 FROM {MIGRATIONS_TABLE} WHERE filename=%s", (filename,))
+        cur.execute(
+            f"SELECT 1 FROM {MIGRATIONS_TABLE} WHERE filename=%s", (filename,))
         row = cur.fetchone()
         return bool(row)
     finally:
@@ -56,7 +59,8 @@ def _record_applied(conn, filename):
     """Record a migration file as applied in the ledger."""
     cur = conn.cursor()
     try:
-        cur.execute(f"INSERT INTO {MIGRATIONS_TABLE} (filename) VALUES (%s)", (filename,))
+        cur.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (filename) VALUES (%s)", (filename,))
         conn.commit()
     finally:
         cur.close()
@@ -101,10 +105,12 @@ def _list_sql_files():
 # =============================================================================
 # Public Migration Functions
 # =============================================================================
+
+
 def install(seed_demo: bool = False):
     """
     Fresh install: runs all SQL files in db/ in order, skipping those already applied.
-    Use seed_demo=True in dev to run optional demo seeds (e.g., 008_seed_demo_contractors.sql).
+    The canonical schema is in 001_schema.sql. Use seed_demo=True in dev to run optional demo seeds.
     """
     conn = get_db_connection()
     try:
@@ -176,3 +182,34 @@ def uninstall(drop_data: bool = False):
     finally:
         cur.close()
         conn.close()
+
+
+# =============================================================================
+# Command-line Entrypoint
+# =============================================================================
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Time Billing Module Installer")
+    parser.add_argument("command", choices=[
+                        "install", "upgrade", "uninstall"], help="Action to perform")
+    parser.add_argument("--seed-demo", action="store_true",
+                        help="Seed demo data (install only)")
+    parser.add_argument("--drop-data", action="store_true",
+                        help="Drop all module tables (uninstall only)")
+
+    args = parser.parse_args()
+
+    if args.command == "install":
+        print("[INSTALL] Running install...")
+        install(seed_demo=args.seed_demo)
+        print("[INSTALL] Complete.")
+    elif args.command == "upgrade":
+        print("[UPGRADE] Running upgrade...")
+        upgrade()
+        print("[UPGRADE] Complete.")
+    elif args.command == "uninstall":
+        print("[UNINSTALL] Running uninstall...")
+        uninstall(drop_data=args.drop_data)
+        print("[UNINSTALL] Complete.")

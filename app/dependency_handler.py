@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 
+
 def scan_imports(project_root):
     """Scan all Python files in the project for import statements."""
     imports = set()
@@ -25,27 +26,38 @@ def scan_imports(project_root):
             print(f"Error reading file {py_file}: {e}")
     return imports
 
+
 def install_imports(imports):
-    """Attempt to pip install all detected imports, ignoring standard library modules."""
-    # Filter out standard library modules.
-    stdlib_modules = set()
+    """Attempt to pip install all detected imports, ignoring stdlib and local modules."""
     if hasattr(sys, "stdlib_module_names"):
         stdlib_modules = sys.stdlib_module_names
     else:
-        # Fallback list for older Python versions.
-        stdlib_modules = {"os", "sys", "json", "shutil", "zipfile", "subprocess", "importlib", "threading", "pathlib", "datetime"}
-    
+        stdlib_modules = {
+            "os", "sys", "json", "shutil", "zipfile", "subprocess",
+            "importlib", "threading", "pathlib", "datetime", "re",
+            "uuid", "time", "email", "functools", "traceback", "typing", "urllib"
+        }
+
     for imp in imports:
+        # Skip stdlib
         if imp in stdlib_modules:
             print(f"Skipping standard library module: {imp}")
             continue
+
+        # Skip local project modules
+        if imp.startswith("app") or imp in {"plugins"}:
+            print(f"Skipping local project module: {imp}")
+            continue
+
         try:
             print(f"Attempting to install: {imp}")
             subprocess.check_call([
-                sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", imp
+                sys.executable, "-m", "pip", "install",
+                "--quiet", "--disable-pip-version-check", imp
             ])
         except subprocess.CalledProcessError as e:
             print(f"Failed to install: {imp}. Error: {e}")
+
 
 def generate_requirements(file_path="requirements.txt"):
     """Generate a requirements.txt file dynamically by scanning imports."""
@@ -64,10 +76,12 @@ def generate_requirements(file_path="requirements.txt"):
     except subprocess.CalledProcessError as e:
         print(f"Failed to generate requirements.txt: {e}")
 
+
 def restart_application():
     """Restart the application."""
     print("Restarting application to apply changes...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
+
 
 if __name__ == "__main__":
     requirements_path = "requirements.txt"

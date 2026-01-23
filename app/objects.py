@@ -1,3 +1,5 @@
+from pathlib import Path
+from flask_login import current_user
 import os
 import json
 import importlib
@@ -10,7 +12,8 @@ from datetime import datetime, timedelta
 from packaging.version import parse
 from urllib.parse import urlparse, quote
 from apscheduler.schedulers.background import BackgroundScheduler
-
+from typing import List, Dict, Any, Optional, Set
+import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -23,6 +26,7 @@ from flask_login import UserMixin
 from functools import wraps
 from flask import flash, redirect, url_for
 
+
 def get_db_connection():
     """
     Establish and return a new database connection using environment variables.
@@ -33,6 +37,39 @@ def get_db_connection():
         password=os.getenv("DB_PASSWORD", "rootpassword"),
         database=os.getenv("DB_NAME", "sparrow_erp")
     )
+
+
+def run_module_script(module_path, action):
+    """
+    Calls install.py in the given module directory with the specified action.
+    :param module_path: Path to the module directory (e.g., plugins/myplugin)
+    :param action: 'install', 'upgrade', or 'uninstall'
+    """
+    import subprocess
+    import sys
+    import os
+    script_path = os.path.join(module_path, "install.py")
+    if not os.path.exists(script_path):
+        raise FileNotFoundError(f"install.py not found in {module_path}")
+    try:
+        result = subprocess.run(
+            [sys.executable, script_path, action],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(f"[INFO] {action.capitalize()} completed for {module_path}:")
+        print(result.stdout)
+        if result.stderr:
+            print("[STDERR]", result.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] {action.capitalize()} failed for {module_path}: {e}")
+        if e.stdout:
+            print("[STDOUT]", e.stdout)
+        if e.stderr:
+            print("[STDERR]", e.stderr)
+        raise
+
 
 class User(UserMixin):
     def __init__(self, id, username, email, role, permissions=None, personal_pin_hash=None):
@@ -86,7 +123,6 @@ class User(UserMixin):
             )
         return None
 
-
     @staticmethod
     def get_user_by_email(email):
         conn = get_db_connection()
@@ -101,7 +137,8 @@ class User(UserMixin):
     def update_password(user_id, new_hash):
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
+        cursor.execute(
+            "UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -111,19 +148,23 @@ class User(UserMixin):
         conn = get_db_connection()
         cursor = conn.cursor()
         json_permissions = json.dumps(permissions_list)
-        cursor.execute("UPDATE users SET permissions = %s WHERE id = %s", (json_permissions, user_id))
+        cursor.execute(
+            "UPDATE users SET permissions = %s WHERE id = %s", (json_permissions, user_id))
         conn.commit()
         cursor.close()
         conn.close()
+
 
 class AuthManager:
     @staticmethod
     def hash_password(password):
         salt = bcrypt.gensalt()
         return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
     @staticmethod
     def verify_password(stored_password, provided_password):
         return bcrypt.checkpw(provided_password.encode('utf-8'), stored_password.encode('utf-8'))
+
 
 def has_permission(permission):
     """
@@ -133,6 +174,7 @@ def has_permission(permission):
     if current_user.role == 'admin':
         return True
     return permission in current_user.permissions
+
 
 def permission_required(permission):
     """
@@ -151,6 +193,7 @@ def permission_required(permission):
         return wrapper
     return decorator
 
+
 def ensure_core_data_folder():
     """Ensure that a 'data' folder exists in the core module directory (/app/data)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -160,56 +203,101 @@ def ensure_core_data_folder():
         print(f"Core data folder created at: {data_folder}")
     return data_folder
 
+
 class EmailManager:
     """
     Handles system email sending using SMTP.
     SMTP configuration is loaded from environment variables.
+
+    Required env:
+      - SMTP_HOST
+      - SMTP_PORT
+      - SMTP_USERNAME
+      - SMTP_PASSWORD
+
+    Optional env:
+      - SMTP_USE_TLS (default true)
+      - SMTP_FROM (default SMTP_USERNAME)
+      - SMTP_FROM_NAME (default empty)
     """
+
     def __init__(self):
-        # Load SMTP configuration from environment variables
+        host = (os.environ.get("SMTP_HOST") or "").strip()
+        port_raw = (os.environ.get("SMTP_PORT") or "").strip()
+        username = (os.environ.get("SMTP_USERNAME") or "").strip()
+        password = (os.environ.get("SMTP_PASSWORD") or "").strip()
+        use_tls = (os.environ.get("SMTP_USE_TLS", "true")
+                   or "true").strip().lower() == "true"
+
+        port = None
+        if port_raw.isdigit():
+            port = int(port_raw)
+
         self.smtp_config = {
-            "host": os.environ.get("SMTP_HOST"),
-            "port": int(os.environ.get("SMTP_PORT")),
-            "username": os.environ.get("SMTP_USERNAME"),
-            "password": os.environ.get("SMTP_PASSWORD"),
-            "use_tls": os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "use_tls": use_tls,
+            "from_email": (os.environ.get("SMTP_FROM") or username).strip(),
+            "from_name": (os.environ.get("SMTP_FROM_NAME") or "").strip(),
         }
-        print(self.smtp_config)
-        # Validate required configuration
+
         required_keys = ["host", "port", "username", "password"]
         for key in required_keys:
-            if not self.smtp_config[key]:
-                raise Exception(f"Email configuration missing required key: {key}")
+            if not self.smtp_config.get(key):
+                raise Exception(
+                    f"Email configuration missing required key: {key}")
 
     def send_email(self, subject, body, recipients, sender=None, html_body=None):
-        if sender is None:
-            sender = self.smtp_config["username"]
+        """
+        Sends a multipart email:
+          - Always includes text/plain (body)
+          - Includes text/html if html_body provided
+        """
+        if not recipients or not isinstance(recipients, (list, tuple)):
+            raise Exception("Recipients must be a non-empty list.")
+
+        sender_email = (
+            sender or self.smtp_config["from_email"] or self.smtp_config["username"]).strip()
+        if not sender_email:
+            raise Exception("Sender email is missing.")
+
+        from_name = self.smtp_config.get("from_name", "").strip()
+        msg_from = f"{from_name} <{sender_email}>" if from_name else sender_email
 
         msg = MIMEMultipart("alternative")
-        msg['From']    = sender
-        msg['To']      = ", ".join(recipients)
-        msg['Subject'] = Header(subject, 'utf-8')
+        msg["From"] = msg_from
+        msg["To"] = ", ".join(recipients)
+        msg["Subject"] = Header(str(subject or "").strip(), "utf-8")
 
-        # UTF‑8 parts
-        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(str(body or ""), "plain", "utf-8"))
         if html_body:
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
+            msg.attach(MIMEText(str(html_body), "html", "utf-8"))
 
         try:
-            server = smtplib.SMTP(self.smtp_config["host"],
-                                self.smtp_config["port"],
-                                timeout=10)
+            server = smtplib.SMTP(
+                self.smtp_config["host"], self.smtp_config["port"], timeout=10)
             if self.smtp_config["use_tls"]:
                 server.starttls()
             server.login(self.smtp_config["username"],
-                        self.smtp_config["password"])
-
-            # THIS handles headers + body encoding correctly:
-            server.send_message(msg, from_addr=sender, to_addrs=recipients)
+                         self.smtp_config["password"])
+            server.send_message(msg, from_addr=sender_email,
+                                to_addrs=list(recipients))
             server.quit()
             print(f"Email sent successfully to {recipients}")
         except Exception as e:
             print(f"Failed to send email: {e}")
+            raise
+
+    def send_email_html(self, subject, html_body, recipients, sender=None, text_body=None):
+        """
+        Convenience wrapper for HTML emails (still sends text/plain fallback).
+        """
+        if text_body is None:
+            text_body = "This email contains HTML content. If you cannot view it, please contact support."
+        return self.send_email(subject, text_body, recipients, sender=sender, html_body=html_body)
+
 
 class UpdateManager:
     # Environment-based configuration
@@ -234,7 +322,8 @@ class UpdateManager:
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
         self.ensure_directories()
-        self.APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..","app"))
+        self.APP_ROOT = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "app"))
         self.PLUGINS_DIR = os.path.join(self.APP_ROOT, "plugins")
         self.BACKUP_DIR = os.path.join(self.APP_ROOT, "backups")
         self.UPDATE_DIR = os.path.join(self.APP_ROOT, "updates")
@@ -251,10 +340,6 @@ class UpdateManager:
 
         # Background jobs
         self.scheduler.add_job(
-            self.check_and_download_new_plugins,
-            'interval', hours=1, id='new_plugins_check', name='Check for new official plugins'
-        )
-        self.scheduler.add_job(
             self.check_for_forced_updates,
             'interval', hours=1, id='forced_update_check', name='Check for forced core updates'
         )
@@ -267,9 +352,11 @@ class UpdateManager:
     def _gitlab_session(self):
         s = requests.Session()
         if self.GITLAB_USERNAME and self.GITLAB_PASSWORD:
-            s.auth = (self.GITLAB_USERNAME, self.GITLAB_PASSWORD)  # Basic auth for deploy token
+            # Basic auth for deploy token
+            s.auth = (self.GITLAB_USERNAME, self.GITLAB_PASSWORD)
         elif self.GITLAB_TOKEN and self.GITLAB_TOKEN != "default_token":
-            s.headers.update({"PRIVATE-TOKEN": self.GITLAB_TOKEN})  # Fallback for PATs
+            # Fallback for PATs
+            s.headers.update({"PRIVATE-TOKEN": self.GITLAB_TOKEN})
         s.headers.update({"Accept": "application/json"})
         return s
 
@@ -294,24 +381,28 @@ class UpdateManager:
     def get_core_manifest_remote(self):
         with self._gitlab_session() as s:
             r = s.get(os.environ.get(
-        "CORE_MANIFEST_REMOTE_URL",
-        f"https://gitlab.com/api/v4/projects/65546585/repository/files/manifest.json/raw?ref=main"
-    ))
+                "CORE_MANIFEST_REMOTE_URL",
+                f"https://gitlab.com/api/v4/projects/65546585/repository/files/manifest.json/raw?ref=main"
+            ))
             if r.status_code == 200:
                 try:
                     return json.loads(r.text)  # raw endpoint returns text
                 except json.JSONDecodeError as e:
-                    raise Exception(f"Core manifest not valid JSON: {e}. Body: {r.text[:500]}")
+                    raise Exception(
+                        f"Core manifest not valid JSON: {e}. Body: {r.text[:500]}")
             elif r.status_code == 401:
-                raise Exception("Unauthorized fetching core manifest (401). Check GITLAB_USERNAME/GITLAB_PASSWORD.")
+                raise Exception(
+                    "Unauthorized fetching core manifest (401). Check GITLAB_USERNAME/GITLAB_PASSWORD.")
             else:
-                raise Exception(f"Failed to fetch core manifest: {r.status_code} - {r.text[:500]}")
+                raise Exception(
+                    f"Failed to fetch core manifest: {r.status_code} - {r.text[:500]}")
 
     def get_plugin_manifest_remote(self, plugin_name):
         if not plugin_name:
             raise ValueError("Plugin name must be provided.")
 
-        factory_manifest = self.plugin_manager.get_factory_manifest_by_name(plugin_name)
+        factory_manifest = self.plugin_manager.get_factory_manifest_by_name(
+            plugin_name)
 
         if factory_manifest.get('repository') == 'official':
             encoded_name = quote(plugin_name, safe='')
@@ -319,7 +410,8 @@ class UpdateManager:
         else:
             base_repo = (factory_manifest.get('repository') or '').rstrip('/')
             if not base_repo:
-                raise Exception(f"Repository URL for {plugin_name} is missing or invalid in the factory manifest.")
+                raise Exception(
+                    f"Repository URL for {plugin_name} is missing or invalid in the factory manifest.")
             plugin_manifest_url = f"{base_repo}/plugins/{plugin_name}/manifest.json"
 
         with self._gitlab_session() as s:
@@ -328,18 +420,22 @@ class UpdateManager:
                 try:
                     data = json.loads(r.text)
                 except json.JSONDecodeError as e:
-                    raise Exception(f"Plugin manifest for {plugin_name} not valid JSON: {e}. Body: {r.text[:500]}")
+                    raise Exception(
+                        f"Plugin manifest for {plugin_name} not valid JSON: {e}. Body: {r.text[:500]}")
                 # Normalize: if bundled under "plugins", extract the single plugin dict
                 if isinstance(data, dict) and 'plugins' in data and isinstance(data['plugins'], dict):
                     if plugin_name in data['plugins']:
                         return data['plugins'][plugin_name]
                     else:
-                        raise Exception(f"Plugin {plugin_name} not found in plugins bundle manifest.")
+                        raise Exception(
+                            f"Plugin {plugin_name} not found in plugins bundle manifest.")
                 return data  # already single plugin dict
             elif r.status_code == 401:
-                raise Exception(f"Unauthorized fetching plugin manifest for {plugin_name} (401).")
+                raise Exception(
+                    f"Unauthorized fetching plugin manifest for {plugin_name} (401).")
             else:
-                raise Exception(f"Failed to fetch plugin manifest for {plugin_name}: {r.status_code} - {r.text[:500]}")
+                raise Exception(
+                    f"Failed to fetch plugin manifest for {plugin_name}: {r.status_code} - {r.text[:500]}")
 
     def get_plugin_factory_manifest(self, plugin_name):
         if not plugin_name:
@@ -350,7 +446,8 @@ class UpdateManager:
         else:
             repo = (plugin_manifest.get('repository') or '').rstrip('/')
             if not repo:
-                raise Exception(f"Repository URL missing for third-party plugin {plugin_name}.")
+                raise Exception(
+                    f"Repository URL missing for third-party plugin {plugin_name}.")
             url = f"{repo}/plugins/{plugin_name}/factory_manifest.json"
 
         with self._gitlab_session() as s:
@@ -359,11 +456,14 @@ class UpdateManager:
                 try:
                     return json.loads(r.text)
                 except json.JSONDecodeError as e:
-                    raise Exception(f"Factory manifest JSON invalid for {plugin_name}: {e}. Body: {r.text[:500]}")
+                    raise Exception(
+                        f"Factory manifest JSON invalid for {plugin_name}: {e}. Body: {r.text[:500]}")
             elif r.status_code == 401:
-                raise Exception(f"Unauthorized fetching factory manifest for {plugin_name}.")
+                raise Exception(
+                    f"Unauthorized fetching factory manifest for {plugin_name}.")
             else:
-                raise Exception(f"Failed to fetch factory manifest for {plugin_name}: {r.status_code} - {r.text[:500]}")
+                raise Exception(
+                    f"Failed to fetch factory manifest for {plugin_name}: {r.status_code} - {r.text[:500]}")
 
     from typing import List, Dict, Any, Optional
 
@@ -382,7 +482,6 @@ class UpdateManager:
             return ver
         return "Unknown"
 
-
     def get_available_plugins(self) -> List[str]:
         """
         Returns a sorted list of plugin system_names that exist in the remote repo
@@ -390,7 +489,8 @@ class UpdateManager:
         """
         try:
             # Remote plugin names (trimmed and normalized)
-            remote = {(n or "").strip() for n in (self.get_remote_plugin_list() or [])}
+            remote = {(n or "").strip()
+                      for n in (self.get_remote_plugin_list() or [])}
 
             # Installed plugin system_names
             installed = {
@@ -409,7 +509,6 @@ class UpdateManager:
         except Exception as e:
             print(f"Failed to compute available plugins: {e}")
             return []
-
 
     def get_available_plugins_details(self) -> List[Dict[str, Any]]:
         """
@@ -439,9 +538,12 @@ class UpdateManager:
                 meta["name"] = remote.get(
                     "name", plugin_name.replace("_", " ").title()
                 ).strip()
-                meta["current_version"] = self._validate_version(remote.get("current_version", "Unknown"))
-                meta["description"] = str(remote.get("description", "")).strip()
-                meta["icon"] = remote.get("icon", "default-icon.png") or "default-icon.png"
+                meta["current_version"] = self._validate_version(
+                    remote.get("current_version", "Unknown"))
+                meta["description"] = str(
+                    remote.get("description", "")).strip()
+                meta["icon"] = remote.get(
+                    "icon", "default-icon.png") or "default-icon.png"
                 meta["download_url"] = self.convert_to_api_endpoint(
                     remote.get("download_url", "") or ""
                 )
@@ -479,8 +581,8 @@ class UpdateManager:
 
         return results
 
-
     # ------------- Version Checking -------------
+
     def get_current_version(self):
         core_manifest = self.plugin_manager.get_core_manifest()  # Local core manifest
         return core_manifest.get('version', 'Unknown')
@@ -494,29 +596,59 @@ class UpdateManager:
         return plugin.get('current_version', 'Unknown')
 
     def get_plugins_versions(self):
+        """
+        Current version source of truth:
+        - factory_manifest.json (shipped with plugin code; overwritten on updates)
+        Fallback:
+        - local manifest.json version (if present)
+        """
         plugins_versions = {}
-        plugins = self.plugin_manager.get_all_plugins()
+
+        plugins = self.plugin_manager.get_all_plugins() or []
         for plugin in plugins:
-            plugin_name = plugin["system_name"]
-            plugin_versions = self.plugin_manager.get_plugin(plugin_name)
-            plugins_versions[plugin_name] = plugin_versions.get("version", "Unknown")
+            plugin_name = (plugin.get("system_name") or "").strip()
+            if not plugin_name:
+                continue
+
+            # 1) Factory manifest (FULL) version
+            try:
+                fm = self.plugin_manager.get_factory_manifest_full_by_name(plugin_name) or {
+                }
+                fv = fm.get("current_version") or fm.get("version")
+                if fv:
+                    plugins_versions[plugin_name] = fv
+                    continue
+            except Exception:
+                pass
+
+            # 2) Fallback: local manifest version (may not exist)
+            local = self.plugin_manager.get_plugin(plugin_name)
+            if isinstance(local, dict):
+                plugins_versions[plugin_name] = local.get("version", "Unknown")
+            else:
+                plugins_versions[plugin_name] = "Unknown"
+
         return plugins_versions
 
     def get_update_status(self):
         current_version = self.get_current_version()
         latest_version = self.get_latest_version()
-        core_update_available = self._version_tuple(current_version) < self._version_tuple(latest_version)
+        core_update_available = self._version_tuple(
+            current_version) < self._version_tuple(latest_version)
 
         plugins_versions = self.get_plugins_versions()
         plugin_updates = []
         for plugin_name, plugin_version in plugins_versions.items():
             try:
-                plugin_latest_version = self.get_plugin_latest_version(plugin_name)
-                plugin_update_available = self._version_tuple(plugin_version) < self._version_tuple(plugin_latest_version)
+                plugin_latest_version = self.get_plugin_latest_version(
+                    plugin_name)
+                plugin_update_available = self._version_tuple(
+                    plugin_version) < self._version_tuple(plugin_latest_version)
             except Exception as e:
                 plugin_latest_version = "Unknown"
                 plugin_update_available = False
-                print(f"Error determining latest version for plugin {plugin_name}: {e}")
+                print(
+                    f"Error determining latest version for plugin {plugin_name}: {e}")
             plugin_updates.append({
                 "plugin_name": plugin_name,
                 "current_version": plugin_version,
@@ -556,17 +688,21 @@ class UpdateManager:
     # ------------- Backup and Restore -------------
     def backup(self, backup_name="whole_system_backup"):
         import zipfile
-        system_root = os.path.dirname(self.BACKUP_DIR) # typically "app"
+        system_root = os.path.dirname(self.BACKUP_DIR)  # typically "app"
         os.makedirs(self.BACKUP_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"{backup_name}_{timestamp}.zip"
         backup_path = os.path.join(self.BACKUP_DIR, backup_filename)
         # Exclude heavy or generated directories
         exclude_dirs = {
-            os.path.normpath(self.BACKUP_DIR),                          # app/backups
-            os.path.normpath(self.UPDATE_DIR),                          # app/updates
-            os.path.normpath(os.path.join(system_root, "logs")),        # app/logs
-            os.path.normpath(os.path.join(system_root, "tmp")),         # app/tmp
+            # app/backups
+            os.path.normpath(self.BACKUP_DIR),
+            # app/updates
+            os.path.normpath(self.UPDATE_DIR),
+            os.path.normpath(os.path.join(system_root, "logs")
+                             ),        # app/logs
+            os.path.normpath(os.path.join(system_root, "tmp")
+                             ),         # app/tmp
             os.path.normpath(os.path.join(system_root, "node_modules")),
             os.path.normpath(os.path.join(system_root, "venv")),
             os.path.normpath(os.path.join(system_root, ".venv")),
@@ -589,7 +725,8 @@ class UpdateManager:
         with zipfile.ZipFile(backup_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(system_root):
                 # prune excluded dirs to speed up traversal
-                dirs[:] = [d for d in dirs if not is_excluded(os.path.join(root, d))]
+                dirs[:] = [d for d in dirs if not is_excluded(
+                    os.path.join(root, d))]
                 for fn in files:
                     fp = os.path.join(root, fn)
                     if is_excluded(fp):
@@ -602,7 +739,8 @@ class UpdateManager:
                         continue
                     file_counter += 1
                     if file_counter % progress_step == 0:
-                        print(f"Backup progress: {file_counter} files zipped...")
+                        print(
+                            f"Backup progress: {file_counter} files zipped...")
 
         print(f"Backup completed: {backup_path} ({file_counter} files)")
         return backup_path
@@ -626,14 +764,16 @@ class UpdateManager:
                         if chunk:
                             f.write(chunk)
             elif r.status_code == 401:
-                raise Exception(f"Unauthorized downloading update from {url} (401).")
+                raise Exception(
+                    f"Unauthorized downloading update from {url} (401).")
             else:
                 snippet = ""
                 try:
                     snippet = r.text[:500]
                 except Exception:
                     pass
-                raise Exception(f"Failed to download update from {url}: {r.status_code} - {snippet}")
+                raise Exception(
+                    f"Failed to download update from {url}: {r.status_code} - {snippet}")
 
     def apply_zip(self, zip_path, target_path):
         """Extract a zip into target_path, handling single-root and flat zips, with basic safety."""
@@ -643,7 +783,8 @@ class UpdateManager:
         os.makedirs(target_path, exist_ok=True)
 
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            names = [n.replace('\\', '/') for n in zf.namelist() if n and not n.startswith('__MACOSX')]
+            names = [n.replace('\\', '/') for n in zf.namelist()
+                     if n and not n.startswith('__MACOSX')]
             if not names:
                 return
 
@@ -658,7 +799,8 @@ class UpdateManager:
             for member in names:
                 if member.endswith('/'):
                     continue
-                rel = member[len(root) + 1:] if (flatten and member.startswith(root + '/')) else member
+                rel = member[len(
+                    root) + 1:] if (flatten and member.startswith(root + '/')) else member
                 if not is_safe(rel):
                     continue
                 dest = os.path.join(target_path, rel)
@@ -703,14 +845,14 @@ class UpdateManager:
     def _parse_version_from_zip_name(self, zip_path, plugin_name):
         """
         Attempt to extract a version string from a zip filename.
-        
+
         Expected format: <plugin_name>_v<version>.zip
         Example: myplugin_v1.2.3.zip  -> returns "1.2.3"
-        
+
         Args:
             zip_path (str | Path): Path to the zip file.
             plugin_name (str): Name of the plugin (prefix to match).
-        
+
         Returns:
             str | None: Version string if found and valid, otherwise None.
         """
@@ -736,114 +878,207 @@ class UpdateManager:
         # If checks fail, return None
         return None
 
-
     def apply_update(self, update_type, plugin_name=None, update_mode="manual"):
+        import os
+        import sys
+        import json
+        import subprocess
+        from urllib.parse import urlparse, unquote
+
         backup_archive = None
-        system_root = os.path.dirname(self.BACKUP_DIR)
+        system_root = os.path.dirname(self.BACKUP_DIR)  # typically .../app
         old_version = None
-        
+
+        def _load_json(path: str, default: dict) -> dict:
+            if not os.path.exists(path):
+                return dict(default)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data if isinstance(data, dict) else dict(default)
+            except Exception:
+                return dict(default)
+
+        def _write_json(path: str, data: dict) -> None:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except Exception:
+                    pass
+
+        def _get_factory_version_local(name: str) -> str:
+            try:
+                if hasattr(self.plugin_manager, "get_factory_manifest_full_by_name"):
+                    fm = self.plugin_manager.get_factory_manifest_full_by_name(name) or {
+                    }
+                else:
+                    plugin_folder = os.path.join(self.PLUGINS_DIR, name)
+                    fm = self.plugin_manager.get_factory_manifest(
+                        plugin_folder) or {}
+                v = (fm.get("current_version")
+                     or fm.get("version") or "").strip()
+                return v if v else "Unknown"
+            except Exception:
+                return "Unknown"
+
         try:
-            # Determine old version
+            # ----------------------------
+            # Determine old version (safe)
+            # ----------------------------
             if update_type == "core":
                 old_version = self.get_current_version()
             elif update_type == "plugin" and plugin_name:
-                plugin_path = os.path.join(system_root, "plugins", plugin_name)
-                old_version = self.plugin_manager.get_plugin(plugin_name).get("version", "Unknown")
+                old_version = _get_factory_version_local(plugin_name)
+            else:
+                raise Exception("Invalid update type.")
 
+            # ----------------------------
+            # Backup
+            # ----------------------------
             print("Creating whole system backup...")
-            backup_archive = self.backup()  # Whole system backup
+            backup_archive = self.backup()
             print(f"Whole system backup created: {backup_archive}")
 
+            # ============================================================
+            # CORE UPDATE
+            # ============================================================
             if update_type == "core":
                 print("Fetching core manifest...")
                 core_manifest = self.get_core_manifest_remote()
 
                 print("Downloading core update...")
-                download_url = core_manifest.get('core', {}).get('download_url')
+                download_url = core_manifest.get(
+                    "core", {}).get("download_url")
                 if not download_url:
                     raise Exception("No download URL for core update.")
                 download_url = self.convert_to_api_endpoint(download_url)
+
                 zip_path = os.path.join(self.UPDATE_DIR, "core_update.zip")
                 self.download_update(download_url, zip_path)
 
                 print("Applying core update...")
                 self.apply_zip(zip_path, system_root)
 
-                # Update local manifest version (app/config/manifest.json)
-                manifest_path = os.path.join(system_root, "config", "manifest.json")
-                new_version = core_manifest.get('core', {}).get('current_version')
-                if os.path.exists(manifest_path):
-                    with open(manifest_path, 'r') as f:
-                        try:
-                            manifest_data = json.load(f)
-                        except json.JSONDecodeError:
-                            manifest_data = {}
-                else:
-                    manifest_data = {}
-                manifest_data['version'] = new_version
-                os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
-                with open(manifest_path, 'w') as f:
-                    json.dump(manifest_data, f, indent=4)
-                print(f"Manifest version updated to {new_version}.")
+                # Update local core manifest version (app/config/manifest.json)
+                manifest_path = os.path.join(
+                    system_root, "config", "manifest.json")
+                new_version = core_manifest.get("core", {}).get(
+                    "current_version") or "Unknown"
 
-                update_script = os.path.join(system_root, "update_instructions.py")
-                if os.path.exists(update_script):
-                    self.run_update_instructions(update_script)
+                manifest_data = _load_json(manifest_path, {})
+                manifest_data["version"] = new_version
+                _write_json(manifest_path, manifest_data)
+
+                print(f"Core manifest version updated to {new_version}.")
+
+                # Run core install.py upgrade (if present)
+                core_path = os.path.join(self.APP_ROOT, "core")
+                script_path = os.path.join(core_path, "install.py")
+                if os.path.exists(script_path):
+                    print(f"[INFO] Running core upgrade script: {script_path}")
+                    result = subprocess.run(
+                        [sys.executable, script_path, "upgrade"],
+                        check=True, capture_output=True, text=True
+                    )
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print("[STDERR]", result.stderr)
+                else:
+                    print("[WARN] No install.py found in core directory.")
+
                 print("Core update completed.")
 
-                self.log_update("core", "core", update_mode, old_version, new_version, "success", "Core update applied successfully.")
+                self.log_update(
+                    "core", "core", update_mode, old_version, new_version,
+                    "success", "Core update applied successfully."
+                )
 
+            # ============================================================
+            # PLUGIN UPDATE
+            # ============================================================
             elif update_type == "plugin" and plugin_name:
+                plugin_name = (plugin_name or "").strip()
+                if not plugin_name:
+                    raise Exception(
+                        "Plugin name must be provided for plugin updates.")
+
                 print(f"Fetching plugin manifest for {plugin_name}...")
-                plugin_manifest = self.get_plugin_manifest_remote(plugin_name)
+                plugin_manifest = self.get_plugin_manifest_remote(
+                    plugin_name) or {}
+
                 print(f"Downloading plugin update for {plugin_name}...")
-                download_url = plugin_manifest.get('download_url')
+                download_url = plugin_manifest.get("download_url")
                 if not download_url:
-                    raise Exception(f"No download URL for plugin {plugin_name} update.")
+                    raise Exception(
+                        f"No download URL for plugin {plugin_name} update.")
                 download_url = self.convert_to_api_endpoint(download_url)
-                zip_path = os.path.join(self.UPDATE_DIR, f"{plugin_name}_update.zip")
-                # IMPORTANT: save zip with the original filename to preserve version parsing
-                # If server returns Content-Disposition, we could honor it; otherwise derive from URL:
-                from urllib.parse import urlparse, unquote
-                url_name = unquote(os.path.basename(urlparse(download_url).path))
+
+                # Prefer the actual filename from the URL if it ends with .zip
+                url_name = unquote(os.path.basename(
+                    urlparse(download_url).path))
                 if url_name.lower().endswith(".zip"):
                     zip_path = os.path.join(self.UPDATE_DIR, url_name)
+                else:
+                    zip_path = os.path.join(
+                        self.UPDATE_DIR, f"{plugin_name}_update.zip")
+
                 self.download_update(download_url, zip_path)
 
-                # Compute correct target path (no double-join)
-                system_root = os.path.dirname(self.BACKUP_DIR)
+                # Compute correct target path
                 plugin_path = os.path.join(system_root, "plugins", plugin_name)
+                os.makedirs(plugin_path, exist_ok=True)
 
                 print(f"Applying plugin update for {plugin_name}...")
-                os.makedirs(plugin_path, exist_ok=True)
                 self.apply_zip(zip_path, plugin_path)
 
-                # Update local manifest version based on the zip file name
-                inferred_version = self._parse_version_from_zip_name(zip_path, plugin_name)
-                if not inferred_version:
-                    inferred_version = plugin_manifest.get('current_version')
+                # Determine new version from *local factory manifest after extraction*
+                new_version = _get_factory_version_local(plugin_name)
 
-                local_manifest_path = os.path.join(plugin_path, "manifest.json")
-                if os.path.exists(local_manifest_path):
-                    try:
-                        with open(local_manifest_path, 'r') as f:
-                            local = json.load(f)
-                    except json.JSONDecodeError:
-                        local = {}
+                # Update local manifest.json (settings/state) BUT keep it up-to-date with version
+                local_manifest_path = os.path.join(
+                    plugin_path, "manifest.json")
+                local = _load_json(local_manifest_path, {})
+
+                # Preserve settings and custom keys; just normalize core fields
+                local.setdefault("system_name", plugin_name)
+                local["installed"] = True
+                local.setdefault("enabled", False)
+                local["update_available"] = False
+
+                # Keep local manifest version in sync (as requested)
+                if new_version and new_version != "Unknown":
+                    local["version"] = new_version
+
+                _write_json(local_manifest_path, local)
+
+                # Run plugin install.py upgrade (if present)
+                script_path = os.path.join(plugin_path, "install.py")
+                if os.path.exists(script_path):
+                    print(
+                        f"[INFO] Running plugin upgrade script: {script_path}")
+                    result = subprocess.run(
+                        [sys.executable, script_path, "upgrade"],
+                        check=True, capture_output=True, text=True
+                    )
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print("[STDERR]", result.stderr)
                 else:
-                    local = {}
-                if inferred_version:
-                    local['version'] = inferred_version
-                with open(local_manifest_path, 'w') as f:
-                    json.dump(local, f, indent=4)
+                    print(
+                        f"[WARN] No install.py found in plugin directory for {plugin_name}.")
 
-                update_script = os.path.join(plugin_path, "update_instructions.py")
-                if os.path.exists(update_script):
-                    self.run_update_instructions(update_script)
                 print(f"{plugin_name} update completed.")
 
-                new_version = inferred_version or plugin_manifest.get('current_version')
-                self.log_update("plugin", plugin_name, update_mode, old_version, new_version, "success", f"Plugin {plugin_name} update applied successfully.")
+                self.log_update(
+                    "plugin", plugin_name, update_mode, old_version, new_version,
+                    "success", f"Plugin {plugin_name} update applied successfully."
+                )
+
             else:
                 raise Exception("Invalid update type.")
 
@@ -852,26 +1087,42 @@ class UpdateManager:
         except Exception as e:
             error_message = str(e)
             print(f"Update failed: {error_message}")
+
+            # Log failure (best-effort)
             try:
-                self.log_update(update_type, plugin_name if plugin_name else "core", update_mode, old_version, "Unknown", "error", error_message)
+                self.log_update(
+                    update_type,
+                    plugin_name if plugin_name else "core",
+                    update_mode,
+                    old_version,
+                    "Unknown",
+                    "error",
+                    error_message
+                )
             except Exception as le:
                 print(f"Failed to write update log: {le}")
+
+            # Rollback (best-effort)
             if backup_archive:
                 try:
                     print("Rolling back to the previous whole system backup...")
-                    backup_name = os.path.basename(backup_archive).replace('.zip', '')
+                    backup_name = os.path.basename(
+                        backup_archive).replace(".zip", "")
                     self.restore_backup(backup_name, system_root)
                     print("System restored from backup.")
                 except Exception as re:
                     print(f"Rollback failed: {re}")
+
             raise
 
     def schedule_update(self, update_type, scheduled_time, plugin_name=None):
         run_date = datetime.strptime(scheduled_time, "%Y-%m-%d %H:%M:%S")
         if update_type == "core":
-            self.scheduler.add_job(self.apply_update, 'date', run_date=run_date, args=['core', None, "scheduled"])
+            self.scheduler.add_job(self.apply_update, 'date', run_date=run_date, args=[
+                                   'core', None, "scheduled"])
         elif update_type == "plugin" and plugin_name:
-            self.scheduler.add_job(self.apply_update, 'date', run_date=run_date, args=['plugin', plugin_name, "scheduled"])
+            self.scheduler.add_job(self.apply_update, 'date', run_date=run_date, args=[
+                                   'plugin', plugin_name, "scheduled"])
         else:
             raise Exception(f"Invalid update type: {update_type}")
         print(f"Update scheduled for {update_type} at {run_date}")
@@ -883,6 +1134,7 @@ class UpdateManager:
         except Exception as e:
             print(f"Failed to fetch changelog for plugin {plugin_name}: {e}")
             return 'No changelog available.'
+
     def get_changelog_for_core(self):
         try:
             core_manifest = self.get_core_manifest_remote()
@@ -890,7 +1142,7 @@ class UpdateManager:
         except Exception as e:
             print(f"Failed to fetch changelog for core module: {e}")
             return 'No changelog available.'
-    
+
     def get_remote_plugin_list(self):
         url = "https://gitlab.com/api/v4/projects/65546585/repository/tree?path=plugins&ref=main&per_page=100"
         with self._gitlab_session() as s:
@@ -899,13 +1151,15 @@ class UpdateManager:
                 try:
                     nodes = r.json()
                 except Exception:
-                    raise Exception(f"Invalid JSON from plugin list. Body: {r.text[:500]}")
+                    raise Exception(
+                        f"Invalid JSON from plugin list. Body: {r.text[:500]}")
                 # Return only folder names under plugins
                 return [n['name'] for n in nodes if n.get('type') == 'tree']
             elif r.status_code == 401:
                 raise Exception("Unauthorized fetching plugin list (401).")
             else:
-                raise Exception(f"Failed to fetch plugin list: {r.status_code} - {r.text[:500]}")
+                raise Exception(
+                    f"Failed to fetch plugin list: {r.status_code} - {r.text[:500]}")
 
     import os
     import json
@@ -916,10 +1170,7 @@ class UpdateManager:
     def install_plugin(self, plugin_name: str) -> None:
         """
         Install a plugin from the remote repository into the local plugins folder.
-        Dependency-aware:
-        - Resolves dependencies from remote manifest (dependencies/depends_on)
-        - Auto-installs and enables dependencies first (topological order)
-        - Detects cycles and aborts with a clear error
+        Handles dependency resolution and calls _install_single_plugin for each.
         """
         if not plugin_name or not isinstance(plugin_name, str):
             raise Exception("Invalid plugin name.")
@@ -939,20 +1190,24 @@ class UpdateManager:
             meta = local_map.get(dep_name)
             if not meta or not meta.get("installed"):
                 # Install dependency
-                print(f"[INFO] Auto-installing dependency '{dep_name}' for '{plugin_name}'...")
+                print(
+                    f"[INFO] Auto-installing dependency '{dep_name}' for '{plugin_name}'...")
                 self._install_single_plugin(dep_name)
                 # Refresh state
                 local_map = get_local_map()
                 meta = local_map.get(dep_name)
                 if not meta or not meta.get("installed"):
-                    raise Exception(f"Failed to auto-install dependency '{dep_name}' required by '{plugin_name}'.")
+                    raise Exception(
+                        f"Failed to auto-install dependency '{dep_name}' required by '{plugin_name}'.")
 
             if not meta.get("enabled"):
                 # Enable dependency
-                print(f"[INFO] Enabling dependency '{dep_name}' for '{plugin_name}'...")
+                print(
+                    f"[INFO] Enabling dependency '{dep_name}' for '{plugin_name}'...")
                 ok, msg = self.plugin_manager.enable_plugin(dep_name)
                 if not ok:
-                    raise Exception(f"Failed to enable dependency '{dep_name}' required by '{plugin_name}': {msg}")
+                    raise Exception(
+                        f"Failed to enable dependency '{dep_name}' required by '{plugin_name}': {msg}")
                 local_map = get_local_map()
 
         # 2) Install the target plugin (do NOT auto-enable here)
@@ -963,43 +1218,52 @@ class UpdateManager:
             try:
                 self.plugin_manager.plugins = self.plugin_manager.load_plugins()
             except Exception as e:
-                print(f"[WARN] PluginManager refresh failed after installing '{plugin_name}': {e}")
+                print(
+                    f"[WARN] PluginManager refresh failed after installing '{plugin_name}': {e}")
 
-        print(f"[INFO] Plugin '{plugin_name}' installed successfully with all dependencies satisfied.")
-
+        print(
+            f"[INFO] Plugin '{plugin_name}' installed successfully with all dependencies satisfied.")
 
     def _install_single_plugin(self, plugin_name: str) -> None:
         """
         Install a single plugin by downloading and extracting its zip, and writing
         a minimal local manifest.json. Leaves enabled=False; enabling is a separate step.
+        Runs install.py install if present (for FRESH installs only).
         Raises Exception on failure.
         """
         import os
         from urllib.parse import urlparse, unquote
         import json
+        import subprocess
 
         # --- Verify remote presence (non-fatal if API listing fails) ---
         try:
             remote_list = set(self.get_remote_plugin_list() or [])
             if plugin_name not in remote_list:
-                raise Exception(f"Plugin '{plugin_name}' not found in remote repository (plugins/ folder).")
+                raise Exception(
+                    f"Plugin '{plugin_name}' not found in remote repository (plugins/ folder).")
         except Exception as e:
-            print(f"[WARN] Could not confirm remote listing for '{plugin_name}': {e}")
+            print(
+                f"[WARN] Could not confirm remote listing for '{plugin_name}': {e}")
 
         # --- Fetch remote manifest ---
         try:
-            remote_manifest = self.get_plugin_manifest_remote(plugin_name) or {}
+            remote_manifest = self.get_plugin_manifest_remote(
+                plugin_name) or {}
         except Exception as e:
-            raise Exception(f"Failed to fetch remote manifest for '{plugin_name}': {e}")
+            raise Exception(
+                f"Failed to fetch remote manifest for '{plugin_name}': {e}")
 
         download_url = remote_manifest.get("download_url")
         if not download_url:
-            raise Exception(f"No download_url in remote manifest for '{plugin_name}'.")
+            raise Exception(
+                f"No download_url in remote manifest for '{plugin_name}'.")
 
         # --- Normalize download URL to GitLab API endpoint ---
         download_url = self.convert_to_api_endpoint(download_url)
         if not download_url.startswith("https://gitlab.com/api/v4/"):
-            raise Exception(f"Download URL not normalized to API endpoint for '{plugin_name}': {download_url}")
+            raise Exception(
+                f"Download URL not normalized to API endpoint for '{plugin_name}': {download_url}")
 
         # --- Compute local zip path ---
         url_name = unquote(os.path.basename(urlparse(download_url).path))
@@ -1010,7 +1274,8 @@ class UpdateManager:
         # --- Download zip ---
         try:
             self.download_update(download_url, zip_path)
-            print(f"[DEBUG] Downloaded zip for '{plugin_name}' to: {zip_path} (exists={os.path.exists(zip_path)})")
+            print(
+                f"[DEBUG] Downloaded zip for '{plugin_name}' to: {zip_path} (exists={os.path.exists(zip_path)})")
         except Exception as e:
             raise Exception(f"Failed to download '{plugin_name}' zip: {e}")
 
@@ -1023,7 +1288,8 @@ class UpdateManager:
             self.apply_zip(zip_path, plugin_target)
             print(f"[DEBUG] Extracted '{plugin_name}' into: {plugin_target}")
             try:
-                print(f"[DEBUG] Listing of {plugin_target}: {os.listdir(plugin_target)}")
+                print(
+                    f"[DEBUG] Listing of {plugin_target}: {os.listdir(plugin_target)}")
             except Exception as le:
                 print(f"[DEBUG] Could not list {plugin_target}: {le}")
         except Exception as e:
@@ -1040,17 +1306,21 @@ class UpdateManager:
                 local_manifest = {}
 
         # --- Minimum viable manifest ---
-        inferred_version = self._parse_version_from_zip_name(zip_path, plugin_name) or remote_manifest.get("current_version")
+        inferred_version = self._parse_version_from_zip_name(
+            zip_path, plugin_name) or remote_manifest.get("current_version")
         local_manifest.setdefault("system_name", plugin_name)
         if inferred_version:
             local_manifest["version"] = inferred_version
         local_manifest["installed"] = True
         local_manifest.setdefault("enabled", False)
-        local_manifest.setdefault("name", local_manifest.get("name", plugin_name.replace("_", " ").title()))
-        local_manifest.setdefault("description", local_manifest.get("description", ""))
+        local_manifest.setdefault("name", local_manifest.get(
+            "name", plugin_name.replace("_", " ").title()))
+        local_manifest.setdefault(
+            "description", local_manifest.get("description", ""))
 
         # --- Persist dependencies for reverse lookup ---
-        deps = remote_manifest.get("dependencies") or remote_manifest.get("depends_on") or []
+        deps = remote_manifest.get(
+            "dependencies") or remote_manifest.get("depends_on") or []
         if isinstance(deps, str):
             deps = [deps]
         deps = [d.strip() for d in deps if isinstance(d, str) and d.strip()]
@@ -1058,7 +1328,8 @@ class UpdateManager:
             local_manifest["dependencies"] = deps
 
         # --- Resolve icon to local file ---
-        icon_val = local_manifest.get("icon") or remote_manifest.get("icon") or "icon.png"
+        icon_val = local_manifest.get(
+            "icon") or remote_manifest.get("icon") or "icon.png"
         if isinstance(icon_val, str) and icon_val.lower().startswith("http"):
             icon_val = "icon.png"
         icon_abs = os.path.join(plugin_target, icon_val)
@@ -1079,22 +1350,38 @@ class UpdateManager:
                 os.fsync(f.fileno())
             print(f"[DEBUG] Wrote manifest: {local_manifest_path}")
         except Exception as e:
-            raise Exception(f"Failed to write local manifest for '{plugin_name}': {e}")
+            raise Exception(
+                f"Failed to write local manifest for '{plugin_name}': {e}")
 
-        # --- Optional post-install instructions ---
-        update_script = os.path.join(plugin_target, "update_instructions.py")
-        if os.path.exists(update_script):
+        # --- Run install.py install only for FRESH installs ---
+        script_path = os.path.join(plugin_target, "install.py")
+        if os.path.exists(script_path):
             try:
-                self.run_update_instructions(update_script)
-            except Exception as e:
-                raise Exception(f"Post-install instructions failed for '{plugin_name}': {e}")
+                result = subprocess.run(
+                    [sys.executable, script_path, "install"],
+                    check=True, capture_output=True, text=True
+                )
+                print(result.stdout)
+                if result.stderr:
+                    print("[STDERR]", result.stderr)
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Plugin install script failed: {e}")
+                if e.stdout:
+                    print("[STDOUT]", e.stdout)
+                if e.stderr:
+                    print("[STDERR]", e.stderr)
+                raise
+        else:
+            print(
+                f"[WARN] No install.py found in plugin directory for {plugin_name}.")
 
         # --- Refresh PluginManager cache ---
         if hasattr(self.plugin_manager, "load_plugins"):
             try:
                 self.plugin_manager.plugins = self.plugin_manager.load_plugins()
             except Exception as e:
-                print(f"[WARN] PluginManager refresh failed after installing '{plugin_name}': {e}")
+                print(
+                    f"[WARN] PluginManager refresh failed after installing '{plugin_name}': {e}")
 
     def _resolve_dependency_install_order(self, plugin_name: str) -> list:
         """
@@ -1111,7 +1398,8 @@ class UpdateManager:
             if not n:
                 raise Exception("Empty plugin name in dependency graph.")
             if n in temp_stack:
-                raise Exception(f"Cyclic dependency detected involving '{n}'.")
+                raise Exception(
+                    f"Cyclic dependency detected involving '{n}'.")
             if n in visited:
                 return
             temp_stack.add(n)
@@ -1125,7 +1413,6 @@ class UpdateManager:
         dfs(plugin_name)
         return order
 
-
     def _get_remote_dependencies_safe(self, plugin_name: str) -> list:
         """
         Fetches the remote manifest for plugin_name and returns a normalized list of dependencies.
@@ -1136,20 +1423,25 @@ class UpdateManager:
             deps = man.get("dependencies") or man.get("depends_on") or []
             if isinstance(deps, str):
                 deps = [deps]
-            deps = [d.strip() for d in deps if isinstance(d, str) and d.strip()]
-            deps = [d for d in deps if d != plugin_name]  # avoid self-dependency
+            deps = [d.strip()
+                    for d in deps if isinstance(d, str) and d.strip()]
+            # avoid self-dependency
+            deps = [d for d in deps if d != plugin_name]
             return deps
         except Exception as e:
-            print(f"[WARN] Could not load dependencies for '{plugin_name}': {e}")
+            print(
+                f"[WARN] Could not load dependencies for '{plugin_name}': {e}")
             return []
 
     def check_and_download_new_plugins(self):
         print("Checking for new plugins...")
         remote_plugins = self.get_remote_plugin_list()
-        installed_plugins = [plugin["system_name"] for plugin in self.plugin_manager.get_all_plugins()]
+        installed_plugins = [plugin["system_name"]
+                             for plugin in self.plugin_manager.get_all_plugins()]
         for plugin_name in remote_plugins:
             if plugin_name not in installed_plugins:
-                print(f"New plugin found: {plugin_name}. Downloading and installing...")
+                print(
+                    f"New plugin found: {plugin_name}. Downloading and installing...")
                 try:
                     self.install_plugin(plugin_name)
                 except Exception as e:
@@ -1161,14 +1453,17 @@ class UpdateManager:
     def check_for_forced_updates(self):
         try:
             core_manifest = self.get_core_manifest_remote()
-            force_update = core_manifest.get('core', {}).get('force_update', False)
+            force_update = core_manifest.get(
+                'core', {}).get('force_update', False)
             if force_update:
                 if not self.scheduler.get_job("forced_core_update"):
                     now = datetime.now()
-                    next_3am = now.replace(hour=3, minute=0, second=0, microsecond=0)
+                    next_3am = now.replace(
+                        hour=3, minute=0, second=0, microsecond=0)
                     if next_3am <= now:
                         next_3am += timedelta(days=1)
-                    print(f"Force update flag detected in core manifest. Scheduling core update at {next_3am}")
+                    print(
+                        f"Force update flag detected in core manifest. Scheduling core update at {next_3am}")
                     self.scheduler.add_job(
                         self.apply_update, 'date', run_date=next_3am, args=['core', None, "forced"],
                         id="forced_core_update", name="Forced Core Update"
@@ -1182,7 +1477,8 @@ class UpdateManager:
     # --- Forced Update Check for Plugins ---
     def check_for_forced_plugin_updates(self):
         try:
-            installed_plugins = [plugin["system_name"] for plugin in self.plugin_manager.get_all_plugins()]
+            installed_plugins = [plugin["system_name"]
+                                 for plugin in self.plugin_manager.get_all_plugins()]
             for plugin_name in installed_plugins:
                 try:
                     data = self.get_plugin_manifest_remote(plugin_name)
@@ -1191,10 +1487,12 @@ class UpdateManager:
                     if force_update:
                         if not self.scheduler.get_job(job_id):
                             now = datetime.now()
-                            next_3am = now.replace(hour=3, minute=0, second=0, microsecond=0)
+                            next_3am = now.replace(
+                                hour=3, minute=0, second=0, microsecond=0)
                             if next_3am <= now:
                                 next_3am += timedelta(days=1)
-                            print(f"Force update flag detected for plugin {plugin_name}. Scheduling update at {next_3am}")
+                            print(
+                                f"Force update flag detected for plugin {plugin_name}. Scheduling update at {next_3am}")
                             self.scheduler.add_job(
                                 self.apply_update, 'date', run_date=next_3am, args=['plugin', plugin_name, "forced"],
                                 id=job_id, name=f"Forced Plugin Update {plugin_name}"
@@ -1203,12 +1501,11 @@ class UpdateManager:
                         if self.scheduler.get_job(job_id):
                             self.scheduler.remove_job(job_id)
                 except Exception as e:
-                    print(f"Error checking forced update for plugin {plugin_name}: {e}")
+                    print(
+                        f"Error checking forced update for plugin {plugin_name}: {e}")
         except Exception as e:
-            print(f"Error checking forced plugin updates: {e}")    
+            print(f"Error checking forced plugin updates: {e}")
 
-import os
-import json
 
 class Plugin:
     def __init__(self, system_name, plugins_dir='app/plugins'):
@@ -1219,79 +1516,107 @@ class Plugin:
         print(f"[DEBUG] Initialising Plugin object for '{self.system_name}'")
         self.manifest = self.get_manifest()
         if self.manifest:
-            print(f"[DEBUG] Manifest loaded for '{self.system_name}': {self.manifest}")
+            print(
+                f"[DEBUG] Manifest loaded for '{self.system_name}': {self.manifest}")
         else:
             print(f"[DEBUG] No manifest found for '{self.system_name}'")
 
     def get_manifest(self):
         """Load the plugin's manifest file."""
-        manifest_path = os.path.join(self.plugins_dir, self.system_name, 'manifest.json')
+        manifest_path = os.path.join(
+            self.plugins_dir, self.system_name, 'manifest.json')
         if os.path.exists(manifest_path):
             try:
-                with open(manifest_path, 'r') as f:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     return data
             except json.JSONDecodeError as e:
-                print(f"[ERROR] Error decoding JSON for plugin '{self.system_name}': {e}")
+                print(
+                    f"[ERROR] Error decoding JSON for plugin '{self.system_name}': {e}")
+            except Exception as e:
+                print(
+                    f"[ERROR] Failed to read manifest for plugin '{self.system_name}': {e}")
         else:
-            print(f"[DEBUG] Manifest file does not exist for '{self.system_name}'")
+            print(
+                f"[DEBUG] Manifest file does not exist for '{self.system_name}'")
         return None
 
     def save_manifest(self):
         """Save the current state of the plugin's manifest."""
-        manifest_path = os.path.join(self.plugins_dir, self.system_name, 'manifest.json')
-        print(f"[DEBUG] Saving manifest for '{self.system_name}' at '{manifest_path}'")
+        manifest_path = os.path.join(
+            self.plugins_dir, self.system_name, 'manifest.json')
+        print(
+            f"[DEBUG] Saving manifest for '{self.system_name}' at '{manifest_path}'")
         try:
-            with open(manifest_path, 'w') as f:
+            os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+            with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(self.manifest, f, indent=4)
-            print(f"[DEBUG] Manifest saved successfully for '{self.system_name}'")
+            print(
+                f"[DEBUG] Manifest saved successfully for '{self.system_name}'")
         except Exception as e:
-            print(f"[ERROR] Failed to save manifest for '{self.system_name}': {e}")
+            print(
+                f"[ERROR] Failed to save manifest for '{self.system_name}': {e}")
 
     def install(self):
         """Install the plugin using the factory manifest located in the plugin folder."""
         print(f"[DEBUG] Starting installation for plugin '{self.system_name}'")
         plugin_path = os.path.join(self.plugins_dir, self.system_name)
-        
+
         # Ensure the plugin directory exists.
         if not os.path.exists(plugin_path):
-            print(f"[DEBUG] Plugin directory '{plugin_path}' not found. Creating it.")
-            os.makedirs(plugin_path)
+            print(
+                f"[DEBUG] Plugin directory '{plugin_path}' not found. Creating it.")
+            os.makedirs(plugin_path, exist_ok=True)
         else:
             print(f"[DEBUG] Plugin directory '{plugin_path}' exists.")
 
         # If a manifest already exists, remove it to allow a fresh install.
         if os.path.exists(self.manifest_path):
-            print(f"[DEBUG] Plugin manifest exists for '{self.system_name}'; re-installing by removing existing manifest.")
+            print(
+                f"[DEBUG] Plugin manifest exists for '{self.system_name}'; re-installing by removing existing manifest.")
             try:
                 os.remove(self.manifest_path)
-                print(f"[DEBUG] Existing manifest removed for '{self.system_name}'.")
+                print(
+                    f"[DEBUG] Existing manifest removed for '{self.system_name}'.")
             except Exception as e:
                 error_msg = f"Failed to remove existing manifest: {e}"
                 print(f"[ERROR] {error_msg}")
                 return False, error_msg
 
         # Load the factory manifest from the plugin folder.
-        factory_manifest_path = os.path.join(plugin_path, 'factory_manifest.json')
-        print(f"[DEBUG] Looking for factory manifest at '{factory_manifest_path}'")
+        factory_manifest_path = os.path.join(
+            plugin_path, 'factory_manifest.json')
+        print(
+            f"[DEBUG] Looking for factory manifest at '{factory_manifest_path}'")
         if not os.path.exists(factory_manifest_path):
             error_msg = "Factory manifest not found."
             print(f"[ERROR] {error_msg}")
             return False, error_msg
 
         try:
-            with open(factory_manifest_path, 'r') as f:
+            with open(factory_manifest_path, 'r', encoding='utf-8') as f:
                 factory_manifest = json.load(f)
-            print(f"[DEBUG] Factory manifest loaded for '{self.system_name}': {factory_manifest}")
+            print(
+                f"[DEBUG] Factory manifest loaded for '{self.system_name}': {factory_manifest}")
         except json.JSONDecodeError as e:
+            error_msg = f"Error reading factory manifest: {e}"
+            print(f"[ERROR] {error_msg}")
+            return False, error_msg
+        except Exception as e:
             error_msg = f"Error reading factory manifest: {e}"
             print(f"[ERROR] {error_msg}")
             return False, error_msg
 
         # Initialize the plugin manifest from the factory manifest.
         self.manifest = factory_manifest
-        self.manifest['enabled'] = False  # Ensure plugin is installed disabled.
-        print(f"[DEBUG] Setting 'enabled' to False for plugin '{self.system_name}'.")
+
+        # Ensure plugin is installed disabled + marked installed.
+        self.manifest['enabled'] = False
+        self.manifest['installed'] = True
+        self.manifest.setdefault('update_available', False)
+
+        print(
+            f"[DEBUG] Setting 'enabled' to False for plugin '{self.system_name}'.")
 
         # Save the plugin manifest.
         self.save_manifest()
@@ -1308,7 +1633,8 @@ class Plugin:
         try:
             if os.path.exists(self.manifest_path):
                 os.remove(self.manifest_path)
-                print(f"[DEBUG] Removed manifest for plugin '{self.system_name}'")
+                print(
+                    f"[DEBUG] Removed manifest for plugin '{self.system_name}'")
             return True, f"{self.system_name} uninstalled successfully."
         except Exception as e:
             error_msg = f"Error uninstalling plugin: {e}"
@@ -1323,6 +1649,7 @@ class Plugin:
             print(f"[ERROR] {error_msg}")
             return False, error_msg
         self.manifest['enabled'] = True
+        self.manifest['installed'] = True
         self.save_manifest()
         return True, f"{self.system_name} enabled successfully."
 
@@ -1340,7 +1667,8 @@ class Plugin:
     def get_settings(self):
         """Return the settings of the plugin, or an empty dictionary if not defined."""
         if not self.manifest or 'settings' not in self.manifest:
-            print(f"[DEBUG] No settings found in manifest for '{self.system_name}'")
+            print(
+                f"[DEBUG] No settings found in manifest for '{self.system_name}'")
             return {}
         return self.manifest['settings']
 
@@ -1357,7 +1685,8 @@ class Plugin:
 
     def update_setting(self, setting_key, setting_value):
         """Update a setting if it's editable."""
-        print(f"[DEBUG] Updating setting '{setting_key}' for plugin '{self.system_name}'")
+        print(
+            f"[DEBUG] Updating setting '{setting_key}' for plugin '{self.system_name}'")
         if not self.manifest or 'settings' not in self.manifest:
             error_msg = "Settings not found in the manifest."
             print(f"[ERROR] {error_msg}")
@@ -1377,50 +1706,55 @@ class Plugin:
 
         setting['value'] = setting_value
         self.save_manifest()
-        print(f"[DEBUG] Setting '{setting_key}' updated successfully for plugin '{self.system_name}'")
+        print(
+            f"[DEBUG] Setting '{setting_key}' updated successfully for plugin '{self.system_name}'")
         return True, f"Setting {setting_key} updated successfully."
 
     @staticmethod
     def get_factory_manifest(plugin_path):
         """Load the factory manifest data from factory_manifest.json."""
-        factory_manifest_path = os.path.join(plugin_path, "factory_manifest.json")
-        print(f"[DEBUG] Loading factory manifest from '{factory_manifest_path}'")
+        factory_manifest_path = os.path.join(
+            plugin_path, "factory_manifest.json")
+        print(
+            f"[DEBUG] Loading factory manifest from '{factory_manifest_path}'")
         if os.path.exists(factory_manifest_path):
             try:
-                with open(factory_manifest_path, "r") as factory_manifest_file:
+                with open(factory_manifest_path, "r", encoding="utf-8") as factory_manifest_file:
                     manifest_data = json.load(factory_manifest_file)
                     print(f"[DEBUG] Factory manifest data: {manifest_data}")
                     return manifest_data
             except (json.JSONDecodeError, IOError) as e:
-                print(f"[ERROR] Error reading factory_manifest.json for {plugin_path}: {e}")
+                print(
+                    f"[ERROR] Error reading factory_manifest.json for {plugin_path}: {e}")
         else:
-            print(f"[DEBUG] Factory manifest not found at '{factory_manifest_path}'")
+            print(
+                f"[DEBUG] Factory manifest not found at '{factory_manifest_path}'")
         return None
 
 
-
-
-import os
-import json
-import importlib
-from flask_login import current_user
-
-import os
-import sys
-import json
-import subprocess
-import importlib
-from pathlib import Path
-
 class PluginManager:
     def __init__(self, plugins_dir='plugins'):
+        """
+        plugins_dir can be:
+        - "plugins" (relative to app/objects.py directory)
+        - an absolute path (recommended)
+        """
         # Use the absolute path to avoid confusion.
-        app_root = os.path.abspath(os.path.dirname(__file__))  # e.g. sparrow-erp/app
-        self.plugins_dir = os.path.join(app_root, plugins_dir)
+        app_root = os.path.abspath(os.path.dirname(
+            __file__))  # e.g. sparrow-erp/app
+
+        # If caller passes an absolute path (like run.py does), respect it.
+        if os.path.isabs(plugins_dir):
+            self.plugins_dir = plugins_dir
+        else:
+            self.plugins_dir = os.path.join(app_root, plugins_dir)
+
         self.config_dir = os.path.join(app_root, 'config')
-        print(f"[DEBUG] PluginManager initialized with plugins_dir: {self.plugins_dir}")
-        self.plugins = self.load_plugins()  # Loads manifest data for all plugins.
-        print(f"[DEBUG] Loaded plugins (manifests): {list(self.plugins.keys())}")
+        print(
+            f"[DEBUG] PluginManager initialized with plugins_dir: {self.plugins_dir}")
+
+        # Loads manifest data for all plugins (initial cache; get_all_plugins() refreshes).
+        self.plugins = self.load_plugins()
 
     def get_factory_manifest_by_name(self, plugin_name):
         """
@@ -1451,6 +1785,11 @@ class PluginManager:
         # Fallback
         return {"repository": "official"}
 
+    def get_factory_manifest_full_by_name(self, plugin_name: str) -> dict:
+        plugin_folder = os.path.join(self.plugins_dir, plugin_name)
+        fm = self.get_factory_manifest(plugin_folder)
+        return fm if isinstance(fm, dict) else {}
+
     def get_repository_for_plugin(self, plugin_name):
         """
         Convenience wrapper to return the repository string for a plugin:
@@ -1473,11 +1812,13 @@ class PluginManager:
             if not os.path.isdir(folder_path) or plugin_folder.startswith("__"):
                 continue
             try:
-                module = importlib.import_module(f"app.plugins.{plugin_folder}")
+                module = importlib.import_module(
+                    f"app.plugins.{plugin_folder}")
                 plugin_modules.append(module)
                 print(f"[DEBUG] Imported plugin module: {plugin_folder}")
             except Exception as e:
-                print(f"[ERROR] Failed to import plugin module '{plugin_folder}': {e}")
+                print(
+                    f"[ERROR] Failed to import plugin module '{plugin_folder}': {e}")
         return plugin_modules
 
     def load_plugins(self):
@@ -1499,18 +1840,18 @@ class PluginManager:
                 try:
                     with open(manifest_path, 'r') as f:
                         manifest = json.load(f)
-                    print(f"[DEBUG] Plugin '{plugin_folder}' loaded from manifest: {manifest}")
                 except json.JSONDecodeError as e:
-                    print(f"[ERROR] Error decoding manifest for plugin '{plugin_folder}': {e}")
+                    print(
+                        f"[ERROR] Error decoding manifest for plugin '{plugin_folder}': {e}")
                     continue
             else:
                 factory_manifest = self.get_factory_manifest(folder_path)
                 if factory_manifest:
                     manifest = factory_manifest
                     manifest['enabled'] = False
-                    print(f"[DEBUG] Plugin '{plugin_folder}' loaded from factory manifest: {manifest}")
                 else:
-                    print(f"[DEBUG] No manifest found for plugin '{plugin_folder}'")
+                    print(
+                        f"[DEBUG] No manifest found for plugin '{plugin_folder}'")
                     continue
             if 'allowed_roles' not in manifest:
                 manifest['allowed_roles'] = []
@@ -1519,14 +1860,17 @@ class PluginManager:
 
     def get_factory_manifest(self, plugin_path):
         """Retrieve the factory manifest for a plugin."""
-        factory_manifest_path = os.path.join(plugin_path, 'factory_manifest.json')
-        print(f"[DEBUG] Loading factory manifest from: {factory_manifest_path}")
+        factory_manifest_path = os.path.join(
+            plugin_path, 'factory_manifest.json')
+        print(
+            f"[DEBUG] Loading factory manifest from: {factory_manifest_path}")
         if os.path.exists(factory_manifest_path):
             try:
                 with open(factory_manifest_path, 'r') as f:
                     return json.load(f)
             except json.JSONDecodeError as e:
-                print(f"[ERROR] Error decoding factory_manifest.json for {plugin_path}: {e}")
+                print(
+                    f"[ERROR] Error decoding factory_manifest.json for {plugin_path}: {e}")
         return None
 
     def get_plugin_manifest(self, plugin_path):
@@ -1537,50 +1881,76 @@ class PluginManager:
             try:
                 return json.load(open(manifest_path, 'r'))
             except json.JSONDecodeError as e:
-                print(f"[ERROR] Error decoding manifest.json for {plugin_path}: {e}")
+                print(
+                    f"[ERROR] Error decoding manifest.json for {plugin_path}: {e}")
         return None
 
     def get_all_plugins(self):
-        """Returns a list of all available plugins with their details."""
+        """
+        Returns a list of all available plugins with their details.
+
+        CHANGES:
+        - Always reload manifests from disk (fixes stale UI + sitemap discovery).
+        - Returns the FULL manifest dict (so public_sections/public_sitemaps survive),
+          while still guaranteeing the legacy fields your UI expects.
+        """
         plugin_list = []
         if not os.path.exists(self.plugins_dir):
             print(f"[ERROR] Plugins folder does not exist: {self.plugins_dir}")
             return plugin_list
 
+        # Always reload from disk (no stale self.plugins)
+        self.plugins = self.load_plugins() or {}
+
         print(f"[DEBUG] Scanning plugins in: {self.plugins_dir}")
-        for plugin_name, manifest in self.plugins.items():
-            data = {
-                "name": manifest.get("name", plugin_name),
-                "description": manifest.get("description", "No description available."),
-                "icon": manifest.get("icon", "default-icon.png"),
-                "system_name": manifest.get("system_name", plugin_name.lower()),
-                "version": manifest.get("version", "Unknown"),
-                "update_available": manifest.get("update_available", False),
-                "installed": os.path.exists(os.path.join(self.plugins_dir, plugin_name, 'manifest.json')),
-                "enabled": manifest.get("enabled", False)
-            }
+
+        for plugin_folder, manifest in self.plugins.items():
+            if not isinstance(manifest, dict):
+                continue
+
+            plugin_dir = os.path.join(self.plugins_dir, plugin_folder)
+            manifest_path = os.path.join(plugin_dir, "manifest.json")
+            installed = os.path.exists(manifest_path)
+
+            # Start with FULL manifest so we keep custom keys (public_sitemaps, public_sections, etc.)
+            data = dict(manifest)
+
+            # Normalize system_name
+            sys_name = (data.get("system_name")
+                        or plugin_folder or "").strip() or plugin_folder
+            data["system_name"] = sys_name
+
+            # Back-compat guarantees for UI
+            data["name"] = data.get("name") or plugin_folder
+            data["description"] = data.get(
+                "description") or "No description available."
+            data["icon"] = data.get("icon") or "default-icon.png"
+            data["version"] = data.get("version") or "Unknown"
+
+            # Computed state fields
+            data["installed"] = bool(installed)
+            data["enabled"] = bool(data.get("enabled", False))
+            data["update_available"] = bool(
+                data.get("update_available", False))
+
             plugin_list.append(data)
-            print(f"[DEBUG] Plugin data for '{plugin_name}': {data}")
+
         return plugin_list
 
     def get_enabled_plugins(self):
-        """Retrieve all enabled plugins with their name and system_name."""
+        """Retrieve all enabled plugins with their name and system_name (fresh scan)."""
         plugins = []
-        for plugin_folder in os.listdir(self.plugins_dir):
-            plugin_path = os.path.join(self.plugins_dir, plugin_folder)
-            if os.path.isdir(plugin_path):
-                manifest_path = os.path.join(plugin_path, 'manifest.json')
-                if os.path.exists(manifest_path):
-                    try:
-                        with open(manifest_path, 'r') as f:
-                            manifest = json.load(f)
-                        if manifest.get("enabled", False):
-                            plugins.append({
-                                "name": manifest.get("name", plugin_folder),
-                                "system_name": plugin_folder
-                            })
-                    except json.JSONDecodeError as e:
-                        print(f"[ERROR] Error decoding manifest for plugin '{plugin_folder}': {e}")
+        self.plugins = self.load_plugins() or {}
+
+        for plugin_folder, manifest in self.plugins.items():
+            if not isinstance(manifest, dict):
+                continue
+            if manifest.get("enabled", False):
+                plugins.append({
+                    "name": manifest.get("name", plugin_folder),
+                    "system_name": manifest.get("system_name", plugin_folder)
+                })
+
         print(f"[DEBUG] Enabled plugins: {plugins}")
         return plugins
 
@@ -1592,7 +1962,8 @@ class PluginManager:
         print(f"[DEBUG] Checking if plugin '{system_name}' is enabled.")
         plugins = self.load_plugins()
         if system_name not in plugins:
-            raise ValueError(f"Plugin {system_name} not found. Available: {list(plugins.keys())}")
+            raise ValueError(
+                f"Plugin {system_name} not found. Available: {list(plugins.keys())}")
         enabled = plugins[system_name].get('enabled', False)
         print(f"[DEBUG] Plugin '{system_name}' enabled status: {enabled}")
         return enabled
@@ -1602,31 +1973,39 @@ class PluginManager:
         print(f"[DEBUG] Attempting to install plugin '{plugin_name}'")
         plugin_folder = os.path.join(self.plugins_dir, plugin_name)
         if not os.path.isdir(plugin_folder):
-            raise ValueError(f"Plugin folder '{plugin_name}' not found in {self.plugins_dir}.")
+            raise ValueError(
+                f"Plugin folder '{plugin_name}' not found in {self.plugins_dir}.")
         self.plugins = self.load_plugins()  # Update plugin list.
         manifest_path = os.path.join(plugin_folder, 'manifest.json')
         if os.path.exists(manifest_path):
-            print(f"[DEBUG] Plugin '{plugin_name}' is already installed; skipping installation.")
+            print(
+                f"[DEBUG] Plugin '{plugin_name}' is already installed; skipping installation.")
         else:
             from app.objects import Plugin  # Adjust the import path as needed.
             plugin = Plugin(plugin_name)
             install_status, install_message = plugin.install()
             if not install_status:
-                raise Exception(f"Plugin installation failed: {install_message}")
+                raise Exception(
+                    f"Plugin installation failed: {install_message}")
             print(f"[DEBUG] Plugin '{plugin_name}' installed successfully.")
-        dependency_handler_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "dependency_handler.py")
-        print(f"[DEBUG] Running dependency handler at: {dependency_handler_path}")
+        dependency_handler_path = os.path.join(os.path.abspath(
+            os.path.dirname(__file__)), "dependency_handler.py")
+        print(
+            f"[DEBUG] Running dependency handler at: {dependency_handler_path}")
         if os.path.exists(dependency_handler_path):
             try:
-                subprocess.check_call([sys.executable, dependency_handler_path])
+                subprocess.check_call(
+                    [sys.executable, dependency_handler_path])
                 print(f"[DEBUG] Dependency handler executed successfully.")
             except subprocess.CalledProcessError as e:
                 print(f"[ERROR] Dependency handler failed: {e}")
                 raise
         else:
-            print(f"[WARNING] Dependency handler not found at: {dependency_handler_path}")
+            print(
+                f"[WARNING] Dependency handler not found at: {dependency_handler_path}")
         self.plugins = self.load_plugins()  # Reload plugins.
         print(f"[DEBUG] Plugin '{plugin_name}' installation complete.")
+
         return True, f"Plugin {plugin_name} installed successfully."
 
     def check_dependencies(self, system_name):
@@ -1644,12 +2023,15 @@ class PluginManager:
             return True, None
         missing = []
         for dependency in dependencies:
-            dep_manifest_path = os.path.join(self.plugins_dir, dependency, 'manifest.json')
+            dep_manifest_path = os.path.join(
+                self.plugins_dir, dependency, 'manifest.json')
             if not os.path.exists(dep_manifest_path):
-                print(f"[DEBUG] Dependency '{dependency}' is missing for plugin '{system_name}'.")
+                print(
+                    f"[DEBUG] Dependency '{dependency}' is missing for plugin '{system_name}'.")
                 missing.append(dependency)
             else:
-                print(f"[DEBUG] Dependency '{dependency}' is present for plugin '{system_name}'. Enabling it.")
+                print(
+                    f"[DEBUG] Dependency '{dependency}' is present for plugin '{system_name}'. Enabling it.")
                 self.enable_plugin(dependency)
         if missing:
             return False, missing
@@ -1671,21 +2053,22 @@ class PluginManager:
         plugins = self.load_plugins() or {}
 
         for sys_name, manifest in plugins.items():
-            deps = manifest.get('dependencies') or manifest.get('depends_on') or []
+            deps = manifest.get('dependencies') or manifest.get(
+                'depends_on') or []
 
             # Normalize to list if string
             if isinstance(deps, str):
                 deps = [deps]
 
             # Strip and filter empty entries
-            deps = [d.strip() for d in deps if isinstance(d, str) and d.strip()]
+            deps = [d.strip()
+                    for d in deps if isinstance(d, str) and d.strip()]
 
             if plugin_name in deps:
                 dependents.append(sys_name)
 
         print(f"[DEBUG] Dependents for plugin '{plugin_name}': {dependents}")
         return dependents
-
 
     def uninstall_plugin(self, system_name: str) -> tuple:
         """
@@ -1695,6 +2078,7 @@ class PluginManager:
         - Skip if plugin is marked protected
         - Disable dependents that require this plugin (cascade)
         - Mark target plugin as disabled
+        - Run install.py uninstall if present
         - Remove plugin directory
         - Refresh plugin cache
 
@@ -1704,7 +2088,11 @@ class PluginManager:
         Returns:
             Tuple[bool, str]: (success flag, summary message)
         """
-        import os, json, shutil
+        import os
+        import json
+        import shutil
+        import subprocess
+        import sys
 
         plugin_dir = os.path.join(self.plugins_dir, system_name)
         manifest_path = os.path.join(plugin_dir, "manifest.json")
@@ -1722,7 +2110,8 @@ class PluginManager:
                 manifest = {}
 
         if manifest.get("protected"):
-            print(f"[WARN] Attempted uninstall of protected plugin '{system_name}' – operation blocked.")
+            print(
+                f"[WARN] Attempted uninstall of protected plugin '{system_name}' – operation blocked.")
             return False, f"{system_name} is protected and cannot be uninstalled."
 
         # 1) Disable dependents (cascade)
@@ -1731,10 +2120,12 @@ class PluginManager:
         for dep_name in self.get_dependents(system_name):
             ok, msg = self.disable_plugin(dep_name, cascade=True)
             if ok:
-                print(f"[DEBUG] Disabled dependent '{dep_name}' because it depends on '{system_name}'.")
+                print(
+                    f"[DEBUG] Disabled dependent '{dep_name}' because it depends on '{system_name}'.")
                 disabled.append(dep_name)
             else:
-                print(f"[WARN] Failed to disable dependent '{dep_name}': {msg}")
+                print(
+                    f"[WARN] Failed to disable dependent '{dep_name}': {msg}")
                 disable_errors.append(f"{dep_name}: {msg}")
 
         # 2) Mark target disabled in manifest (if exists) before deletion
@@ -1746,40 +2137,66 @@ class PluginManager:
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(m, f, indent=4)
             except Exception as e:
-                print(f"[WARN] Failed to mark '{system_name}' disabled in manifest before deletion: {e}")
+                print(
+                    f"[WARN] Failed to mark '{system_name}' disabled in manifest before deletion: {e}")
 
-        # 3) Remove the plugin directory
+        # 3) Run install.py uninstall if present
+        script_path = os.path.join(plugin_dir, "install.py")
+        if os.path.exists(script_path):
+            try:
+                result = subprocess.run(
+                    [sys.executable, script_path, "uninstall"],
+                    check=True, capture_output=True, text=True
+                )
+                print(result.stdout)
+                if result.stderr:
+                    print("[STDERR]", result.stderr)
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Plugin uninstall script failed: {e}")
+                if e.stdout:
+                    print("[STDOUT]", e.stdout)
+                if e.stderr:
+                    print("[STDERR]", e.stderr)
+        else:
+            print(
+                f"[WARN] No install.py found in plugin directory for {system_name}.")
+
+        # 4) Remove the plugin directory
         try:
             print(f"[DEBUG] Removing plugin directory '{plugin_dir}'...")
             shutil.rmtree(plugin_dir, ignore_errors=False)
-            print(f"[DEBUG] Plugin '{system_name}' directory removed successfully.")
+            print(
+                f"[DEBUG] Plugin '{system_name}' directory removed successfully.")
         except Exception as e:
             return False, f"Failed to remove plugin files for '{system_name}': {e}"
 
-        # 4) Refresh cache
+        # 5) Refresh cache
         try:
             self.plugins = self.load_plugins()
         except Exception as e:
-            print(f"[WARN] Failed to refresh plugin cache after uninstall: {e}")
+            print(
+                f"[WARN] Failed to refresh plugin cache after uninstall: {e}")
 
-        # 5) Build clear summary message
+        # 6) Build clear summary message
         msg_parts = [f"{system_name} has been uninstalled."]
         if disabled:
             msg_parts.append(f"Disabled dependents: {', '.join(disabled)}.")
         if disable_errors:
-            msg_parts.append(f"Errors disabling dependents: {', '.join(disable_errors)}.")
+            msg_parts.append(
+                f"Errors disabling dependents: {', '.join(disable_errors)}.")
         msg = " ".join(msg_parts)
 
         print(f"[DEBUG] Uninstall summary: {msg}")
         return True, msg
-
 
     def enable_plugin(self, system_name):
         """
         Enable a plugin. Creates manifest.json from factory manifest if missing.
         Enforces that all dependencies are installed AND enabled first.
         """
-        import os, json, subprocess
+        import os
+        import json
+        import subprocess
 
         print(f"[DEBUG] Enabling plugin '{system_name}'")
 
@@ -1790,14 +2207,16 @@ class PluginManager:
         # 0) Seed manifest if missing
         manifest = {}
         if not os.path.exists(manifest_path):
-            print(f"[DEBUG] No manifest.json for '{system_name}'. Seeding from factory manifest if present...")
+            print(
+                f"[DEBUG] No manifest.json for '{system_name}'. Seeding from factory manifest if present...")
             seed = {}
             if os.path.exists(factory_path):
                 try:
                     with open(factory_path, 'r', encoding='utf-8') as f:
                         seed = json.load(f) or {}
                 except json.JSONDecodeError:
-                    print(f"[WARN] factory_manifest.json for '{system_name}' is invalid JSON; proceeding with defaults.")
+                    print(
+                        f"[WARN] factory_manifest.json for '{system_name}' is invalid JSON; proceeding with defaults.")
                     seed = {}
 
             manifest = {
@@ -1826,15 +2245,15 @@ class PluginManager:
             os.makedirs(plugin_folder, exist_ok=True)
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(manifest, f, indent=4)
-            print(f"[DEBUG] Seeded manifest.json for '{system_name}'")
-
+            print(f"[DEBUG] Seeded manifest.json for '{system_name}'.")
         # Load existing manifest if not freshly seeded
         if not manifest:
             try:
                 with open(manifest_path, 'r', encoding='utf-8') as f:
                     manifest = json.load(f) or {}
             except (json.JSONDecodeError, FileNotFoundError):
-                print(f"[WARN] Corrupt or missing manifest.json for '{system_name}'. Re-seeding minimal manifest.")
+                print(
+                    f"[WARN] Corrupt or missing manifest.json for '{system_name}'. Re-seeding minimal manifest.")
                 manifest = {
                     "system_name": system_name,
                     "name": system_name.replace("_", " ").title(),
@@ -1857,7 +2276,8 @@ class PluginManager:
         disabled = []
 
         if deps:
-            installed_plugins = {p.get("system_name"): p for p in (self.get_all_plugins() or [])}
+            installed_plugins = {p.get("system_name"): p for p in (
+                self.get_all_plugins() or [])}
             for dep in deps:
                 meta = installed_plugins.get(dep)
                 if not meta or not meta.get("installed"):
@@ -1881,18 +2301,19 @@ class PluginManager:
 
         # 3) Optionally run dependency handler or plugin-specific post-enable
         try:
-            print(f"[DEBUG] Running dependency handler after enabling plugin '{system_name}'...")
-            dependency_handler_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "dependency_handler.py")
+            print(
+                f"[DEBUG] Running dependency handler after enabling plugin '{system_name}'...")
+            dependency_handler_path = os.path.join(os.path.abspath(
+                os.path.dirname(__file__)), "dependency_handler.py")
             if os.path.exists(dependency_handler_path):
-                subprocess.check_call([sys.executable, dependency_handler_path])
+                subprocess.check_call(
+                    [sys.executable, dependency_handler_path])
         except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Dependency handler failed after enabling plugin '{system_name}': {e}")
-            # Optional: revert enabled flag if critical
-            # manifest['enabled'] = False
+            print(
+                f"[ERROR] Dependency handler failed after enabling plugin '{system_name}': {e}")
 
         print(f"[DEBUG] Plugin '{system_name}' enabled successfully.")
         return True, f"{system_name} enabled successfully."
-
 
     def disable_plugin(self, system_name: str, cascade: bool = True) -> tuple:
         """
@@ -1949,7 +2370,6 @@ class PluginManager:
 
         return True, f"{system_name} and its dependents have been disabled."
 
-
     def update_plugin_manifest(self, plugin_name, update_flag):
         """Update the 'update_available' flag in the plugin's manifest."""
         plugin_folder = os.path.join(self.plugins_dir, plugin_name)
@@ -1959,8 +2379,10 @@ class PluginManager:
             self.save_plugin_manifest(plugin_name, manifest)
 
     def save_plugin_manifest(self, plugin_name, plugin_manifest):
-        manifest_path = os.path.join(self.plugins_dir, plugin_name, 'manifest.json')
-        print(f"[DEBUG] Saving updated manifest for plugin '{plugin_name}' at '{manifest_path}'")
+        manifest_path = os.path.join(
+            self.plugins_dir, plugin_name, 'manifest.json')
+        print(
+            f"[DEBUG] Saving updated manifest for plugin '{plugin_name}' at '{manifest_path}'")
         with open(manifest_path, 'w') as f:
             json.dump(plugin_manifest, f, indent=4)
 
@@ -1973,7 +2395,8 @@ class PluginManager:
                 try:
                     return json.load(f)
                 except json.JSONDecodeError:
-                    print(f"[ERROR] Error reading core manifest at {core_manifest_path}.")
+                    print(
+                        f"[ERROR] Error reading core manifest at {core_manifest_path}.")
         else:
             print(f"[ERROR] Core manifest not found at {core_manifest_path}.")
         return None
@@ -2021,50 +2444,43 @@ class PluginManager:
     def register_admin_routes(self, app):
         """
         Dynamically register admin routes for all plugins.
-        For each plugin, if its manifest includes a "permission_required" key,
-        attach a blueprint-level before_request handler that requires the specified permission.
         """
+        # Refresh plugin cache before registering
+        self.plugins = self.load_plugins() or {}
+
         for plugin_name, manifest in self.plugins.items():
             try:
-                module = importlib.import_module(f"app.plugins.{plugin_name}.routes")
+                module = importlib.import_module(
+                    f"app.plugins.{plugin_name}.routes")
                 if hasattr(module, "get_blueprint"):
                     blueprint = module.get_blueprint()
-                    required_permission = manifest.get("permission_required")
-                    # @blueprint.before_request
-                    # def check_plugin_access():
-                    #     from flask import flash, redirect, url_for
-                    #     if not current_user.is_authenticated:
-                    #         flash("Please log in to access this module.", "warning")
-                    #         return redirect(url_for('routes.login'))
-                    #     if current_user.role == 'admin':
-                    #         return
-                    #     if not required_permission:
-                    #         return
-                    #     # Assume has_permission() is defined elsewhere.
-                    #     if not has_permission(required_permission):
-                    #         flash("Access denied: You do not have the required permission to access this module.", "danger")
-                    #         return redirect(url_for('routes.dashboard'))
                     app.register_blueprint(blueprint)
-                    print(f"[DEBUG] Admin routes registered for plugin: {plugin_name}")
+                    print(
+                        f"[DEBUG] Admin routes registered for plugin: {plugin_name}")
                 else:
-                    print(f"[DEBUG] Plugin {plugin_name} does not provide get_blueprint().")
+                    print(
+                        f"[DEBUG] Plugin {plugin_name} does not provide get_blueprint().")
             except Exception as e:
                 print(f"[ERROR] Error registering plugin {plugin_name}: {e}")
 
     def register_public_routes(self, app):
         """
         Dynamically register public routes for all plugins.
-        For each plugin, if its manifest includes a "permission_required" key,
-        attach a blueprint-level before_request handler that requires the specified permission.
         """
+        # Refresh plugin cache before registering
+        self.plugins = self.load_plugins() or {}
+
         for plugin_name, manifest in self.plugins.items():
             try:
-                module = importlib.import_module(f"app.plugins.{plugin_name}.routes")
+                module = importlib.import_module(
+                    f"app.plugins.{plugin_name}.routes")
                 if hasattr(module, "get_public_blueprint"):
                     blueprint = module.get_public_blueprint()
                     app.register_blueprint(blueprint)
-                    print(f"[DEBUG] Public routes registered for plugin: {plugin_name}")
+                    print(
+                        f"[DEBUG] Public routes registered for plugin: {plugin_name}")
                 else:
-                    print(f"[DEBUG] Plugin {plugin_name} does not provide get_public_blueprint().")
+                    print(
+                        f"[DEBUG] Plugin {plugin_name} does not provide get_public_blueprint().")
             except Exception as e:
                 print(f"[ERROR] Error registering plugin {plugin_name}: {e}")

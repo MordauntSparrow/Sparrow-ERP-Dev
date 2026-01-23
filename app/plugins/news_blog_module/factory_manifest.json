@@ -1,0 +1,29 @@
+{
+  "system_name": "news_blog_module",
+  "name": "News / Blog",
+  "description": "Publish articles (news/blog/updates) with a public listing and sitemap inclusion for SEO and AI discovery.",
+  "version": "0.0.4",
+  "icon": "icon.png",
+  "settings": {
+    "nav_item_label": { "value": "News", "editable": true },
+    "section_slug": { "value": "news", "editable": true },
+    "posts_per_page": { "value": 10, "editable": true }
+  },
+  "public_sections": [
+    {
+      "label": "News",
+      "description": "Latest updates and articles.",
+      "url": "/news/",
+      "order": 200
+    }
+  ],
+  "public_sitemaps": [
+    "/news/sitemap.xml"
+  ],
+  "enabled": true,
+  "dependencies": ["website_module"],
+  "repository": "official",
+  "download_url": "https://gitlab.com/sparrow-erp/Core/repository/files/plugins/news_blog_module.zip",
+  "changelog": "Initial release of News/Blog module (admin editor + public listing + sitemap).",
+  "repository_token": ""
+}

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Title & Meta -->
+    <title>
+    {% block title %}
+        {% if page_data and page_data.meta and page_data.meta.title %}
+        {{ page_data.meta.title }}
+        {% elif title %}
+        {{ title }}
+        {% elif config and config.company_name %}
+        {{ config.company_name }}
+        {% else %}
+        Sparrow ERP
+        {% endif %}
+    {% endblock %}
+    </title>
+
+    <meta name="description" content="{% block description %}
+    {% if page_data and page_data.meta and page_data.meta.description %}
+        {{ page_data.meta.description }}
+    {% elif description %}
+        {{ description }}
+    {% else %}
+        Sparrow ERP modular, Flask-based ERP system.
+    {% endif %}
+    {% endblock %}">
+
+    <meta name="keywords" content="{% block keywords %}
+    {% if page_data and page_data.meta and page_data.meta.keywords %}
+        {{ ', '.join(page_data.meta.keywords) }}
+    {% elif keywords %}
+        {{ keywords }}
+    {% else %}
+        sparrow, erp, flask, modular, plugins
+    {% endif %}
+    {% endblock %}">
+
+    <!-- Canonical URL (avoid query params) -->
+    <link rel="canonical" href="{{ request.base_url }}">
+
+    <!-- Optional: hint canonical host/root for crawlers -->
+    <meta property="og:site_name" content="{{ config.company_name or 'Sparrow ERP' }}">
+
+    <!-- Favicon (supports ico, png, jpg, jpeg, webp) -->
+    {% if website_settings and website_settings.favicon_path %}
+      {% set ext = website_settings.favicon_path.rsplit('.', 1)[-1].lower() %}
+      {% set mime = {
+        'ico': 'image/x-icon',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'webp': 'image/webp'
+      }[ext] if ext in ['ico','png','jpg','jpeg','webp'] else 'image/x-icon' %}
+      <link rel="icon" type="{{ mime }}" href="/website_module_static/{{ website_settings.favicon_path }}">
+    {% endif %}
+
+    <!-- Social Meta Tags (OG/Twitter) -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.base_url }}">
+
+    <meta property="og:title" content="{% if page_data and page_data.meta and page_data.meta.title %}
+    {{ page_data.meta.title }}
+    {% elif title %}
+    {{ title }}
+    {% elif config and config.company_name %}
+    {{ config.company_name }}
+    {% else %}
+    Sparrow ERP
+    {% endif %}">
+
+    <meta property="og:description" content="{% if page_data and page_data.meta and page_data.meta.description %}
+    {{ page_data.meta.description }}
+    {% elif description %}
+    {{ description }}
+    {% else %}
+    Sparrow ERP modular, Flask-based ERP system.
+    {% endif %}">
+
+    {% if page_data and page_data.meta and page_data.meta.image %}
+    <meta property="og:image" content="{{ url_for('website_public.static', filename=page_data.meta.image) }}">
+    {% elif website_settings and website_settings.default_og_image %}
+    <meta property="og:image" content="{{ url_for('website_public.static', filename=website_settings.default_og_image) }}">
+    {% endif %}
+
+    <meta name="twitter:card" content="summary_large_image">
+
+    <meta name="twitter:title" content="{% if page_data and page_data.meta and page_data.meta.title %}
+    {{ page_data.meta.title }}
+    {% elif title %}
+    {{ title }}
+    {% elif config and config.company_name %}
+    {{ config.company_name }}
+    {% else %}
+    Sparrow ERP
+    {% endif %}">
+
+    <meta name="twitter:description" content="{% if page_data and page_data.meta and page_data.meta.description %}
+    {{ page_data.meta.description }}
+    {% elif description %}
+    {{ description }}
+    {% else %}
+    Sparrow ERP modular, Flask-based ERP system.
+    {% endif %}">
+
+    {% if page_data and page_data.meta and page_data.meta.image %}
+    <meta name="twitter:image" content="{{ url_for('website_public.static', filename=page_data.meta.image) }}">
+    {% elif website_settings and website_settings.default_og_image %}
+    <meta name="twitter:image" content="{{ url_for('website_public.static', filename=website_settings.default_og_image) }}">
+    {% endif %}
+
+    <!-- Structured Data (JSON-LD) with Socials -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "{{ config.company_name or 'Sparrow ERP' }}",
+      "url": "{{ request.url_root.rstrip('/') }}/",
+      "sameAs": [
+        {% set socials = [
+          website_settings.facebook_url,
+          website_settings.instagram_url,
+          website_settings.linkedin_url,
+          website_settings.twitter_url,
+          website_settings.youtube_url,
+          website_settings.tiktok_url,
+          website_settings.pinterest_url,
+          website_settings.whatsapp_url,
+          website_settings.threads_url,
+          website_settings.reddit_url,
+          website_settings.snapchat_url,
+          website_settings.telegram_url,
+          website_settings.discord_url,
+          website_settings.tumblr_url,
+          website_settings.github_url,
+          website_settings.medium_url,
+          website_settings.vimeo_url,
+          website_settings.dribbble_url,
+          website_settings.behance_url,
+          website_settings.soundcloud_url,
+          website_settings.slack_url,
+          website_settings.mastodon_url
+        ] %}
+        {% for url in socials if url %}
+          "{{ url }}"{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+    }
+    </script>
+
+    {# IMPORTANT: schema_json is currently stored as a string in settings.
+       Using tojson on a string will double-quote it and break JSON-LD.
+       We keep it safe: if it's already a JSON string, output it raw. #}
+    {% if website_settings and website_settings.schema_json %}
+    <script type="application/ld+json">
+{{ website_settings.schema_json | replace('\\"','"') | replace('\\r\\n','\n') | trim('"') | safe }}
+</script>
+
+    {% endif %}
+
+    <!-- Material Bootstrap CSS & Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/6.4.0/mdb.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+    <!-- Custom CSS (Theme and User Uploaded) -->
+    {% if config.theme_settings and config.theme_settings.custom_css_path %}
+        <link rel="stylesheet" href="{{ url_for('static', filename=config.theme_settings.custom_css_path) }}">
+    {% elif config.theme_settings and config.theme_settings.theme %}
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/' + config.theme_settings.theme + '.css') }}">
+    {% endif %}
+
+    <style>
+      .footer-socials {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5em;
+        justify-content: flex-start;
+        align-items: center;
+        max-width: 100%;
+        margin-top: 0.5em;
+      }
+      .footer-socials a {
+        font-size: 1.35rem;
+        color: #333;
+        transition: color 0.2s;
+        display: flex;
+        align-items: center;
+      }
+      .footer-socials a:hover { color: #007bff; }
+      @media (max-width: 600px) {
+        .footer-socials { justify-content: center; }
+        .footer-socials a { font-size: 1.1rem; }
+      }
+      .cookie-bar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        z-index: 9999;
+        min-height: 60px;
+        border-radius: 0;
+        box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+        border-top-width: 3px !important;
+        border-top-style: solid !important;
+        border-top-color: {{ website_settings.cookie_bar_colors or '#3860ff' }};
+        background: #fff !important;
+        transition: all 0.3s;
+      }
+      .cookie-bar .btn-link { text-decoration: underline; }
+      .cookie-bar .btn-outline-danger { border-width: 2px; }
+      .navbar-toggler {
+        border-color: #007bff;
+        background-color: #fff;
+      }
+      .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke='rgba(0,123,255,1)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
+      }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light sticky-top">
+      <div class="container">
+        {% if config.branding == 'logo' and config.logo_path %}
+            <a class="navbar-brand" href="/">
+                <img src="{{ url_for('static', filename=config.logo_path) }}" alt="Logo" height="40">
+            </a>
+        {% else %}
+            <a class="navbar-brand" href="/">{{ config.company_name or 'Sparrow ERP' }}</a>
+        {% endif %}
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-mdb-toggle="collapse"
+          data-mdb-target="#navbarNav"
+          aria-controls="navbarNav"
+          aria-expanded="false"
+          aria-label="Toggle navigation"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav ms-auto">
+            {% for page in pages %}
+                {% if page.header %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('website_public.custom_page', page_route=page.route.strip('/')) }}">
+                            {{ page.title }}
+                        </a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Page Content -->
+    <main class="container mt-5">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light text-center text-lg-start mt-5">
+      <div class="container p-4">
+        <div class="row">
+          <div class="col-lg-6 col-md-12 mb-4 mb-md-0">
+            <h5 class="text-uppercase">{{ config.company_name or 'Sparrow ERP' }}</h5>
+            <p>
+              Sparrow ERP offers powerful website and e-commerce capabilities, seamlessly integrated with your business.
+            </p>
+            <!-- Social Links -->
+            <div class="footer-socials">
+              {% set socials = [
+                ('Facebook',    'bi bi-facebook',    website_settings.facebook_url),
+                ('Instagram',   'bi bi-instagram',   website_settings.instagram_url),
+                ('LinkedIn',    'bi bi-linkedin',    website_settings.linkedin_url),
+                ('Twitter',     'bi bi-twitter-x',   website_settings.twitter_url),
+                ('YouTube',     'bi bi-youtube',     website_settings.youtube_url),
+                ('TikTok',      'bi bi-tiktok',      website_settings.tiktok_url),
+                ('Pinterest',   'bi bi-pinterest',   website_settings.pinterest_url),
+                ('WhatsApp',    'bi bi-whatsapp',    website_settings.whatsapp_url),
+                ('Threads',     'bi bi-threads',     website_settings.threads_url),
+                ('Reddit',      'bi bi-reddit',      website_settings.reddit_url),
+                ('Snapchat',    'bi bi-snapchat',    website_settings.snapchat_url),
+                ('Telegram',    'bi bi-telegram',    website_settings.telegram_url),
+                ('Discord',     'bi bi-discord',     website_settings.discord_url),
+                ('Tumblr',      'bi bi-tumblr',      website_settings.tumblr_url),
+                ('GitHub',      'bi bi-github',      website_settings.github_url),
+                ('Medium',      'bi bi-medium',      website_settings.medium_url),
+                ('Vimeo',       'bi bi-vimeo',       website_settings.vimeo_url),
+                ('Dribbble',    'bi bi-dribbble',    website_settings.dribbble_url),
+                ('Behance',     'bi bi-behance',     website_settings.behance_url),
+                ('SoundCloud',  'bi bi-soundwave',   website_settings.soundcloud_url),
+                ('Slack',       'bi bi-slack',       website_settings.slack_url),
+                ('Mastodon',    'bi bi-mastodon',    website_settings.mastodon_url)
+              ] %}
+              {% for name, icon, url in socials %}
+                {% if url %}
+                  <a href="{{ url }}" target="_blank" rel="noopener" title="{{ name }}">
+                    <i class="{{ icon }}"></i>
+                  </a>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-lg-6 col-md-12">
+            <h5 class="text-uppercase">Quick Links</h5>
+            <ul class="list-unstyled mb-0">
+                {% for page in pages %}
+                    {% if page.footer %}
+                        <li>
+                            <a href="{{ url_for('website_public.custom_page', page_route=page.route.strip('/')) }}" class="text-dark">
+                                {{ page.title }}
+                            </a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                <li>
+                    <a href="/privacy-policy" class="text-dark">Privacy Policy</a>
+                </li>
+                <li>
+                    <a href="/cookie-policy" class="text-dark">Cookie Policy</a>
+                </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="text-center p-3 bg-dark text-white">
+        &copy; 2025 <strong>{{ config.company_name or 'Sparrow ERP' }}</strong>. All Rights Reserved. | Powered by Sparrow ERP
+      </div>
+    </footer>
+
+    <!-- Cookie Consent Bar -->
+    {% if website_settings and website_settings.cookie_bar_text %}
+      <div id="cookieBar" class="cookie-bar" style="display:none; border-top: 3px solid {{ website_settings.cookie_bar_colors or '#3860ff' }}; background: #fff;">
+        <div class="container py-3 d-flex flex-column flex-md-row align-items-center justify-content-between">
+          <span class="me-3" style="color: #333;">{{ website_settings.cookie_bar_text }}</span>
+          <div>
+            <button id="cookieAcceptBtn" class="btn btn-success btn-sm me-2">
+              {{ website_settings.cookie_bar_accept_text or "Accept" }}
+            </button>
+            <button id="cookieDeclineBtn" class="btn btn-outline-danger btn-sm me-2">
+              {{ website_settings.cookie_bar_decline_text or "Decline" }}
+            </button>
+            {% if website_settings.cookie_policy %}
+              <a href="/cookie-policy" class="btn btn-link btn-sm" style="color: {{ website_settings.cookie_bar_colors or '#3860ff' }}; text-decoration: underline;">Cookie Policy</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <script>
+        document.addEventListener("DOMContentLoaded", function() {
+          function setCookie(name, value, days) {
+            let expires = "";
+            if (days) {
+              const date = new Date();
+              date.setTime(date.getTime() + (days*24*60*60*1000));
+              expires = "; expires=" + date.toUTCString();
+            }
+            document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+          }
+          function getCookie(name) {
+            const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+            return v ? v[2] : null;
+          }
+          if (!getCookie("cookieConsent")) {
+            document.getElementById("cookieBar").style.display = "block";
+          }
+          document.getElementById("cookieAcceptBtn")?.addEventListener("click", function() {
+            setCookie("cookieConsent", "true", 365);
+            document.getElementById("cookieBar").style.display = "none";
+            location.reload();
+          });
+          document.getElementById("cookieDeclineBtn")?.addEventListener("click", function() {
+            setCookie("cookieConsent", "false", 365);
+            document.getElementById("cookieBar").style.display = "none";
+            location.reload();
+          });
+        });
+      </script>
+    {% endif %}
+
+    <!-- Only inject analytics/scripts if consent given -->
+    {% if request.cookies.get('cookieConsent') == 'true' %}
+      {{ website_settings.analytics_code|safe }}
+    {% endif %}
+
+    <!-- Material Bootstrap JS (deferred for performance) -->
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/6.4.0/mdb.min.js" defer></script>
+
+    <!-- Lazy loading for images -->
+    <script>
+      document.addEventListener("DOMContentLoaded", function() {
+        document.querySelectorAll('img').forEach(function(img) {
+          img.setAttribute('loading', 'lazy');
+        });
+      });
+    </script>
+
+    <!-- Mobile navbar auto-close on link click -->
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        var navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+        var navbarCollapse = document.getElementById('navbarNav');
+        navLinks.forEach(function (link) {
+          link.addEventListener('click', function () {
+            if (window.innerWidth < 992 && navbarCollapse.classList.contains('show')) {
+              var collapseInstance = new mdb.Collapse(navbarCollapse, {toggle: false});
+              collapseInstance.hide();
+            }
+          });
+        });
+      });
+    </script>
+</body>
+</html>

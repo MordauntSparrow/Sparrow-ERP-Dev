@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 {% block title %}Website Admin Dashboard{% endblock %}
 
 {% block content %}
@@ -35,6 +35,18 @@
         </div>
       </a>
     </div>
+    <div class="col-md-4">
+    <a href="{{ url_for('website_admin_routes.website_settings') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm">
+        <div class="card-header bg-warning text-dark d-flex align-items-center">
+          <i class="bi bi-sliders me-2"></i> Website Settings
+        </div>
+        <div class="card-body">
+          <p class="text-muted">Global branding, SEO, social, cookie & legal settings.</p>
+        </div>
+      </div>
+    </a>
+  </div>
     <div class="col-md-4">
       <a href="{{ url_for('website_admin_routes.contact_config') }}" class="text-decoration-none">
         <div class="card h-100 shadow-sm">
