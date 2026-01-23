@@ -8,9 +8,8 @@
   "deploy": {
     "runtime": "V2",
     "numReplicas": 1,
-    "startCommand": "python run.py",
-    "preDeployCommand": [
-    ],
+    "startCommand": "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf",
+    "preDeployCommand": [],
     "sleepApplication": true,
     "useLegacyStacker": false,
     "multiRegionConfig": {
