@@ -9,7 +9,9 @@
     "runtime": "V2",
     "numReplicas": 1,
     "startCommand": "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf",
-    "preDeployCommand": [],
+    "preDeployCommand": [
+      "python app/setup/init_db.py"
+    ],
     "sleepApplication": true,
     "useLegacyStacker": false,
     "multiRegionConfig": {
