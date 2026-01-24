@@ -10,8 +10,8 @@
     "numReplicas": 1,
     "startCommand": "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf",
     "preDeployCommand": [
-      "python app/setup/init_db.py"
-    ],
+  "python -m app.setup.init_db"
+],
     "sleepApplication": true,
     "useLegacyStacker": false,
     "multiRegionConfig": {
