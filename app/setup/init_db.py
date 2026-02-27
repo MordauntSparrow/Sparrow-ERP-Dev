@@ -3,7 +3,6 @@ import os
 import sys
 import mysql.connector
 import uuid
-<<<<<<< HEAD
 
 # Only load dotenv for local/dev
 if not os.environ.get("RAILWAY_ENVIRONMENT"):
@@ -13,17 +12,7 @@ if not os.environ.get("RAILWAY_ENVIRONMENT"):
     dotenv_path = os.path.join(project_root, 'app', 'config', '.env')
     if os.path.exists(dotenv_path):
         load_dotenv(dotenv_path=dotenv_path)
-=======
->>>>>>> 8fabe830ef66089dcb0e7f3d16af1e803277a5d5
 
-# Only load dotenv for local/dev
-if not os.environ.get("RAILWAY_ENVIRONMENT"):
-    from dotenv import load_dotenv
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, '..'))
-    dotenv_path = os.path.join(project_root, 'app', 'config', '.env')
-    if os.path.exists(dotenv_path):
-        load_dotenv(dotenv_path=dotenv_path)
 
 def create_database_and_tables():
     db_host = os.environ.get("DB_HOST", "localhost")
@@ -31,24 +20,17 @@ def create_database_and_tables():
     db_password = os.environ.get("DB_PASSWORD", "rootpassword")
     db_name = os.environ.get("DB_NAME", "sparrow_erp")
 
-<<<<<<< HEAD
+
     conn = mysql.connector.connect(
         host=db_host, user=db_user, password=db_password)
-=======
-    conn = mysql.connector.connect(host=db_host, user=db_user, password=db_password)
->>>>>>> 8fabe830ef66089dcb0e7f3d16af1e803277a5d5
     cursor = conn.cursor()
     cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
     print(f"Database '{db_name}' ensured.")
     cursor.close()
     conn.close()
 
-<<<<<<< HEAD
     conn = mysql.connector.connect(
         host=db_host, user=db_user, password=db_password, database=db_name)
-=======
-    conn = mysql.connector.connect(host=db_host, user=db_user, password=db_password, database=db_name)
->>>>>>> 8fabe830ef66089dcb0e7f3d16af1e803277a5d5
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -73,6 +55,7 @@ def create_database_and_tables():
     cursor.close()
     conn.close()
 
+
 def create_default_admin():
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
@@ -96,6 +79,7 @@ def create_default_admin():
 
     cursor.close()
     db.close()
+
 
 if __name__ == "__main__":
     create_database_and_tables()
