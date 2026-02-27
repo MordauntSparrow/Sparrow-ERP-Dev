@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ventus CAD — Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  
+  <style>
+    :root {
+      --primary: #1e40af;
+      --primary-light: #3b82f6;
+      --primary-dark: #1e3a8a;
+      --secondary: #0f172a;
+      --secondary-light: #1e293b;
+      --secondary-lighter: #475569;
+      --accent: #06b6d4;
+      --accent-warning: #f59e0b;
+      --accent-danger: #ef4444;
+      --accent-success: #10b981;
+      --bg-dark: #0f172a;
+      --bg-darker: #0a0e27;
+      --text-primary: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+      --border-color: #1e293b;
+      --border-light: #334155;
+      --shadow-sm: 0 2px 4px rgba(0,0,0,0.1);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.2);
+      --shadow-xl: 0 16px 40px rgba(0,0,0,0.25);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(135deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
+      color: var(--text-primary);
+      font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .popout-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .popout-header {
+      padding: 16px 20px;
+      background: linear-gradient(90deg, rgba(30,41,66,0.9), rgba(6,182,214,0.1));
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .popout-title {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .popout-title i {
+      font-size: 18px;
+      color: var(--accent);
+    }
+
+    .popout-controls {
+      display: flex;
+      gap: 6px;
+    }
+
+    .popout-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      font-size: 15px;
+    }
+
+    .popout-btn:hover {
+      background: rgba(255,255,255,0.1);
+      color: var(--text-primary);
+      border-color: var(--border-light);
+    }
+
+    .popout-content {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.90) 100%);
+    }
+
+    .popout-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .popout-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .popout-content::-webkit-scrollbar-thumb {
+      background: var(--border-light);
+      border-radius: 3px;
+    }
+
+    .popout-content::-webkit-scrollbar-thumb:hover {
+      background: var(--secondary-lighter);
+    }
+
+    .panel-list-item {
+      list-style: none;
+      padding: 12px;
+      margin-bottom: 8px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      border-left: 2px solid var(--primary-light);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .panel-list-item:hover {
+      background: rgba(6,182,214,0.1);
+      border-left-color: var(--accent);
+      box-shadow: inset 0 0 10px rgba(6,182,214,0.1);
+    }
+
+    .panel-list-item span {
+      flex: 1;
+    }
+
+    .panel-list-item .status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: rgba(59,130,246,0.2);
+      color: var(--primary-light);
+    }
+
+    .panel-list-item .status.cleared {
+      background: rgba(16,185,129,0.2);
+      color: var(--accent-success);
+    }
+
+    .panel-list-item .status.assigned {
+      background: rgba(59,130,246,0.2);
+      color: var(--primary-light);
+    }
+
+    .panel-list-item .meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    input[type="text"],
+    input[type="search"] {
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 13px;
+      transition: all 0.2s ease;
+      margin-bottom: 10px;
+    }
+
+    input[type="text"]:focus,
+    input[type="search"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(6,182,214,0.05);
+      box-shadow: 0 0 10px rgba(6,182,214,0.2);
+    }
+
+    .btn {
+      padding: 10px 16px;
+      background: linear-gradient(135deg, var(--primary-light), var(--primary));
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary-dark));
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn.full {
+      width: 100%;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-top: 14px;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .action-group {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .action-group .btn {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 11px;
+    }
+
+    .popout-footer {
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.2);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="popout-container">
+    <div class="popout-header">
+      <div class="popout-title">
+        <i id="titleIcon" class="bi bi-stack"></i>
+        <span id="titleText">Panel</span>
+      </div>
+      <div class="popout-controls">
+        <button class="popout-btn" id="refreshBtn" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+        <button class="popout-btn" id="closeBtn" title="Close"><i class="bi bi-x"></i></button>
+      </div>
+    </div>
+
+    <div class="popout-content" id="content">
+      <div style="text-align:center;color:var(--text-muted);padding:40px 20px;">
+        <i class="bi bi-hourglass-split" style="font-size:32px;display:block;margin-bottom:12px;"></i>
+        <div>Loading...</div>
+      </div>
+    </div>
+
+    <div class="popout-footer">
+      <span id="statusText">Ready</span>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const defaultPanel = "{{ panel|default('jobs') }}";
+    const panelType = String(params.get('type') || defaultPanel || 'jobs').trim().toLowerCase();
+    const selectedDivision = String(params.get('division') || '').trim().toLowerCase();
+    const includeExternal = String(params.get('include_external') || '1').trim().toLowerCase();
+    const defaultTitles = {
+      jobs: 'CAD Stack',
+      units: 'Active Units',
+      messages: 'Messages',
+      past_jobs: 'Past / Cleared Jobs',
+      audit: 'Audit'
+    };
+    const panelTitle = params.get('title') || defaultTitles[panelType] || 'Panel';
+
+    let socket = null;
+    try {
+      if (typeof io !== 'undefined') socket = io();
+    } catch (e) {}
+
+    const titleEl = document.getElementById('titleText');
+    const iconEl = document.getElementById('titleIcon');
+    const contentEl = document.getElementById('content');
+    const statusEl = document.getElementById('statusText');
+    const closeBtn = document.getElementById('closeBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function setIcon(type) {
+      if (type === 'jobs') iconEl.className = 'bi bi-stack';
+      else if (type === 'units') iconEl.className = 'bi bi-truck-front';
+      else if (type === 'messages') iconEl.className = 'bi bi-chat-dots';
+      else if (type === 'past_jobs') iconEl.className = 'bi bi-clock-history';
+      else iconEl.className = 'bi bi-layout-sidebar';
+    }
+
+    async function fetchJson(url) {
+      const needsScope = (
+        url.includes('/plugin/ventus_response_module/jobs') ||
+        url.includes('/plugin/ventus_response_module/units') ||
+        url.includes('/plugin/ventus_response_module/history')
+      );
+      let scopedUrl = url;
+      if (needsScope && selectedDivision) {
+        const sep = url.includes('?') ? '&' : '?';
+        scopedUrl = `${url}${sep}division=${encodeURIComponent(selectedDivision)}&include_external=${encodeURIComponent(includeExternal)}`;
+      }
+      const res = await fetch(scopedUrl, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function parseTime(value) {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return '-';
+      const totalMinutes = Math.floor(ms / 60000);
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function prettyFieldLabel(key) {
+      return String(key || '')
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function renderIncidentDetails(triageRaw) {
+      const triage = (triageRaw && typeof triageRaw === 'object') ? triageRaw : {};
+      const take = (k) => triage[k];
+      const row = (label, val) => {
+        if (val === undefined || val === null || String(val).trim() === '') return '';
+        return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(val)}</div>`;
+      };
+
+      const coreRows = [
+        row('Reason for Call', take('reason_for_call')),
+        row('Additional Details', take('additional_details')),
+        row('Address', take('address')),
+        row('Postcode', take('postcode')),
+        row('what3words', take('what3words')),
+        row('Caller Name', take('caller_name')),
+        row('Caller Phone', take('caller_phone')),
+        row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
+        row('DOB', take('patient_dob')),
+        row('Gender', take('patient_gender')),
+        row('Patient Phone', take('phone_number')),
+        row('Onset', take('onset_datetime')),
+        row('Form Profile', [take('form_name'), take('form_slug') ? `(${take('form_slug')})` : ''].join(' ').trim())
+      ].filter(Boolean);
+
+      const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
+      const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v)).filter(Boolean);
+
+      const updates = Array.isArray(take('incident_updates')) ? take('incident_updates') : [];
+      const updateRows = updates.length
+        ? updates.slice(-8).reverse().map((u) => {
+            const t = u && u.time ? new Date(u.time).toLocaleString() : '';
+            const by = (u && u.by) ? ` by ${u.by}` : '';
+            const text = (u && u.text) ? u.text : '';
+            return `<div style="padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;background:rgba(0,0,0,0.15);"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)}${escapeHtml(by)}</div><div>${escapeHtml(text)}</div></div>`;
+          }).join('')
+        : '<div class="meta"><i>No controller updates logged.</i></div>';
+
+      const hidden = new Set([
+        'reason_for_call','additional_details','address','postcode','what3words',
+        'caller_name','caller_phone','first_name','middle_name','last_name',
+        'patient_dob','patient_gender','phone_number','onset_datetime',
+        'form_name','form_slug','form_answers','incident_updates'
+      ]);
+      const rawRows = Object.entries(triage)
+        .filter(([k]) => !hidden.has(String(k)))
+        .map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v))
+        .filter(Boolean);
+
+      return `
+        <div>
+          <div style="font-weight:600;margin-bottom:6px;">Incident Summary</div>
+          <div style="font-size:12px;color:var(--text-secondary);">${coreRows.join('') || '<i>No incident summary fields.</i>'}</div>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <div style="font-weight:600;margin-bottom:6px;">Profile Questions</div>
+          <div style="font-size:12px;color:var(--text-secondary);">${answerRows.join('') || '<i>No profile answers captured.</i>'}</div>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <div style="font-weight:600;margin-bottom:6px;">Incident Updates</div>
+          <div style="font-size:12px;color:var(--text-secondary);">${updateRows}</div>
+          ${rawRows.length ? `<hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;"><div style="font-weight:600;margin-bottom:6px;">Other Captured Data</div><div style="font-size:12px;color:var(--text-secondary);">${rawRows.join('')}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function formatStatusTimesTable(job, timingRow) {
+      if (!timingRow) return '<div class="meta"><i>No status timestamps available.</i></div>';
+      const order = [
+        ['received_time', 'Received'],
+        ['assigned_time', 'Assigned'],
+        ['mobile_time', 'Mobile'],
+        ['on_scene_time', 'On Scene'],
+        ['leave_scene_time', 'Leave Scene'],
+        ['at_hospital_time', 'At Hospital'],
+        ['cleared_time', 'Cleared'],
+        ['stood_down_time', 'Stood Down']
+      ];
+      const points = order
+        .map(([key, label]) => ({ key, label, time: parseTime(timingRow[key]) }))
+        .filter(p => p.time);
+      if (!points.length) return '<div class="meta"><i>No status timestamps available.</i></div>';
+
+      const currentStatus = String(job.status || '').toLowerCase().trim();
+      let rows = '';
+      for (let i = 0; i < points.length; i++) {
+        const current = points[i];
+        const next = points[i + 1];
+        let dur = '-';
+        if (next && next.time) {
+          dur = formatDuration(next.time - current.time);
+        } else if (!['cleared', 'stood_down'].includes(currentStatus)) {
+          dur = formatDuration(new Date() - current.time);
+        }
+        rows += `
+          <tr>
+            <td style="padding:6px;border-bottom:1px solid var(--border-color);">${escapeHtml(current.label)}</td>
+            <td style="padding:6px;border-bottom:1px solid var(--border-color);">${escapeHtml(current.time.toLocaleString())}</td>
+            <td style="padding:6px;border-bottom:1px solid var(--border-color);">${escapeHtml(dur)}</td>
+          </tr>
+        `;
+      }
+      return `
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Status</th>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Time</th>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Duration</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function fetchTimings(cad) {
+      try {
+        const rows = await fetchJson(`/plugin/ventus_response_module/jobs/timings?cad=${encodeURIComponent(cad)}`);
+        if (Array.isArray(rows) && rows.length) return rows[0];
+      } catch (e) {}
+      return null;
+    }
+
+    async function renderJobDetail(cad, isPast) {
+      contentEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">Loading details...</div>';
+      setStatus(`Loading CAD #${cad}...`);
+      try {
+        const [job, timingRow] = await Promise.all([
+          fetchJson(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}`),
+          fetchTimings(cad)
+        ]);
+        const triage = job.triage_data || {};
+        const triageRows = renderIncidentDetails(triage);
+        const createdAt = job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A';
+        const updatedAt = job.updated_at ? new Date(job.updated_at).toLocaleString() : 'N/A';
+        const finalStatus = job.final_status || job.status || 'N/A';
+        const outcome = job.outcome || 'N/A';
+        const publicNotes = job.public_notes || 'None';
+        const privateNotes = job.private_notes || 'None';
+        const statusTable = formatStatusTimesTable(job, timingRow);
+
+        contentEl.innerHTML = `
+          <div>
+            <button class="btn full" id="backToListBtn" style="margin-bottom:10px;"><i class="bi bi-arrow-left"></i> Back</button>
+            <div style="font-weight:700;margin-bottom:6px;">CAD #${escapeHtml(job.cad)}</div>
+            <div class="meta" style="margin-bottom:8px;">Created: ${escapeHtml(createdAt)}${isPast ? ` • Cleared: ${escapeHtml(updatedAt)}` : ''}</div>
+            <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <span class="status">${escapeHtml(job.status || 'unknown')}</span>
+              ${isPast ? `<span class="status">Final: ${escapeHtml(finalStatus)}</span>` : ''}
+            </div>
+            ${isPast ? `<div style="margin-bottom:8px;"><b>Outcome:</b> ${escapeHtml(outcome)}</div>` : ''}
+            ${isPast ? `<div style="margin-bottom:8px;"><b>Public Notes:</b><div style="margin-top:5px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);white-space:pre-wrap;">${escapeHtml(publicNotes)}</div></div>` : ''}
+            ${isPast ? `<div style="margin-bottom:8px;"><b>Private Notes:</b><div style="margin-top:5px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);white-space:pre-wrap;">${escapeHtml(privateNotes)}</div></div>` : ''}
+            <div class="section-title">Status Times</div>
+            ${statusTable}
+            <div class="section-title">Job Specifics</div>
+            <div style="font-size:12px;color:var(--text-secondary);">${triageRows || '<i>No job specifics</i>'}</div>
+            ${!isPast ? `
+              <div class="section-title">Update Incident</div>
+              <textarea id="detailReason" style="width:100%;padding:10px;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border-color);color:var(--text-primary);margin-bottom:8px;min-height:64px;" placeholder="Reason for call">${escapeHtml(triage.reason_for_call || '')}</textarea>
+              <textarea id="detailAdditional" style="width:100%;padding:10px;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border-color);color:var(--text-primary);margin-bottom:8px;min-height:72px;" placeholder="Additional details">${escapeHtml(triage.additional_details || '')}</textarea>
+              <textarea id="detailUpdateNote" style="width:100%;padding:10px;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border-color);color:var(--text-primary);margin-bottom:8px;min-height:60px;" placeholder="New update note (appended)"></textarea>
+              <div class="section-title">Actions</div>
+              <div class="action-group" style="flex-direction:column;gap:8px;">
+                <button class="btn full" id="detailSaveBtn" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);"><i class="bi bi-save"></i> Save Updates</button>
+                <button class="btn full" id="detailAssignBtn"><i class="bi bi-person-check"></i> Assign Unit</button>
+                <button class="btn full" id="detailForceBtn" style="background:linear-gradient(135deg,#f97316,#ea580c);"><i class="bi bi-exclamation-triangle"></i> Force Status Override</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+        const backBtn = document.getElementById('backToListBtn');
+        if (backBtn) {
+          backBtn.addEventListener('click', () => {
+            if (isPast) renderPastJobs().catch(() => setStatus('Load failed'));
+            else renderJobs().catch(() => setStatus('Load failed'));
+          });
+        }
+        if (!isPast) {
+          const saveBtn = document.getElementById('detailSaveBtn');
+          if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+              const reason = document.getElementById('detailReason')?.value || '';
+              const additional = document.getElementById('detailAdditional')?.value || '';
+              const incident_update = document.getElementById('detailUpdateNote')?.value || '';
+              saveBtn.disabled = true;
+              try {
+                const res = await fetch(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}/update-details`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ reason_for_call: reason, additional_details: additional, incident_update })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || `Update failed (${res.status})`);
+                await renderJobDetail(cad, false);
+                setStatus('Details updated');
+              } catch (e) {
+                setStatus(e.message || 'Update failed');
+              } finally {
+                saveBtn.disabled = false;
+              }
+            });
+          }
+          const assignBtn = document.getElementById('detailAssignBtn');
+          if (assignBtn) {
+            assignBtn.addEventListener('click', () => {
+              openAssignUnitsModal({
+                title: `Assign Units to CAD #${cad}`,
+                onConfirm: async (callsigns) => {
+                  assignBtn.disabled = true;
+                  try {
+                    const res = await fetch(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}/assign`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ callsigns, division: selectedDivision || 'general', transfer_division: true })
+                    });
+                    if (!res.ok) throw new Error(`Assign failed (${res.status})`);
+                    await renderJobDetail(cad, false);
+                  } catch (e) {
+                    setStatus(e.message || 'Assign failed');
+                  } finally {
+                    assignBtn.disabled = false;
+                  }
+                }
+              });
+            });
+          }
+          const forceBtn = document.getElementById('detailForceBtn');
+          if (forceBtn) {
+            forceBtn.addEventListener('click', async () => {
+              const allowed = ['received','assigned','mobile','on_scene','leave_scene','at_hospital','cleared','stood_down'];
+              const chosen = (prompt(`Force status to one of:\n${allowed.join(', ')}`) || '').trim().toLowerCase();
+              if (!chosen) return;
+              if (!allowed.includes(chosen)) {
+                setStatus('Invalid status');
+                return;
+              }
+              const reason = (prompt('Reason for override?') || '').trim();
+              if (!reason) {
+                setStatus('Reason required');
+                return;
+              }
+              forceBtn.disabled = true;
+              try {
+                const res = await fetch(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}/force_status`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: chosen, reason })
+                });
+                if (!res.ok) throw new Error(`Force failed (${res.status})`);
+                await renderJobDetail(cad, false);
+              } catch (e) {
+                setStatus(e.message || 'Force failed');
+              } finally {
+                forceBtn.disabled = false;
+              }
+            });
+          }
+        }
+        setStatus(`CAD #${cad}`);
+      } catch (err) {
+        contentEl.innerHTML = emptyState(`Failed to load CAD #${cad} details.`);
+        setStatus('Load failed');
+      }
+    }
+
+    async function renderUnitDetail(callsign) {
+      contentEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">Loading unit details...</div>';
+      setStatus(`Loading ${callsign}...`);
+      try {
+        const units = await fetchJson('/plugin/ventus_response_module/units');
+        const unit = (Array.isArray(units) ? units : []).find(u => String(u.callSign || '') === String(callsign));
+        if (!unit) {
+          contentEl.innerHTML = emptyState(`Unit ${callsign} not found.`);
+          setStatus('Not found');
+          return;
+        }
+
+        let msgs = [];
+        try {
+          msgs = await fetchJson(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`);
+        } catch (e) {
+          msgs = [];
+        }
+        const recent = (Array.isArray(msgs) ? msgs : []).slice(-8).reverse();
+        const lat = unit.latitude !== null && unit.latitude !== undefined ? Number(unit.latitude) : null;
+        const lon = unit.longitude !== null && unit.longitude !== undefined ? Number(unit.longitude) : null;
+        const mapHref = (lat !== null && lon !== null) ? `https://www.google.com/maps?q=${encodeURIComponent(lat + ',' + lon)}` : '';
+
+        contentEl.innerHTML = `
+          <div>
+            <button class="btn full" id="backToUnitsBtn" style="margin-bottom:10px;"><i class="bi bi-arrow-left"></i> Back</button>
+            <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(unit.callSign || callsign)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <span class="status">${escapeHtml(unit.status || 'unknown')}</span>
+            </div>
+            <div class="meta" style="margin-bottom:6px;">Latitude: ${escapeHtml(lat !== null ? lat.toFixed(6) : 'N/A')}</div>
+            <div class="meta" style="margin-bottom:10px;">Longitude: ${escapeHtml(lon !== null ? lon.toFixed(6) : 'N/A')}</div>
+            ${mapHref ? `<a class="btn full" href="${escapeHtml(mapHref)}" target="_blank" rel="noopener" style="margin-bottom:10px;"><i class="bi bi-geo-alt"></i> Open Location</a>` : ''}
+            <div class="section-title">Recent Messages</div>
+            <ul id="unitRecentMsgs" style="list-style:none;padding:0;margin:0 0 10px 0;">
+              ${recent.length ? recent.map(m => `
+                <li class="panel-list-item">
+                  <i class="bi bi-chat-dots" style="color:var(--accent);"></i>
+                  <span>
+                    <div style="font-weight:600;">${escapeHtml(m.from || 'unknown')}</div>
+                    <div class="meta">${escapeHtml(m.text || '')}</div>
+                    <div class="meta">${escapeHtml(m.timestamp ? new Date(m.timestamp).toLocaleString() : '')}</div>
+                  </span>
+                </li>
+              `).join('') : `<li>${emptyState('No recent messages for this unit.')}</li>`}
+            </ul>
+            <input type="text" id="unitMsgText" placeholder="Message ${escapeHtml(unit.callSign || callsign)}...">
+            <button class="btn full" id="unitMsgSend"><i class="bi bi-send"></i> Send Message</button>
+          </div>
+        `;
+
+        const backBtn = document.getElementById('backToUnitsBtn');
+        if (backBtn) backBtn.addEventListener('click', () => renderUnits().catch(() => setStatus('Load failed')));
+
+        const sendBtn = document.getElementById('unitMsgSend');
+        const textEl = document.getElementById('unitMsgText');
+        if (sendBtn && textEl) {
+          sendBtn.addEventListener('click', async () => {
+            const text = (textEl.value || '').trim();
+            if (!text) return;
+            sendBtn.disabled = true;
+            try {
+              await fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, from: 'dispatcher' })
+              });
+              await renderUnitDetail(callsign);
+            } finally {
+              sendBtn.disabled = false;
+            }
+          });
+        }
+        setStatus(`Unit ${callsign}`);
+      } catch (err) {
+        contentEl.innerHTML = emptyState(`Failed to load unit ${callsign}.`);
+        setStatus('Load failed');
+      }
+    }
+
+    function renderMessageDetail(callsign, message, allMessages) {
+      const m = message || {};
+      const when = m.timestamp ? new Date(m.timestamp).toLocaleString() : 'N/A';
+      contentEl.innerHTML = `
+        <div>
+          <button class="btn full" id="backToMsgsBtn" style="margin-bottom:10px;"><i class="bi bi-arrow-left"></i> Back</button>
+          <div style="font-weight:700;margin-bottom:6px;">Message Detail</div>
+          <div class="meta" style="margin-bottom:4px;">Unit: ${escapeHtml(callsign || 'N/A')}</div>
+          <div class="meta" style="margin-bottom:4px;">From: ${escapeHtml(m.from || 'unknown')}</div>
+          <div class="meta" style="margin-bottom:10px;">Time: ${escapeHtml(when)}</div>
+          <div style="padding:10px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);white-space:pre-wrap;margin-bottom:12px;">${escapeHtml(m.text || '')}</div>
+          <input type="text" id="msgReplyText" placeholder="Reply to ${escapeHtml(callsign)}...">
+          <button class="btn full" id="msgReplySend"><i class="bi bi-send"></i> Send Reply</button>
+        </div>
+      `;
+
+      const backBtn = document.getElementById('backToMsgsBtn');
+      if (backBtn) {
+        backBtn.addEventListener('click', () => {
+          renderMessages(callsign).catch(() => setStatus('Load failed'));
+        });
+      }
+      const sendBtn = document.getElementById('msgReplySend');
+      const textEl = document.getElementById('msgReplyText');
+      if (sendBtn && textEl) {
+        sendBtn.addEventListener('click', async () => {
+          const text = (textEl.value || '').trim();
+          if (!text || !callsign) return;
+          sendBtn.disabled = true;
+          try {
+            await fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text, from: 'dispatcher' })
+            });
+            renderMessages(callsign).catch(() => setStatus('Load failed'));
+          } finally {
+            sendBtn.disabled = false;
+          }
+        });
+      }
+      setStatus(`Message (${callsign})`);
+    }
+
+    function emptyState(text) {
+      return `<div style="color:var(--text-muted);padding:12px 4px;">${escapeHtml(text)}</div>`;
+    }
+
+    function openAssignUnitsModal(options = {}) {
+      const title = options.title || 'Assign Units';
+      const suggested = Array.isArray(options.suggested) ? options.suggested : [];
+      const onConfirm = typeof options.onConfirm === 'function' ? options.onConfirm : null;
+
+      fetchJson('/plugin/ventus_response_module/units')
+        .then(units => {
+          const list = Array.isArray(units) ? units : [];
+          const modal = document.createElement('div');
+          modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:9000;';
+          const suggestedSet = new Set(suggested.map(x => String(x || '').trim()).filter(Boolean));
+          const rows = list.map(u => {
+            const cs = String(u.callSign || '').trim();
+            if (!cs) return '';
+            const checked = suggestedSet.has(cs) ? 'checked' : '';
+            return `
+              <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);cursor:pointer;">
+                <input type="checkbox" class="assign-unit-cb" value="${escapeHtml(cs)}" ${checked}>
+                <span style="font-weight:600;">${escapeHtml(cs)}</span>
+                <span class="meta">${escapeHtml(u.status || 'unknown')}</span>
+              </label>
+            `;
+          }).join('');
+
+          modal.innerHTML = `
+            <div style="width:min(560px,92vw);max-height:84vh;overflow:auto;background:rgba(15,23,42,0.98);border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+              <div style="font-weight:700;margin-bottom:10px;">${escapeHtml(title)}</div>
+              <div class="meta" style="margin-bottom:10px;">Select one or more units for this CAD.</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">${rows || '<div class="meta">No units available</div>'}</div>
+              <div style="display:flex;gap:8px;margin-top:14px;">
+                <button id="assignUnitsCancel" class="btn full" style="background:transparent;border:1px solid var(--border-color);">Cancel</button>
+                <button id="assignUnitsConfirm" class="btn full"><i class="bi bi-person-check"></i> Assign Selected</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(modal);
+
+          const close = () => { try { modal.remove(); } catch (e) {} };
+          modal.querySelector('#assignUnitsCancel')?.addEventListener('click', close);
+          modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
+          modal.querySelector('#assignUnitsConfirm')?.addEventListener('click', () => {
+            const selected = Array.from(modal.querySelectorAll('.assign-unit-cb:checked')).map(cb => cb.value);
+            if (!selected.length) return;
+            close();
+            if (onConfirm) onConfirm(selected);
+          });
+        })
+        .catch(() => setStatus('Failed to load units'));
+    }
+
+    async function renderJobs() {
+      contentEl.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <input type="search" id="jobFilter" placeholder="Search jobs...">
+        </div>
+        <div class="section-title">Active Jobs</div>
+        <ul id="jobsList" style="list-style:none;padding:0;margin:0;"></ul>
+      `;
+      const listEl = document.getElementById('jobsList');
+      const filterEl = document.getElementById('jobFilter');
+      const jobs = await fetchJson('/plugin/ventus_response_module/jobs');
+      const all = Array.isArray(jobs) ? jobs : [];
+
+      const draw = (rows) => {
+        if (!rows.length) {
+          listEl.innerHTML = emptyState('No active jobs.');
+          return;
+        }
+        listEl.innerHTML = rows.map(j => `
+          <li class="panel-list-item" style="${j.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" data-cad="${escapeHtml(j.cad)}">
+            <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
+            <span>
+              <div style="font-weight:600;">CAD #${escapeHtml(j.cad)}</div>
+              <div class="meta">${escapeHtml(j.reason_for_call || 'No reason')} • ${escapeHtml(j.status || 'unknown')}</div>
+              <div class="meta">Division: ${escapeHtml(j.division || 'general')}${j.is_external ? ' (external)' : ''}</div>
+            </span>
+            <span class="status">${escapeHtml(j.status || 'unknown')}</span>
+          </li>
+        `).join('');
+        listEl.querySelectorAll('[data-cad]').forEach(row => {
+          row.addEventListener('click', () => {
+            const cad = row.getAttribute('data-cad');
+            if (cad) renderJobDetail(cad, false).catch(() => setStatus('Load failed'));
+          });
+        });
+      };
+
+      draw(all);
+      filterEl.addEventListener('input', () => {
+        const q = filterEl.value.toLowerCase();
+        draw(all.filter(j =>
+          String(j.cad || '').includes(q) ||
+          String(j.status || '').toLowerCase().includes(q) ||
+          String(j.reason_for_call || '').toLowerCase().includes(q)
+        ));
+      });
+      setStatus(`${all.length} jobs`);
+    }
+
+    async function renderUnits() {
+      contentEl.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <input type="search" id="unitFilter" placeholder="Search units...">
+        </div>
+        <div class="section-title">Units</div>
+        <ul id="unitsList" style="list-style:none;padding:0;margin:0;"></ul>
+      `;
+      const listEl = document.getElementById('unitsList');
+      const filterEl = document.getElementById('unitFilter');
+      const units = await fetchJson('/plugin/ventus_response_module/units');
+      const all = Array.isArray(units) ? units : [];
+
+      const draw = (rows) => {
+        if (!rows.length) {
+          listEl.innerHTML = emptyState('No signed-on units.');
+          return;
+        }
+        listEl.innerHTML = rows.map(u => `
+          <li class="panel-list-item" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" data-callsign="${escapeHtml(u.callSign || '')}">
+            <i class="bi bi-truck-front" style="color:var(--accent);"></i>
+            <span>
+              <div style="font-weight:600;">${escapeHtml(u.callSign || 'Unknown')}</div>
+              <div class="meta">${escapeHtml(u.station || 'Mobile')} • ${escapeHtml(u.status || 'unknown')}</div>
+              <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
+            </span>
+            <span class="status">${escapeHtml(u.status || 'unknown')}</span>
+          </li>
+        `).join('');
+        listEl.querySelectorAll('[data-callsign]').forEach(row => {
+          row.addEventListener('click', () => {
+            const cs = row.getAttribute('data-callsign');
+            if (cs) renderUnitDetail(cs).catch(() => setStatus('Load failed'));
+          });
+        });
+      };
+
+      draw(all);
+      filterEl.addEventListener('input', () => {
+        const q = filterEl.value.toLowerCase();
+        draw(all.filter(u =>
+          String(u.callSign || '').toLowerCase().includes(q) ||
+          String(u.status || '').toLowerCase().includes(q)
+        ));
+      });
+      setStatus(`${all.length} units`);
+    }
+
+    async function renderPastJobs() {
+      contentEl.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <input type="search" id="pastFilter" placeholder="Search past jobs...">
+        </div>
+        <div class="section-title">Past / Cleared</div>
+        <ul id="pastList" style="list-style:none;padding:0;margin:0;"></ul>
+      `;
+      const listEl = document.getElementById('pastList');
+      const filterEl = document.getElementById('pastFilter');
+
+      let rows = [];
+      try {
+        rows = await fetchJson('/plugin/ventus_response_module/jobs/history');
+      } catch (e) {
+        rows = await fetchJson('/plugin/ventus_response_module/history');
+      }
+      const all = Array.isArray(rows) ? rows : [];
+
+      const draw = (items) => {
+        if (!items.length) {
+          listEl.innerHTML = emptyState('No past jobs found.');
+          return;
+        }
+        listEl.innerHTML = items.map(j => {
+          const when = j.updated_at || j.completedAt || j.created_at || '';
+          const ts = when ? new Date(when).toLocaleString() : 'N/A';
+          return `
+            <li class="panel-list-item" data-cad="${escapeHtml(j.cad)}">
+              <i class="bi bi-check2-circle" style="color:var(--accent-success);"></i>
+              <span>
+                <div style="font-weight:600;">CAD #${escapeHtml(j.cad)}</div>
+                <div class="meta">${escapeHtml(j.status || 'cleared')} • ${escapeHtml(ts)}</div>
+                <div class="meta">Division: ${escapeHtml(j.division || 'general')}${j.is_external ? ' (external)' : ''}</div>
+              </span>
+            </li>
+          `;
+        }).join('');
+        listEl.querySelectorAll('[data-cad]').forEach(row => {
+          row.addEventListener('click', () => {
+            const cad = row.getAttribute('data-cad');
+            if (cad) renderJobDetail(cad, true).catch(() => setStatus('Load failed'));
+          });
+        });
+      };
+
+      draw(all);
+      filterEl.addEventListener('input', () => {
+        const q = filterEl.value.toLowerCase();
+        draw(all.filter(j =>
+          String(j.cad || '').includes(q) ||
+          String(j.status || '').toLowerCase().includes(q)
+        ));
+      });
+      setStatus(`${all.length} past jobs`);
+    }
+
+    async function renderMessages(preselectCallsign) {
+      contentEl.innerHTML = `
+        <div style="margin-bottom:10px;border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(0,0,0,0.2);">
+          <div style="font-weight:700;margin-bottom:6px;">Dispatch Note / MOTD</div>
+          <div id="motdDisplay" style="font-size:12px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);margin-bottom:8px;">Loading note...</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn full" id="motdReload" style="background:transparent;border:1px solid var(--border-color);"><i class="bi bi-arrow-clockwise"></i> Refresh Note</button>
+          </div>
+          <div id="motdMeta" class="meta" style="margin-top:6px;">Loading note...</div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <select id="msgUnit" style="width:100%;padding:10px;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border-color);color:var(--text-primary);margin-bottom:8px;"></select>
+          <button class="btn full" id="msgReload"><i class="bi bi-arrow-clockwise"></i> Reload Messages</button>
+        </div>
+        <div class="section-title">Messages</div>
+        <ul id="msgList" style="list-style:none;padding:0;margin:0 0 10px 0;"></ul>
+        <input type="text" id="msgText" placeholder="Type message...">
+        <button class="btn full" id="msgSend"><i class="bi bi-send"></i> Send</button>
+      `;
+
+      const unitSel = document.getElementById('msgUnit');
+      const listEl = document.getElementById('msgList');
+      const textEl = document.getElementById('msgText');
+      const sendBtn = document.getElementById('msgSend');
+      const reloadBtn = document.getElementById('msgReload');
+      const motdDisplayEl = document.getElementById('motdDisplay');
+      const motdMetaEl = document.getElementById('motdMeta');
+      const motdReloadBtn = document.getElementById('motdReload');
+
+      const loadMotd = async () => {
+        try {
+          const motd = await fetchJson('/plugin/ventus_response_module/dispatch/motd');
+          motdDisplayEl.textContent = (motd.text || '').trim() || 'No dispatch note set.';
+          const when = motd.updated_at ? new Date(motd.updated_at).toLocaleString() : 'never';
+          motdMetaEl.textContent = `Last updated ${when} by ${motd.updated_by || 'unknown'}`;
+        } catch (e) {
+          motdDisplayEl.textContent = 'Unable to load dispatch note.';
+          motdMetaEl.textContent = `Unable to load note (${e.message || 'error'})`;
+        }
+      };
+
+      motdReloadBtn.addEventListener('click', () => { loadMotd().catch(() => {}); });
+
+      const units = await fetchJson('/plugin/ventus_response_module/units');
+      const callsigns = (Array.isArray(units) ? units : [])
+        .map(u => u.callSign)
+        .filter(Boolean);
+
+      if (!callsigns.length) {
+        unitSel.innerHTML = `<option value="">No units available</option>`;
+        listEl.innerHTML = emptyState('Sign on a unit to view/send messages.');
+        setStatus('No units');
+        return;
+      }
+
+      unitSel.innerHTML = callsigns.map(cs => `<option value="${escapeHtml(cs)}">${escapeHtml(cs)}</option>`).join('');
+      if (preselectCallsign && callsigns.includes(preselectCallsign)) {
+        unitSel.value = preselectCallsign;
+      }
+
+      const loadMsgs = async () => {
+        const cs = unitSel.value;
+        if (!cs) {
+          listEl.innerHTML = emptyState('Select a unit.');
+          return;
+        }
+        const rows = await fetchJson(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`);
+        const all = Array.isArray(rows) ? rows : [];
+        if (!all.length) {
+          listEl.innerHTML = emptyState('No messages yet.');
+        } else {
+          const list = all.slice(-50).reverse();
+          listEl.innerHTML = list.map((m, idx) => `
+            <li class="panel-list-item" data-msg-index="${idx}">
+              <i class="bi bi-chat-dots" style="color:var(--accent);"></i>
+              <span>
+                <div style="font-weight:600;">${escapeHtml(m.from || 'unknown')}</div>
+                <div class="meta">${escapeHtml(m.text || '')}</div>
+                <div class="meta">${escapeHtml(new Date(m.timestamp).toLocaleString())}</div>
+              </span>
+            </li>
+          `).join('');
+          listEl.querySelectorAll('[data-msg-index]').forEach(row => {
+            row.addEventListener('click', () => {
+              const i = Number(row.getAttribute('data-msg-index'));
+              if (Number.isInteger(i) && list[i]) renderMessageDetail(cs, list[i], list);
+            });
+          });
+        }
+        setStatus(`${all.length} messages (${cs})`);
+      };
+
+      unitSel.addEventListener('change', () => { loadMsgs().catch(() => setStatus('Load failed')); });
+      reloadBtn.addEventListener('click', () => { loadMsgs().catch(() => setStatus('Load failed')); });
+      sendBtn.addEventListener('click', async () => {
+        const cs = unitSel.value;
+        const text = (textEl.value || '').trim();
+        if (!cs || !text) return;
+        sendBtn.disabled = true;
+        try {
+          await fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, from: 'dispatcher' })
+          });
+          textEl.value = '';
+          await loadMsgs();
+        } finally {
+          sendBtn.disabled = false;
+        }
+      });
+
+      await loadMotd();
+      await loadMsgs();
+    }
+
+    async function renderContent() {
+      setStatus('Loading...');
+      if (panelType === 'jobs') await renderJobs();
+      else if (panelType === 'units') await renderUnits();
+      else if (panelType === 'messages') await renderMessages();
+      else if (panelType === 'past_jobs') await renderPastJobs();
+      else contentEl.innerHTML = emptyState(`Unsupported panel type: ${panelType}`);
+      if (statusEl.textContent === 'Loading...') setStatus('Ready');
+    }
+
+    titleEl.textContent = panelTitle;
+    setIcon(panelType);
+
+    closeBtn.addEventListener('click', () => window.close());
+    refreshBtn.addEventListener('click', () => { renderContent().catch(() => setStatus('Refresh failed')); });
+
+    renderContent().catch(err => {
+      contentEl.innerHTML = emptyState(`Failed to load panel data (${err.message || 'error'}).`);
+      setStatus('Load failed');
+    });
+
+    if (socket) {
+      socket.on('mdt_event', () => {
+        renderContent().catch(() => setStatus('Live refresh failed'));
+      });
+    }
+    setInterval(() => {
+      if (!document.hidden) {
+        renderContent().catch(() => setStatus('Auto-refresh failed'));
+      }
+    }, 20000);
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('ventus_cad');
+        bc.onmessage = function(ev) {
+          try {
+            const msg = ev.data || {};
+            if (msg && msg.type === 'panel_content' && msg.panel_type === panelType && msg.html) {
+              contentEl.innerHTML = msg.html;
+              if (msg.title) titleEl.textContent = msg.title;
+              setStatus('Live');
+            }
+          } catch (e) {}
+        };
+      }
+    } catch (e) {}
+  </script>
+</body>
+</html>

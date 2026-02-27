@@ -1,0 +1,414 @@
+{% extends "response/call_centre_base.html" %}
+{% block page_title %}Response Workspace{% endblock %}
+{% set nav_section = 'call_centre' %}
+{% block cc_content %}
+<div class="panel">
+  <div class="panel-head">
+    <div>
+      <h1 class="panel-title">Response Workspace</h1>
+      <div class="muted">CAD #{{ cad }} live incident management.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <a class="btn" href="{{ url_for('medical_response_internal.call_centre_wallboard') }}" target="_blank"><i class="bi bi-tv"></i> Wallboard</a>
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div style="display:grid;gap:12px;">
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Incident Details</h2>
+        <span id="jobStatusBadge" class="badge secondary">Loading...</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+          <div>
+            <label class="muted" for="reasonForCall">Reason for Call</label>
+            <textarea id="reasonForCall" rows="3"></textarea>
+          </div>
+          <div>
+            <label class="muted" for="callPriority">Priority</label>
+            <select id="callPriority">
+              <option value="">Unspecified</option>
+              <option value="P1">P1 - Immediate</option>
+              <option value="P2">P2 - Urgent</option>
+              <option value="P3">P3 - Soon</option>
+              <option value="P4">P4 - Routine</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="muted" for="additionalDetails">Additional Details</label>
+          <textarea id="additionalDetails" rows="3"></textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label class="muted" for="incidentAddress">Address</label>
+            <textarea id="incidentAddress" rows="2"></textarea>
+          </div>
+          <div>
+            <label class="muted" for="incidentPostcode">Postcode</label>
+            <input id="incidentPostcode">
+          </div>
+          <div>
+            <label class="muted" for="incidentW3w">what3words</label>
+            <input id="incidentW3w">
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <h3 style="margin:0 0 6px 0;font-size:14px;">Submitted Form Fields</h3>
+          <div id="dynamicFormFields" style="display:grid;gap:10px;"></div>
+        </div>
+        <div style="margin-top:10px;">
+          <button class="btn primary" onclick="saveIncidentDetails()"><i class="bi bi-save"></i> Save Incident Details</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;gap:12px;">
+    <div class="panel">
+      <div class="panel-head"><h2 class="panel-title">Assignment</h2></div>
+      <div class="panel-body">
+        <div id="assignmentInfo" class="muted">Loading assignment...</div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn warn" onclick="standDownCall()"><i class="bi bi-slash-circle"></i> Stand Down Call</button>
+          <button class="btn danger" onclick="closeCall()"><i class="bi bi-x-circle"></i> Close Call</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2 class="panel-title">Dispatcher Communications</h2></div>
+      <div class="panel-body">
+        <div id="commsFeed" style="max-height:340px;overflow:auto;margin-bottom:10px;"></div>
+        <div style="display:grid;grid-template-columns:180px 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <label class="muted" for="commType">Comms Type</label>
+            <select id="commType">
+              <option value="message">Message</option>
+              <option value="update">Incident Update</option>
+            </select>
+          </div>
+          <div></div>
+        </div>
+        <textarea id="messageText" rows="3" placeholder="Send message/update to dispatcher and assigned MDT units..."></textarea>
+        <div style="margin-top:10px;">
+          <button class="btn" onclick="sendComms()"><i class="bi bi-send"></i> Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const CAD = {{ cad|int }};
+const CALL_CENTRE_URL = "{{ url_for('medical_response_internal.call_centre_dashboard') }}";
+let latestJob = null;
+const editableFieldIds = [
+  'reasonForCall',
+  'additionalDetails',
+  'incidentAddress',
+  'incidentPostcode',
+  'incidentW3w',
+  'callPriority'
+];
+let dynamicFormKeys = [];
+let dynamicFormSignature = '';
+const INTERNAL_TRIAGE_KEYS = new Set([
+  'form_slug', 'form_name', 'form_answers', 'incident_updates',
+  'priority_source', 'system_priority', 'dispatch_mode',
+  'created_by', 'created_at', 'updated_at'
+]);
+
+function esc(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function fmt(v) {
+  if (!v) return '-';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString();
+}
+
+function statusBadge(status) {
+  const s = String(status || '').toLowerCase().trim();
+  const cls = (s === 'queued') ? 'secondary'
+    : (s === 'assigned' || s === 'claimed') ? 'primary'
+    : (s === 'mobile' || s === 'on_scene' || s === 'leave_scene' || s === 'at_hospital') ? 'warning'
+    : (s === 'cleared' ? 'success' : 'danger');
+  return `<span class="badge ${cls}">${esc(status || 'unknown')}</span>`;
+}
+
+function setupDirtyTracking() {
+  editableFieldIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.dirty = '0';
+    el.addEventListener('input', () => { el.dataset.dirty = '1'; });
+    el.addEventListener('change', () => { el.dataset.dirty = '1'; });
+  });
+}
+
+function toLabel(key) {
+  return String(key || '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function fieldIdForKey(key) {
+  return `dynField_${String(key || '').replace(/[^a-zA-Z0-9_]/g, '_')}`;
+}
+
+function buildDynamicFieldSpec(triage) {
+  const t = (triage && typeof triage === 'object') ? triage : {};
+  const answers = (t.form_answers && typeof t.form_answers === 'object') ? t.form_answers : {};
+  const specs = [];
+
+  Object.keys(answers).forEach((key) => {
+    const k = String(key || '').trim();
+    if (!k) return;
+    specs.push({ key: k, value: answers[key] ?? '' });
+  });
+
+  Object.keys(t).forEach((key) => {
+    const k = String(key || '').trim();
+    if (!k || INTERNAL_TRIAGE_KEYS.has(k)) return;
+    if ([
+      'reason_for_call', 'additional_details', 'address', 'postcode', 'what3words',
+      'call_priority', 'priority', 'acuity'
+    ].includes(k)) return;
+    if (Object.prototype.hasOwnProperty.call(answers, k)) return;
+    const v = t[k];
+    if (v == null) return;
+    if (typeof v === 'object') return;
+    specs.push({ key: k, value: v });
+  });
+
+  return specs;
+}
+
+function renderDynamicFormFields(triage) {
+  const host = document.getElementById('dynamicFormFields');
+  if (!host) return;
+  const specs = buildDynamicFieldSpec(triage);
+  const signature = specs.map((s) => s.key).join('|');
+  dynamicFormKeys = specs.map(s => s.key);
+  if (!specs.length) {
+    host.innerHTML = '<div class="muted">No additional form fields captured.</div>';
+    dynamicFormSignature = '';
+    return;
+  }
+  if (dynamicFormSignature !== signature) {
+    host.innerHTML = specs.map((s) => {
+      const id = fieldIdForKey(s.key);
+      const val = String(s.value ?? '');
+      const useArea = val.length > 80 || val.includes('\n');
+      return `
+        <div>
+          <label class="muted" for="${esc(id)}">${esc(toLabel(s.key))}</label>
+          ${useArea
+            ? `<textarea id="${esc(id)}" data-key="${esc(s.key)}" class="dyn-form-field" rows="2"></textarea>`
+            : `<input id="${esc(id)}" data-key="${esc(s.key)}" class="dyn-form-field">`
+          }
+        </div>
+      `;
+    }).join('');
+
+    specs.forEach((s) => {
+      const id = fieldIdForKey(s.key);
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.dataset.dirty = '0';
+      el.value = String(s.value ?? '');
+      el.addEventListener('input', () => { el.dataset.dirty = '1'; });
+      el.addEventListener('change', () => { el.dataset.dirty = '1'; });
+    });
+    dynamicFormSignature = signature;
+    return;
+  }
+
+  specs.forEach((s) => {
+    const id = fieldIdForKey(s.key);
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isDirty = el.dataset.dirty === '1';
+    const isFocused = document.activeElement === el;
+    if (!isDirty && !isFocused) {
+      el.value = String(s.value ?? '');
+    }
+  });
+}
+
+function setFieldValueIfClean(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isDirty = el.dataset.dirty === '1';
+  const isFocused = document.activeElement === el;
+  if (isDirty || isFocused) return;
+  el.value = value || '';
+}
+
+function clearDirtyFlags() {
+  editableFieldIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.dirty = '0';
+  });
+  dynamicFormKeys.forEach((key) => {
+    const el = document.getElementById(fieldIdForKey(key));
+    if (!el) return;
+    el.dataset.dirty = '0';
+  });
+}
+
+async function loadJob() {
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}`);
+  if (!res.ok) throw new Error('Job not found');
+  const job = await res.json();
+  latestJob = job;
+  const triage = job.triage_data || {};
+  document.getElementById('jobStatusBadge').outerHTML = `<span id="jobStatusBadge">${statusBadge(job.status)}</span>`;
+  setFieldValueIfClean('reasonForCall', triage.reason_for_call || '');
+  setFieldValueIfClean('additionalDetails', triage.additional_details || '');
+  setFieldValueIfClean('incidentAddress', triage.address || '');
+  setFieldValueIfClean('incidentPostcode', triage.postcode || '');
+  setFieldValueIfClean('incidentW3w', triage.what3words || '');
+  setFieldValueIfClean('callPriority', triage.call_priority || triage.priority || triage.acuity || '');
+  renderDynamicFormFields(triage);
+
+  const units = Array.isArray(job.assigned_units) ? job.assigned_units : [];
+  let html = units.length
+    ? `<div><strong>Assigned:</strong> ${esc(units.join(', '))}</div>`
+    : '<div style="color:#ef4444;">No unit assigned yet</div>';
+  html += `<div class="muted" style="margin-top:6px;">Status: ${esc(job.status || '-')}</div>`;
+  document.getElementById('assignmentInfo').innerHTML = html;
+}
+
+async function saveIncidentDetails() {
+  const payload = {
+    reason_for_call: document.getElementById('reasonForCall').value,
+    additional_details: document.getElementById('additionalDetails').value,
+    address: document.getElementById('incidentAddress').value,
+    postcode: document.getElementById('incidentPostcode').value,
+    what3words: document.getElementById('incidentW3w').value,
+    call_priority: document.getElementById('callPriority').value || null,
+    priority_source: document.getElementById('callPriority').value ? 'manual' : null,
+    sender_portal: 'response_centre',
+    form_answers: {}
+  };
+  dynamicFormKeys.forEach((key) => {
+    const el = document.getElementById(fieldIdForKey(key));
+    if (!el) return;
+    payload.form_answers[key] = el.value ?? '';
+  });
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}/update-details`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || 'Failed to save details');
+    return;
+  }
+  clearDirtyFlags();
+  await loadJob();
+}
+
+async function sendComms() {
+  const msgEl = document.getElementById('messageText');
+  const typeEl = document.getElementById('commType');
+  const text = (msgEl.value || '').trim();
+  const type = (typeEl?.value || 'message').trim().toLowerCase() === 'update' ? 'update' : 'message';
+  if (!text) return;
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}/comms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, text, sender_portal: 'response_centre' })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || 'Failed to send communication');
+    return;
+  }
+  msgEl.value = '';
+  await Promise.all([loadJob(), loadComms()]);
+}
+
+async function standDownCall() {
+  const reason = (prompt('Stand down reason (e.g. self-resolved, hoax/fake call):', 'self_resolved') || '').trim();
+  if (!reason) return;
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}/standdown`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || 'Failed to stand down call');
+    return;
+  }
+  window.location.href = CALL_CENTRE_URL;
+}
+
+async function closeCall() {
+  const outcome = (prompt('Close outcome (e.g. self_resolved, hoax, fake_call):', 'self_resolved') || '').trim();
+  if (!outcome) return;
+  const ok = confirm(`Close CAD #${CAD} as "${outcome}"?`);
+  if (!ok) return;
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome, public_notes: `Closed by response officer: ${outcome}` })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || 'Failed to close call');
+    return;
+  }
+  window.location.href = CALL_CENTRE_URL;
+}
+
+async function loadComms() {
+  const feed = document.getElementById('commsFeed');
+  const res = await fetch(`/plugin/ventus_response_module/job/${CAD}/comms`);
+  const items = await res.json();
+  if (!Array.isArray(items) || !items.length) {
+    feed.innerHTML = '<div class="muted">No messages yet.</div>';
+    return;
+  }
+  feed.innerHTML = items.map((m) => {
+    const typeBadge = (m.message_type === 'update')
+      ? '<span class="badge warning" style="margin-right:6px;">Update</span>'
+      : '<span class="badge primary" style="margin-right:6px;">Message</span>';
+    return `
+      <div style="border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px;">
+        <div class="muted" style="margin-bottom:6px;">${typeBadge}${esc(m.sender_user || m.sender_role || 'unknown')} • ${esc(fmt(m.created_at))}</div>
+        <div>${esc(m.message_text || '')}</div>
+      </div>
+    `;
+  }).join('');
+  feed.scrollTop = feed.scrollHeight;
+}
+
+async function tick() {
+  try {
+    await Promise.all([loadJob(), loadComms()]);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+tick();
+setupDirtyTracking();
+setInterval(tick, 7000);
+</script>
+{% endblock %}

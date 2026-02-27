@@ -1,0 +1,585 @@
+{% extends "response/call_centre_base.html" %}
+{% block page_title %}Create Incident{% endblock %}
+{% set nav_section = 'intake' %}
+{% block cc_content %}
+<div class="panel">
+  <div class="panel-head">
+    <div>
+      <h1 class="panel-title">Create Incident</h1>
+      <div class="muted">{{ selected_form.name }} - {{ selected_form.description }}</div>
+    </div>
+    <a href="{{ url_for('medical_response_internal.response_dashboard') }}" class="btn"><i class="bi bi-arrow-left"></i> Back to Intake</a>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-body">
+    <label class="muted">Form Profile</label>
+    <select id="formProfileSelect">
+      {% for form in triage_forms %}
+        <option value="{{ form.slug }}" {% if form.slug == selected_form.slug %}selected{% endif %}>{{ form.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="muted" style="margin-top:6px;">Switch profile for urgent care, emergency, events, security, recovery, and other workflows.</div>
+  </div>
+</div>
+
+<form id="triageForm" method="POST" action="{{ url_for('medical_response_internal.triage_form') }}">
+  <input type="hidden" name="form_slug" value="{{ selected_form.slug }}">
+  <input type="hidden" name="decision" id="decisionInput" value="ACCEPT">
+  <input type="hidden" name="risk_flags" id="riskFlagsInput" value="[]">
+  <input type="hidden" name="access_requirements" id="accessRequirementsInput" value="[]">
+  <input type="hidden" name="vita_record_id" id="vitaRecordId" value="">
+
+  <div class="grid-2">
+    <div style="display:grid;gap:12px;">
+      <div class="panel">
+        <div class="panel-head"><h2 class="panel-title">Patient and Caller</h2></div>
+        <div class="panel-body">
+          <label class="muted">Smart Record Lookup</label>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+            <input id="patientLookupInput" type="text" placeholder="Search by name, phone, postcode, or address">
+            <button id="patientLookupBtn" class="btn" type="button"><i class="bi bi-search"></i></button>
+          </div>
+          <div class="muted" style="margin-top:6px;">Enter at least one detail (name, phone, postcode, or address) to find an existing record quickly.</div>
+          <div id="patientLookupResults" style="max-height:220px;overflow:auto;margin-top:8px;"></div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">
+            <div>
+              <label class="muted">First Name</label>
+              <div style="display:flex;gap:6px;">
+                <input id="firstNameInput" type="text" name="first_name" placeholder="Unknown if not available">
+                <button class="btn" type="button" data-unknown-target="firstNameInput" title="Mark unknown">Unknown</button>
+              </div>
+            </div>
+            <div>
+              <label class="muted">Middle Name</label>
+              <input id="middleNameInput" type="text" name="middle_name">
+            </div>
+            <div>
+              <label class="muted">Last Name</label>
+              <div style="display:flex;gap:6px;">
+                <input id="lastNameInput" type="text" name="last_name" placeholder="Unknown if not available">
+                <button class="btn" type="button" data-unknown-target="lastNameInput" title="Mark unknown">Unknown</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
+            <div><label class="muted">DOB</label><input type="date" name="patient_dob"></div>
+            <div>
+              <label class="muted">Gender</label>
+              <select name="patient_gender">
+                <option value="">Unknown</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div><label class="muted">Patient Phone</label><input type="text" name="phone_number"></div>
+            <div>
+              <label class="muted">Patient Alone?</label>
+              <select name="patient_alone">
+                <option value="">Unknown</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+            <div><label class="muted">Caller Name</label><input type="text" name="caller_name"></div>
+            <div><label class="muted">Caller Phone</label><input type="text" name="caller_phone"></div>
+          </div>
+          <div class="muted" style="margin-top:8px;" id="selectedPatientMeta">No matched record selected.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 class="panel-title">Incident Details</h2></div>
+        <div class="panel-body">
+          <div>
+            <label class="muted">Reason for Call</label>
+            <textarea name="reason_for_call" rows="3" required placeholder="e.g. Unconscious female at gate B, breathing uncertain"></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;">
+            <div><label class="muted">Onset Date & Time</label><input type="datetime-local" name="onset_datetime"></div>
+            <div>
+              <label class="muted">Call Priority</label>
+              <select name="call_priority_override">
+                <option value="">Auto (System Decide)</option>
+                {% set priority_levels = (selected_form.priority_config.levels if selected_form.priority_config and selected_form.priority_config.levels else []) %}
+                {% if priority_levels %}
+                  {% for lvl in priority_levels %}
+                    <option value="{{ lvl.code }}">{{ lvl.label or lvl.code }}</option>
+                  {% endfor %}
+                {% else %}
+                  <option value="P1">P1 - Immediate</option>
+                  <option value="P2">P2 - Urgent</option>
+                  <option value="P3">P3 - Soon</option>
+                  <option value="P4">P4 - Routine</option>
+                {% endif %}
+              </select>
+            </div>
+            <div>
+              <label class="muted">Matched Record ID</label>
+              <input type="text" id="vitaRecordDisplay" readonly placeholder="Auto from lookup">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 class="panel-title">{{ selected_form.name }} Questions</h2></div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            {% for q in selected_form.questions %}
+              <div>
+                <label class="muted">{{ q.label }}</label>
+                {% if q.type == "textarea" %}
+                  <textarea name="extra_{{ q.key }}" rows="2" {% if q.required %}required{% endif %}></textarea>
+                {% elif q.type == "select" %}
+                  <select name="extra_{{ q.key }}" {% if q.required %}required{% endif %}>
+                    {% for opt in q.options %}
+                      <option value="{{ opt }}">{{ opt|replace("_"," ")|title }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif q.type == "number" %}
+                  <input type="number" name="extra_{{ q.key }}" {% if q.min is not none %}min="{{ q.min }}"{% endif %} {% if q.max is not none %}max="{{ q.max }}"{% endif %} {% if q.required %}required{% endif %}>
+                {% else %}
+                  <input type="text" name="extra_{{ q.key }}" {% if q.required %}required{% endif %}>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      {% if selected_form.show_exclusions %}
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Exclusion Criteria</h2>
+          <span class="badge warning">Used by this form profile</span>
+        </div>
+        <div class="panel-body">
+          {% set exclusions = [
+            ("exclusion_cardiac","Cardiac / respiratory arrest"),
+            ("exclusion_major_trauma","Major trauma"),
+            ("exclusion_bleeding","Serious bleeding"),
+            ("exclusion_unconscious","Unconsciousness"),
+            ("exclusion_stroke","Suspected stroke"),
+            ("exclusion_seizures","Seizures")
+          ] %}
+          {% for key,label in exclusions %}
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px;">
+            <span>{{ label }}</span>
+            <div style="display:flex;gap:6px;">
+              <input type="radio" class="exclusion-radio" name="{{ key }}" id="{{ key }}_no" value="no" checked>
+              <label for="{{ key }}_no">No</label>
+              <input type="radio" class="exclusion-radio" name="{{ key }}" id="{{ key }}_yes" value="yes">
+              <label for="{{ key }}_yes">Yes</label>
+            </div>
+          </div>
+          {% endfor %}
+          <div class="muted">If any exclusion is "Yes", accepting submits as "ACCEPT_WITH_EXCLUSION".</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="display:grid;gap:12px;">
+      <div class="panel">
+        <div class="panel-head"><h2 class="panel-title">Location</h2></div>
+        <div class="panel-body">
+          <div><label class="muted">Address</label><textarea id="incidentAddressInput" name="address" rows="2" required></textarea></div>
+          <div style="margin-top:8px;"><label class="muted">Postcode</label><input id="incidentPostcodeInput" name="postcode" type="text" required></div>
+          <div style="margin-top:8px;"><label class="muted">what3words</label><input name="what3words" type="text" placeholder="word.word.word"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 class="panel-title">Operational Notes</h2></div>
+        <div class="panel-body">
+          <label class="muted">Access Requirements</label>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+            <input id="accessReqInput" type="text" placeholder="Type requirement and press Enter">
+            <button id="accessReqAddBtn" type="button" class="btn">Add</button>
+          </div>
+          <div id="accessReqSuggestions" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+          <div id="accessReqList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+
+          <label class="muted" style="margin-top:10px;display:block;">Risk Flags</label>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+            <input id="riskFlagInput" type="text" placeholder="Type risk flag and press Enter">
+            <button id="riskFlagAddBtn" type="button" class="btn">Add</button>
+          </div>
+          <div id="riskFlagSuggestions" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+          <div id="riskFlagList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-body">
+          <div style="display:grid;gap:8px;">
+            <button type="button" class="btn primary" onclick="submitDecision('ACCEPT')"><i class="bi bi-check2-circle"></i> Accept & Dispatch</button>
+            <button type="button" class="btn danger" onclick="submitDecision('REJECT')"><i class="bi bi-x-circle"></i> Reject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const patientLookupInput = document.getElementById("patientLookupInput");
+  const patientLookupBtn = document.getElementById("patientLookupBtn");
+  const patientLookupResults = document.getElementById("patientLookupResults");
+  const selectedPatientMeta = document.getElementById("selectedPatientMeta");
+  const firstNameInput = document.getElementById("firstNameInput");
+  const lastNameInput = document.getElementById("lastNameInput");
+  const incidentAddressInput = document.getElementById("incidentAddressInput");
+  const incidentPostcodeInput = document.getElementById("incidentPostcodeInput");
+  const accessReqInput = document.getElementById("accessReqInput");
+  const accessReqAddBtn = document.getElementById("accessReqAddBtn");
+  const accessReqSuggestions = document.getElementById("accessReqSuggestions");
+  const accessReqList = document.getElementById("accessReqList");
+  const riskFlagInput = document.getElementById("riskFlagInput");
+  const riskFlagAddBtn = document.getElementById("riskFlagAddBtn");
+  const riskFlagSuggestions = document.getElementById("riskFlagSuggestions");
+  const riskFlagList = document.getElementById("riskFlagList");
+  const commonAccessRequirements = [
+    "Gate code required",
+    "Rear entrance only",
+    "Security escort required",
+    "No lift access",
+    "Stairs only",
+    "Escort to ward",
+    "Car park permit required",
+    "Call on arrival"
+  ];
+  const commonRiskFlags = [
+    "Violence risk",
+    "Aggressive behaviour",
+    "Safeguarding concern",
+    "Infection risk",
+    "Needle risk",
+    "Police required",
+    "Scene unsafe",
+    "Substance misuse"
+  ];
+  let accessRequirementsState = [];
+  let riskFlagsState = [];
+
+  function focusField(el, message) {
+    if (!el) {
+      if (message) alert(message);
+      return false;
+    }
+    if (message) alert(message);
+    try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    try { el.focus(); } catch (e) {}
+    return true;
+  }
+
+  function fillPatientFromLookup(p) {
+    document.getElementById("vitaRecordId").value = p.vita_record_id || "";
+    document.getElementById("vitaRecordDisplay").value = p.vita_record_id || p.id || "";
+    document.querySelector("input[name='first_name']").value = p.first_name || "";
+    document.querySelector("input[name='middle_name']").value = p.middle_name || "";
+    document.querySelector("input[name='last_name']").value = p.last_name || "";
+    document.querySelector("input[name='patient_dob']").value = p.patient_dob || "";
+    document.querySelector("input[name='phone_number']").value = p.phone_number || "";
+    document.querySelector("textarea[name='address']").value = p.address || "";
+    document.querySelector("input[name='postcode']").value = p.postcode || "";
+    selectedPatientMeta.textContent = `Matched ${p.full_name || "record"} (${p.source || "history"})`;
+  }
+
+  async function runPatientLookup() {
+    let q = (patientLookupInput.value || "").trim();
+    if (!q) {
+      q = [
+        firstNameInput?.value || "",
+        lastNameInput?.value || "",
+        document.querySelector("input[name='phone_number']")?.value || "",
+        incidentPostcodeInput?.value || "",
+        incidentAddressInput?.value || ""
+      ].join(" ").trim();
+      if (q) patientLookupInput.value = q;
+    }
+    if (!q) {
+      patientLookupResults.innerHTML = `<div class="muted">Enter a name, phone, postcode, or address to search records.</div>`;
+      focusField(firstNameInput || document.querySelector("input[name='phone_number']"), "Enter at least one identifier before lookup.");
+      return;
+    }
+    patientLookupResults.innerHTML = `<div class="muted">Searching...</div>`;
+    try {
+      const res = await fetch(`/plugin/ventus_response_module/response/patient-lookup?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      const patients = (data && Array.isArray(data.patients)) ? data.patients : [];
+      if (!patients.length) {
+        patientLookupResults.innerHTML = `<div class="muted">No matches found.</div>`;
+        return;
+      }
+      patientLookupResults.innerHTML = "";
+      patients.forEach((p) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn";
+        btn.style.width = "100%";
+        btn.style.textAlign = "left";
+        btn.style.marginBottom = "6px";
+        btn.innerHTML = `
+          <div style="font-weight:700;">${(p.full_name || "Unknown").replace(/</g, "&lt;")}</div>
+          <div class="muted">${(p.postcode || "no postcode").replace(/</g, "&lt;")} • ${(p.phone_number || "no phone").replace(/</g, "&lt;")} • score ${p.score ?? 0}</div>
+        `;
+        btn.addEventListener("click", () => {
+          fillPatientFromLookup(p);
+          patientLookupResults.innerHTML = "";
+        });
+        patientLookupResults.appendChild(btn);
+      });
+    } catch (e) {
+      patientLookupResults.innerHTML = `<div style="color:#ef4444;">Lookup failed.</div>`;
+    }
+  }
+
+  function markUnknown(targetId) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    if (!el.value || el.value.trim().length === 0) {
+      el.value = "Unknown";
+    } else {
+      el.value = "";
+    }
+    try { el.focus(); } catch (e) {}
+  }
+
+  function normalizeToken(v) {
+    return String(v || "").trim().replace(/\s+/g, " ");
+  }
+
+  function tokenListItemHtml(value, removeFnName) {
+    const safe = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const encoded = encodeURIComponent(value);
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:10px;padding:6px 8px;background:rgba(148,163,184,0.08);">
+        <span>${safe}</span>
+        <button type="button" class="btn" style="padding:4px 8px;" onclick="${removeFnName}('${encoded}')">x</button>
+      </div>
+    `;
+  }
+
+  function renderTokenList(targetEl, values, removeFnName, emptyText) {
+    if (!targetEl) return;
+    if (!values.length) {
+      targetEl.innerHTML = `<div class="muted">${emptyText}</div>`;
+      return;
+    }
+    targetEl.innerHTML = values.map((v) => tokenListItemHtml(v, removeFnName)).join("");
+  }
+
+  function renderSuggestions(inputEl, targetEl, selectedValues, commonValues, addFnName) {
+    if (!targetEl) return;
+    const q = normalizeToken(inputEl?.value || "").toLowerCase();
+    const selected = new Set(selectedValues.map((v) => v.toLowerCase()));
+    const matches = commonValues
+      .filter((x) => !selected.has(String(x).toLowerCase()))
+      .filter((x) => !q || String(x).toLowerCase().includes(q))
+      .slice(0, 8);
+    if (!matches.length) {
+      targetEl.innerHTML = "";
+      return;
+    }
+    targetEl.innerHTML = matches.map((x) => {
+      const safe = String(x).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const encoded = encodeURIComponent(String(x));
+      return `<button type="button" class="btn" style="padding:4px 8px;" onclick="${addFnName}('${encoded}')">${safe}</button>`;
+    }).join("");
+  }
+
+  function addAccessRequirement(raw) {
+    const v = normalizeToken(decodeURIComponent(raw || ""));
+    if (!v) return;
+    if (!accessRequirementsState.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      accessRequirementsState.push(v);
+    }
+    if (accessReqInput) accessReqInput.value = "";
+    renderTokenList(accessReqList, accessRequirementsState, "removeAccessRequirement", "No access requirements added.");
+    renderSuggestions(accessReqInput, accessReqSuggestions, accessRequirementsState, commonAccessRequirements, "addAccessRequirement");
+  }
+
+  function removeAccessRequirement(raw) {
+    const v = normalizeToken(decodeURIComponent(raw || ""));
+    accessRequirementsState = accessRequirementsState.filter((x) => x.toLowerCase() !== v.toLowerCase());
+    renderTokenList(accessReqList, accessRequirementsState, "removeAccessRequirement", "No access requirements added.");
+    renderSuggestions(accessReqInput, accessReqSuggestions, accessRequirementsState, commonAccessRequirements, "addAccessRequirement");
+  }
+
+  function addRiskFlag(raw) {
+    const v = normalizeToken(decodeURIComponent(raw || ""));
+    if (!v) return;
+    if (!riskFlagsState.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      riskFlagsState.push(v);
+    }
+    if (riskFlagInput) riskFlagInput.value = "";
+    renderTokenList(riskFlagList, riskFlagsState, "removeRiskFlag", "No risk flags added.");
+    renderSuggestions(riskFlagInput, riskFlagSuggestions, riskFlagsState, commonRiskFlags, "addRiskFlag");
+  }
+
+  function removeRiskFlag(raw) {
+    const v = normalizeToken(decodeURIComponent(raw || ""));
+    riskFlagsState = riskFlagsState.filter((x) => x.toLowerCase() !== v.toLowerCase());
+    renderTokenList(riskFlagList, riskFlagsState, "removeRiskFlag", "No risk flags added.");
+    renderSuggestions(riskFlagInput, riskFlagSuggestions, riskFlagsState, commonRiskFlags, "addRiskFlag");
+  }
+
+  window.addAccessRequirement = addAccessRequirement;
+  window.removeAccessRequirement = removeAccessRequirement;
+  window.addRiskFlag = addRiskFlag;
+  window.removeRiskFlag = removeRiskFlag;
+
+  if (patientLookupBtn) patientLookupBtn.addEventListener("click", runPatientLookup);
+  if (patientLookupInput) {
+    patientLookupInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runPatientLookup();
+      }
+    });
+  }
+  document.querySelectorAll("[data-unknown-target]").forEach((btn) => {
+    btn.addEventListener("click", () => markUnknown(btn.getAttribute("data-unknown-target")));
+  });
+  if (accessReqAddBtn) {
+    accessReqAddBtn.addEventListener("click", () => addAccessRequirement(encodeURIComponent(accessReqInput?.value || "")));
+  }
+  if (accessReqInput) {
+    accessReqInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addAccessRequirement(encodeURIComponent(accessReqInput.value || ""));
+      }
+    });
+    accessReqInput.addEventListener("input", () => {
+      renderSuggestions(accessReqInput, accessReqSuggestions, accessRequirementsState, commonAccessRequirements, "addAccessRequirement");
+    });
+  }
+  if (riskFlagAddBtn) {
+    riskFlagAddBtn.addEventListener("click", () => addRiskFlag(encodeURIComponent(riskFlagInput?.value || "")));
+  }
+  if (riskFlagInput) {
+    riskFlagInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addRiskFlag(encodeURIComponent(riskFlagInput.value || ""));
+      }
+    });
+    riskFlagInput.addEventListener("input", () => {
+      renderSuggestions(riskFlagInput, riskFlagSuggestions, riskFlagsState, commonRiskFlags, "addRiskFlag");
+    });
+  }
+  renderTokenList(accessReqList, accessRequirementsState, "removeAccessRequirement", "No access requirements added.");
+  renderTokenList(riskFlagList, riskFlagsState, "removeRiskFlag", "No risk flags added.");
+  renderSuggestions(accessReqInput, accessReqSuggestions, accessRequirementsState, commonAccessRequirements, "addAccessRequirement");
+  renderSuggestions(riskFlagInput, riskFlagSuggestions, riskFlagsState, commonRiskFlags, "addRiskFlag");
+
+  const profileSelect = document.getElementById("formProfileSelect");
+  if (profileSelect) {
+    profileSelect.addEventListener("change", function () {
+      const slug = this.value;
+      window.location.href = `{{ url_for('medical_response_internal.triage_form') }}?form=${encodeURIComponent(slug)}`;
+    });
+  }
+
+  function parseLineListToObjects(lines, mode) {
+    const normalized = (Array.isArray(lines) ? lines : [])
+      .map((x) => normalizeToken(x))
+      .filter(Boolean);
+    if (mode === "access") {
+      return normalized.map((line) => ({ category: "General", details: line }));
+    }
+    return normalized.map((line) => ({
+      flag_type: "Manual",
+      timestamp: new Date().toISOString().slice(0, 19).replace("T", " "),
+      description: line,
+    }));
+  }
+
+  function hasExclusionYes() {
+    const radios = document.querySelectorAll(".exclusion-radio:checked");
+    for (const r of radios) {
+      if (r.value === "yes") return true;
+    }
+    return false;
+  }
+
+  function submitDecision(decision) {
+    const form = document.getElementById("triageForm");
+    const decisionInput = document.getElementById("decisionInput");
+    const accessInput = document.getElementById("accessRequirementsInput");
+    const riskInput = document.getElementById("riskFlagsInput");
+    accessInput.value = JSON.stringify(
+      parseLineListToObjects(accessRequirementsState, "access")
+    );
+    riskInput.value = JSON.stringify(
+      parseLineListToObjects(riskFlagsState, "risk")
+    );
+
+    const reason = document.querySelector("textarea[name='reason_for_call']").value.trim();
+    const address = document.querySelector("textarea[name='address']").value.trim();
+    const postcode = document.querySelector("input[name='postcode']").value.trim();
+    const w3w = document.querySelector("input[name='what3words']").value.trim();
+    if (!reason) {
+      focusField(document.querySelector("textarea[name='reason_for_call']"), "Reason for call is required.");
+      return;
+    }
+    if (!address) {
+      focusField(document.querySelector("textarea[name='address']"), "Address is required.");
+      return;
+    }
+    if (!postcode && !w3w) {
+      focusField(document.querySelector("input[name='postcode']"), "Provide at least postcode or what3words.");
+      return;
+    }
+    const requiredQuestions = {{ (selected_form.questions or [])|tojson }};
+    for (const q of requiredQuestions) {
+      if (!q || !q.required || !q.key) continue;
+      const input = document.querySelector(`[name="extra_${q.key}"]`);
+      if (!input) continue;
+      const val = (input.value || "").trim();
+      if (!val) {
+        focusField(input, `${q.label || q.key} is required.`);
+        return;
+      }
+    }
+    if (decision === "ACCEPT" && {{ 'true' if selected_form.show_exclusions else 'false' }} && hasExclusionYes()) {
+      decisionInput.value = "ACCEPT_WITH_EXCLUSION";
+    } else {
+      decisionInput.value = decision;
+    }
+    form.submit();
+  }
+
+  function initAddressAutocomplete() {
+    const addressEl = incidentAddressInput;
+    if (!addressEl || !window.google || !window.google.maps || !window.google.maps.places) return;
+    const autocomplete = new google.maps.places.Autocomplete(addressEl, {
+      fields: ["address_components", "formatted_address"],
+      types: ["geocode"]
+    });
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      if (place && place.formatted_address) addressEl.value = place.formatted_address;
+      const comps = Array.isArray(place && place.address_components) ? place.address_components : [];
+      const postcodeComp = comps.find((c) => Array.isArray(c.types) && c.types.includes("postal_code"));
+      if (postcodeComp && incidentPostcodeInput) incidentPostcodeInput.value = postcodeComp.long_name || postcodeComp.short_name || "";
+    });
+  }
+
+  window.initVentusAddressAutocomplete = initAddressAutocomplete;
+  if (window.google && window.google.maps && window.google.maps.places) initAddressAutocomplete();
+</script>
+{% if google_maps_api_key %}
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initVentusAddressAutocomplete"></script>
+{% endif %}
+{% endblock %}

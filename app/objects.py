@@ -31,6 +31,34 @@ def get_db_connection():
     """
     Establish and return a new database connection using environment variables.
     """
+    # Support optional connection pooling via mysql.connector.pooling.MySQLConnectionPool
+    # Set environment variable DB_POOL_SIZE to enable pooling (e.g., 5)
+    try:
+        pool_size_raw = os.getenv('DB_POOL_SIZE')
+        if pool_size_raw and int(pool_size_raw) > 0:
+            # lazy-create a module-level pool
+            if not hasattr(get_db_connection, '_pool') or get_db_connection._pool is None:
+                try:
+                    from mysql.connector import pooling
+                    pool_cfg = {
+                        'pool_name': 'sparrow_pool',
+                        'pool_size': int(pool_size_raw),
+                        'host': os.getenv('DB_HOST', 'localhost'),
+                        'user': os.getenv('DB_USER', 'root'),
+                        'password': os.getenv('DB_PASSWORD', 'rootpassword'),
+                        'database': os.getenv('DB_NAME', 'sparrow_erp'),
+                    }
+                    get_db_connection._pool = pooling.MySQLConnectionPool(
+                        **pool_cfg)
+                except Exception:
+                    # If pool creation fails, fallback to direct connections
+                    get_db_connection._pool = None
+            if getattr(get_db_connection, '_pool', None):
+                return get_db_connection._pool.get_connection()
+    except Exception:
+        # Any error using pooling should fall back to direct connect
+        pass
+
     return mysql.connector.connect(
         host=os.getenv("DB_HOST", "localhost"),
         user=os.getenv("DB_USER", "root"),

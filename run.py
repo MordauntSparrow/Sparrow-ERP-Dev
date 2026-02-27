@@ -144,7 +144,13 @@ def watch_for_restart_flag(poll_seconds: float = 0.5):
 def run_admin_app():
     """Start the admin Flask app."""
     admin_app = create_app()
-    admin_app.run(host="0.0.0.0", port=82, debug=True, use_reloader=False)
+    # If socketio is available, use it to run the app (supports WebSockets).
+    try:
+        from app import socketio
+        socketio.run(admin_app, host="0.0.0.0", port=82, debug=True)
+    except Exception:
+        # Fall back to Flask built-in server if SocketIO isn't available
+        admin_app.run(host="0.0.0.0", port=82, debug=True, use_reloader=False)
 
 
 # ----------------------------

@@ -1,0 +1,1074 @@
+{% extends "response/call_centre_base.html" %}
+{% block page_title %}Response Admin{% endblock %}
+{% set nav_section = 'admin' %}
+{% block cc_content %}
+<div class="panel">
+  <div class="panel-head">
+    <div>
+      <h1 class="panel-title">Ventus Response Admin</h1>
+      <div class="muted">Operational controls, monitoring, and maintenance for response and dispatch workflows.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;">
+      <div class="panel" style="box-shadow:none;"><div class="panel-body"><h2 style="margin:0 0 6px 0;font-size:16px;">CAD Dashboard</h2><p class="muted">Dispatch board with job stack, timings, and unit control.</p><a href="/plugin/ventus_response_module/cad" class="btn primary"><i class="bi bi-broadcast-pin"></i> Open Dispatch</a></div></div>
+      <div class="panel" style="box-shadow:none;"><div class="panel-body"><h2 style="margin:0 0 6px 0;font-size:16px;">Response Intake</h2><p class="muted">Create and review response triage submissions.</p><a href="/plugin/ventus_response_module/response" class="btn"><i class="bi bi-clipboard2-plus"></i> Open Intake</a></div></div>
+      <div class="panel" style="box-shadow:none;"><div class="panel-body"><h2 style="margin:0 0 6px 0;font-size:16px;">Response Centre</h2><p class="muted">Live call handling stack and incident updates.</p><a href="/plugin/ventus_response_module/call-centre" class="btn"><i class="bi bi-headset"></i> Open Response Centre</a></div></div>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">
+  <div class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Live KPI Snapshot</h2>
+      <button id="adminRefreshKpiBtn" class="btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+    </div>
+    <div class="panel-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+        <div class="panel" style="box-shadow:none;"><div class="panel-body"><div class="muted">Active Jobs</div><div style="font-size:26px;font-weight:700;" id="adminKpiActive">--</div></div></div>
+        <div class="panel" style="box-shadow:none;"><div class="panel-body"><div class="muted">Units Available</div><div style="font-size:26px;font-weight:700;" id="adminKpiAvailable">--</div></div></div>
+        <div class="panel" style="box-shadow:none;"><div class="panel-body"><div class="muted">Cleared Today</div><div style="font-size:26px;font-weight:700;" id="adminKpiCleared">--</div></div></div>
+        <div class="panel" style="box-shadow:none;"><div class="panel-body"><div class="muted">Avg Cycle Today</div><div style="font-size:26px;font-weight:700;" id="adminKpiCycle">--</div></div></div>
+      </div>
+      <div class="muted" style="margin-top:10px;" id="adminKpiStatus">Loading KPI data...</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2 class="panel-title">Dispatch Note / MOTD</h2></div>
+    <div class="panel-body">
+      <p class="muted">This note appears in dispatch messages for operational users.</p>
+      <textarea id="adminMotdText" rows="5" placeholder="Enter dispatcher note or message of the day..."></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="adminMotdSaveBtn" class="btn primary" style="flex:1;"><i class="bi bi-save"></i> Save</button>
+        <button id="adminMotdReloadBtn" class="btn" style="flex:1;"><i class="bi bi-arrow-clockwise"></i> Reload</button>
+      </div>
+      <div id="adminMotdStatus" class="muted" style="margin-top:8px;">Loading note...</div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0;">
+      <h3 style="margin:0 0 8px 0;font-size:14px;">Data Integrity Tools</h3>
+      <button id="repairAssignmentsBtn" class="btn" style="width:100%;"><i class="bi bi-wrench-adjustable-circle"></i> Repair Assignment Data</button>
+      <div id="repairAssignmentsResult" class="muted" style="margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;">
+  <div class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Division Control</h2>
+      <div style="display:flex;gap:8px;">
+        <button id="adminDivisionsReloadBtn" class="btn"><i class="bi bi-arrow-clockwise"></i> Reload</button>
+        <button id="adminDivisionsAddBtn" class="btn"><i class="bi bi-plus-lg"></i> Add Division</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <p class="muted">Define dispatch divisions, colours, and default focus used by dispatch dashboards.</p>
+      <div id="adminDivisionsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div id="adminDivisionsStatus" class="muted" style="margin-top:8px;">Loading divisions...</div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0;">
+      <h3 style="margin:0 0 8px 0;font-size:14px;">Dispatcher Division Ownership</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;">
+        <div>
+          <label class="muted">Username</label>
+          <input id="adminUserAccessUsername" type="text" placeholder="dispatcher.user">
+        </div>
+        <label style="font-size:12px;"><input id="adminUserAccessOverride" type="checkbox"> Allow cross-division override</label>
+      </div>
+      <div style="margin-top:8px;">
+        <label class="muted">Owned Divisions</label>
+        <div id="adminUserAccessDivisionChecks" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="adminUserAccessLoadBtn" class="btn"><i class="bi bi-download"></i> Load User</button>
+        <button id="adminUserAccessSaveBtn" class="btn primary"><i class="bi bi-save"></i> Save Access</button>
+      </div>
+      <div id="adminUserAccessStatus" class="muted" style="margin-top:8px;"></div>
+      <div id="adminUserAccessKnown" style="margin-top:8px;"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Assist Request Queue</h2>
+      <button id="adminAssistReloadBtn" class="btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+    </div>
+    <div class="panel-body">
+      <p class="muted">Cross-division requests waiting for dispatcher decision.</p>
+      <ul id="adminAssistList" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;"></ul>
+      <div id="adminAssistStatus" class="muted" style="margin-top:8px;">Loading assist requests...</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">Form Profile Builder</h2>
+    <div style="display:flex;gap:8px;">
+      <button id="adminFormsReloadBtn" class="btn"><i class="bi bi-arrow-clockwise"></i> Reload</button>
+      <button id="adminFormsNewBtn" class="btn"><i class="bi bi-plus-lg"></i> New Profile</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <p class="muted">Build intake profiles for any operation type: ambulance, recovery, security, private police, events, and more.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;">
+      <div>
+        <label class="muted">Existing Profiles</label>
+        <select id="adminFormSelect"></select>
+        <div id="adminFormsStatus" class="muted" style="margin-top:6px;">Loading profiles...</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+        <div><label class="muted">Profile Slug</label><input id="adminFormSlug" type="text" placeholder="security_response"></div>
+        <div><label class="muted">Display Name</label><input id="adminFormName" type="text" placeholder="Security Response"></div>
+        <div>
+          <label class="muted">Exclusions Section</label>
+          <select id="adminFormExclusions">
+            <option value="false">Disabled</option>
+            <option value="true">Enabled</option>
+          </select>
+        </div>
+        <div>
+          <label class="muted">Dispatch Division</label>
+          <select id="adminFormDispatchDivision"></select>
+        </div>
+        <div style="grid-column:span 3;">
+          <label class="muted">Description</label>
+          <input id="adminFormDescription" type="text" placeholder="Workflow summary shown to handlers.">
+        </div>
+        <div style="grid-column:span 3;">
+          <label><input type="checkbox" id="adminFormDefault"> Set as default profile</label>
+        </div>
+      </div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--line);margin:12px 0;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="panel" style="box-shadow:none;">
+        <div class="panel-head">
+          <h3 class="panel-title">Priority Levels</h3>
+          <button id="adminAddPriorityLevelBtn" class="btn"><i class="bi bi-plus-lg"></i> Add Level</button>
+        </div>
+        <div class="panel-body">
+          <p class="muted" style="margin-top:0;">Define labels your organisation uses (P1/P2, Red/Amber/Green, Critical/Urgent/Routine, etc).</p>
+          <div id="adminPriorityLevelsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+          <div style="margin-top:8px;">
+            <label class="muted">Fallback Level (if no rule matches)</label>
+            <select id="adminPriorityFallback"></select>
+          </div>
+        </div>
+      </div>
+      <div class="panel" style="box-shadow:none;">
+        <div class="panel-head">
+          <h3 class="panel-title">Priority Decision Flow</h3>
+          <button id="adminAddPriorityRuleBtn" class="btn"><i class="bi bi-diagram-3"></i> Add Rule</button>
+        </div>
+        <div class="panel-body">
+          <p class="muted" style="margin-top:0;">Rules are evaluated top to bottom. First match sets the system priority.</p>
+          <datalist id="priorityFieldHints"></datalist>
+          <div id="adminPriorityRulesList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--line);margin:12px 0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <h3 style="margin:0;font-size:14px;">Custom Questions</h3>
+      <button id="adminAddQuestionBtn" class="btn"><i class="bi bi-plus-lg"></i> Add Question</button>
+    </div>
+    <div id="adminQuestionsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button id="adminSaveFormBtn" class="btn primary"><i class="bi bi-save"></i> Save Profile</button>
+      <a href="/plugin/ventus_response_module/response" class="btn"><i class="bi bi-box-arrow-up-right"></i> Open Intake</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    const kpiStatusEl = document.getElementById("adminKpiStatus");
+    const repairResultEl = document.getElementById("repairAssignmentsResult");
+    const motdTextEl = document.getElementById("adminMotdText");
+    const motdStatusEl = document.getElementById("adminMotdStatus");
+    const formSelectEl = document.getElementById("adminFormSelect");
+    const formSlugEl = document.getElementById("adminFormSlug");
+    const formNameEl = document.getElementById("adminFormName");
+    const formDescEl = document.getElementById("adminFormDescription");
+    const formExclusionsEl = document.getElementById("adminFormExclusions");
+    const formDispatchDivisionEl = document.getElementById("adminFormDispatchDivision");
+    const formDefaultEl = document.getElementById("adminFormDefault");
+    const formsStatusEl = document.getElementById("adminFormsStatus");
+    const questionsListEl = document.getElementById("adminQuestionsList");
+    const priorityLevelsListEl = document.getElementById("adminPriorityLevelsList");
+    const priorityRulesListEl = document.getElementById("adminPriorityRulesList");
+    const priorityFallbackEl = document.getElementById("adminPriorityFallback");
+    const priorityFieldHintsEl = document.getElementById("priorityFieldHints");
+    const divisionsListEl = document.getElementById("adminDivisionsList");
+    const divisionsStatusEl = document.getElementById("adminDivisionsStatus");
+    const assistListEl = document.getElementById("adminAssistList");
+    const assistStatusEl = document.getElementById("adminAssistStatus");
+    const userAccessUsernameEl = document.getElementById("adminUserAccessUsername");
+    const userAccessOverrideEl = document.getElementById("adminUserAccessOverride");
+    const userAccessDivisionChecksEl = document.getElementById("adminUserAccessDivisionChecks");
+    const userAccessStatusEl = document.getElementById("adminUserAccessStatus");
+    const userAccessKnownEl = document.getElementById("adminUserAccessKnown");
+    const kpiEls = {
+      active: document.getElementById("adminKpiActive"),
+      available: document.getElementById("adminKpiAvailable"),
+      cleared: document.getElementById("adminKpiCleared"),
+      cycle: document.getElementById("adminKpiCycle")
+    };
+    let formsCache = [];
+    let divisionOptionsCache = [];
+    const defaultPriorityConfig = {
+      levels: [
+        { code: "P1", label: "P1 - Immediate" },
+        { code: "P2", label: "P2 - Urgent" },
+        { code: "P3", label: "P3 - Soon" },
+        { code: "P4", label: "P4 - Routine" }
+      ],
+      fallback: "P4",
+      rules: []
+    };
+
+    function esc(v) {
+      return String(v ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function refreshFormDivisionOptions(selected = "") {
+      const items = Array.isArray(divisionOptionsCache) && divisionOptionsCache.length
+        ? divisionOptionsCache
+        : [{ slug: "general", name: "General", is_active: true }];
+      const opts = items
+        .filter((d) => d.is_active !== false)
+        .map((d) => {
+          const slug = String(d.slug || "").trim();
+          const name = String(d.name || slug).trim();
+          const sel = selected && selected === slug ? "selected" : "";
+          return `<option value="${esc(slug)}" ${sel}>${esc(name)}</option>`;
+        })
+        .join("");
+      formDispatchDivisionEl.innerHTML = opts || `<option value="general">General</option>`;
+      if (!formDispatchDivisionEl.value) formDispatchDivisionEl.value = "general";
+    }
+
+    function fmtDuration(seconds) {
+      if (!Number.isFinite(seconds) || seconds <= 0) return "--";
+      const s = Math.floor(seconds % 60);
+      const m = Math.floor((seconds / 60) % 60);
+      const h = Math.floor(seconds / 3600);
+      return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+    }
+
+    async function refreshKpis() {
+      kpiStatusEl.textContent = "Loading KPI data...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/kpis", { credentials: "same-origin" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        kpiEls.active.textContent = data.active_jobs ?? "--";
+        kpiEls.available.textContent = data.units_available ?? "--";
+        kpiEls.cleared.textContent = data.cleared_today ?? data.jobs_cleared_today ?? "--";
+        kpiEls.cycle.textContent = data.avg_response_time || fmtDuration(data.average_cycle_seconds ?? 0);
+        kpiStatusEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        kpiEls.active.textContent = "--";
+        kpiEls.available.textContent = "--";
+        kpiEls.cleared.textContent = "--";
+        kpiEls.cycle.textContent = "--";
+        kpiStatusEl.textContent = `KPI load failed: ${err.message}`;
+      }
+    }
+
+    async function repairAssignments() {
+      repairResultEl.style.color = "";
+      repairResultEl.textContent = "Running assignment repair...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/dispatch/repair_assignments", {
+          method: "POST",
+          credentials: "same-origin"
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+        const repaired = payload.repaired_jobs ?? 0;
+        const untouched = payload.untouched_jobs ?? 0;
+        repairResultEl.style.color = "#22c55e";
+        repairResultEl.textContent = `Repair complete. Updated ${repaired} job(s), left ${untouched} unchanged.`;
+        refreshKpis();
+      } catch (err) {
+        repairResultEl.style.color = "#ef4444";
+        repairResultEl.textContent = `Repair failed: ${err.message}`;
+      }
+    }
+
+    async function loadMotd() {
+      motdStatusEl.style.color = "";
+      motdStatusEl.textContent = "Loading note...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/dispatch/motd", { credentials: "same-origin" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        motdTextEl.value = data.text || "";
+        const stamp = data.updated_at ? new Date(data.updated_at).toLocaleString() : "never";
+        motdStatusEl.textContent = `Last updated ${stamp} by ${data.updated_by || "unknown"}`;
+      } catch (err) {
+        motdStatusEl.style.color = "#ef4444";
+        motdStatusEl.textContent = `Note load failed: ${err.message}`;
+      }
+    }
+
+    async function saveMotd() {
+      motdStatusEl.style.color = "";
+      motdStatusEl.textContent = "Saving note...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/dispatch/motd", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ text: (motdTextEl.value || "").trim() })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+        motdStatusEl.style.color = "#22c55e";
+        motdStatusEl.textContent = "Dispatch note saved.";
+        loadMotd();
+      } catch (err) {
+        motdStatusEl.style.color = "#ef4444";
+        motdStatusEl.textContent = `Note save failed: ${err.message}`;
+      }
+    }
+
+    function divisionRowTemplate(d = {}) {
+      const slug = String(d.slug || "");
+      const name = String(d.name || slug);
+      const color = String(d.color || "#64748b");
+      const isActive = !!d.is_active;
+      const isDefault = !!d.is_default;
+      return `
+        <div class="division-row" style="border:1px solid var(--line);border-radius:10px;padding:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1.2fr 130px 90px 90px auto;gap:8px;align-items:center;">
+            <input class="div-slug" placeholder="slug" value="${esc(slug)}" ${slug === "general" ? "readonly" : ""}>
+            <input class="div-name" placeholder="Display name" value="${esc(name)}">
+            <input class="div-color" type="color" value="${esc(color)}">
+            <label style="font-size:12px;"><input class="div-active" type="checkbox" ${isActive ? "checked" : ""} ${slug === "general" ? "disabled checked" : ""}> Active</label>
+            <label style="font-size:12px;"><input class="div-default" type="radio" name="divisionDefault" ${isDefault ? "checked" : ""}> Default</label>
+            <button class="btn div-save" type="button"><i class="bi bi-save"></i> Save</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function setDefaultDivision(slug) {
+      const res = await fetch("/plugin/ventus_response_module/dispatch/divisions/default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ slug })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+      return payload;
+    }
+
+    async function saveDivisionRow(row) {
+      const slug = String(row.querySelector(".div-slug")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
+      const name = String(row.querySelector(".div-name")?.value || "").trim();
+      const color = String(row.querySelector(".div-color")?.value || "#64748b");
+      const isActive = !!row.querySelector(".div-active")?.checked;
+      const isDefault = !!row.querySelector(".div-default")?.checked;
+      if (!slug) throw new Error("Division slug required");
+      const res = await fetch("/plugin/ventus_response_module/dispatch/divisions/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ slug, name, color, is_active: isActive, is_default: isDefault })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+      if (isDefault) {
+        await setDefaultDivision(slug);
+      }
+      return payload;
+    }
+
+    function bindDivisionRow(row) {
+      const saveBtn = row.querySelector(".div-save");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          divisionsStatusEl.style.color = "";
+          divisionsStatusEl.textContent = "Saving division...";
+          saveBtn.disabled = true;
+          try {
+            await saveDivisionRow(row);
+            divisionsStatusEl.style.color = "#22c55e";
+            divisionsStatusEl.textContent = "Division saved.";
+            await loadDivisionsAdmin();
+          } catch (err) {
+            divisionsStatusEl.style.color = "#ef4444";
+            divisionsStatusEl.textContent = `Division save failed: ${err.message}`;
+          } finally {
+            saveBtn.disabled = false;
+          }
+        });
+      }
+      const defaultRadio = row.querySelector(".div-default");
+      const slugEl = row.querySelector(".div-slug");
+      if (defaultRadio && slugEl) {
+        defaultRadio.addEventListener("change", async () => {
+          if (!defaultRadio.checked) return;
+          const slug = String(slugEl.value || "").trim();
+          if (!slug) return;
+          try {
+            await setDefaultDivision(slug);
+            divisionsStatusEl.style.color = "#22c55e";
+            divisionsStatusEl.textContent = `Default division set to ${slug}.`;
+            await loadDivisionsAdmin();
+          } catch (err) {
+            divisionsStatusEl.style.color = "#ef4444";
+            divisionsStatusEl.textContent = `Default update failed: ${err.message}`;
+          }
+        });
+      }
+    }
+
+    async function loadDivisionsAdmin() {
+      divisionsStatusEl.style.color = "";
+      divisionsStatusEl.textContent = "Loading divisions...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/dispatch/divisions/manage", { credentials: "same-origin" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        divisionOptionsCache = items.slice();
+        refreshFormDivisionOptions(formDispatchDivisionEl.value);
+        divisionsListEl.innerHTML = items.map((d) => divisionRowTemplate(d)).join("") || `<div class="muted">No divisions configured.</div>`;
+        divisionsListEl.querySelectorAll(".division-row").forEach(bindDivisionRow);
+        divisionsStatusEl.textContent = `${items.length} division(s) loaded.`;
+      } catch (err) {
+        divisionsStatusEl.style.color = "#ef4444";
+        divisionsStatusEl.textContent = `Division load failed: ${err.message}`;
+      }
+    }
+
+    function addDivisionDraft() {
+      if (!divisionsListEl) return;
+      if (divisionsListEl.querySelector(".division-row") === null) divisionsListEl.innerHTML = "";
+      divisionsListEl.insertAdjacentHTML("beforeend", divisionRowTemplate({ slug: "", name: "", color: "#64748b", is_active: true, is_default: false }));
+      const row = divisionsListEl.lastElementChild;
+      bindDivisionRow(row);
+      row.querySelector(".div-slug")?.focus();
+      divisionsStatusEl.style.color = "";
+      divisionsStatusEl.textContent = "New division draft added.";
+    }
+
+    function getCheckedUserDivisions() {
+      return Array.from(userAccessDivisionChecksEl.querySelectorAll("input[type='checkbox']:checked"))
+        .map((el) => String(el.value || "").trim())
+        .filter(Boolean);
+    }
+
+    function renderUserAccessDivisionChecks(items, selected = []) {
+      const selectedSet = new Set((Array.isArray(selected) ? selected : []).map((x) => String(x || "").trim()));
+      const divisions = Array.isArray(items) ? items : [];
+      userAccessDivisionChecksEl.innerHTML = divisions.map((d) => {
+        const slug = String(d.slug || "").trim();
+        const name = String(d.name || slug).trim();
+        const checked = selectedSet.has(slug) ? "checked" : "";
+        return `<label style="font-size:12px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" value="${esc(slug)}" ${checked}> ${esc(name)}</label>`;
+      }).join("") || `<span class="muted">No active divisions.</span>`;
+    }
+
+    async function loadUserAccess(username) {
+      const uname = String(username || userAccessUsernameEl.value || "").trim();
+      if (!uname) {
+        userAccessStatusEl.style.color = "#ef4444";
+        userAccessStatusEl.textContent = "Enter a username first.";
+        return;
+      }
+      userAccessStatusEl.style.color = "";
+      userAccessStatusEl.textContent = "Loading user access...";
+      try {
+        const [divRes, userRes, allRes] = await Promise.all([
+          fetch("/plugin/ventus_response_module/dispatch/divisions/manage", { credentials: "same-origin" }),
+          fetch(`/plugin/ventus_response_module/dispatch/user-divisions?username=${encodeURIComponent(uname)}`, { credentials: "same-origin" }),
+          fetch("/plugin/ventus_response_module/dispatch/user-divisions", { credentials: "same-origin" })
+        ]);
+        if (!divRes.ok) throw new Error(`Divisions HTTP ${divRes.status}`);
+        if (!userRes.ok) throw new Error(`User access HTTP ${userRes.status}`);
+        if (!allRes.ok) throw new Error(`Users HTTP ${allRes.status}`);
+        const divData = await divRes.json();
+        const userData = await userRes.json();
+        const allUsers = await allRes.json();
+        const divisions = Array.isArray(divData.items) ? divData.items.filter((d) => d.is_active !== false) : [];
+        renderUserAccessDivisionChecks(divisions, userData.divisions || []);
+        userAccessUsernameEl.value = uname;
+        userAccessOverrideEl.checked = !!userData.can_override_all;
+        const rows = Array.isArray(allUsers) ? allUsers : [];
+        userAccessKnownEl.innerHTML = rows.length
+          ? `<div class="muted">Configured users:</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${rows.map((u) => `<button type="button" class="btn" style="padding:4px 8px;font-size:11px;" data-ua-user="${esc(u.username)}">${esc(u.username)}</button>`).join("")}</div>`
+          : `<div class="muted">No configured users yet.</div>`;
+        userAccessKnownEl.querySelectorAll("[data-ua-user]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            userAccessUsernameEl.value = btn.dataset.uaUser || "";
+            loadUserAccess(btn.dataset.uaUser || "");
+          });
+        });
+        userAccessStatusEl.style.color = "";
+        userAccessStatusEl.textContent = `Loaded access for ${uname}.`;
+      } catch (err) {
+        userAccessStatusEl.style.color = "#ef4444";
+        userAccessStatusEl.textContent = `User access load failed: ${err.message}`;
+      }
+    }
+
+    async function saveUserAccess() {
+      const username = String(userAccessUsernameEl.value || "").trim();
+      if (!username) {
+        userAccessStatusEl.style.color = "#ef4444";
+        userAccessStatusEl.textContent = "Username is required.";
+        return;
+      }
+      userAccessStatusEl.style.color = "";
+      userAccessStatusEl.textContent = "Saving user access...";
+      try {
+        const payload = {
+          username,
+          divisions: getCheckedUserDivisions(),
+          can_override_all: !!userAccessOverrideEl.checked
+        };
+        const res = await fetch("/plugin/ventus_response_module/dispatch/user-divisions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        userAccessStatusEl.style.color = "#22c55e";
+        userAccessStatusEl.textContent = `Access updated for ${username}.`;
+        await loadUserAccess(username);
+      } catch (err) {
+        userAccessStatusEl.style.color = "#ef4444";
+        userAccessStatusEl.textContent = `User access save failed: ${err.message}`;
+      }
+    }
+
+    async function resolveAssistRequestAdmin(id, decision) {
+      const res = await fetch(`/plugin/ventus_response_module/dispatch/assist-requests/${encodeURIComponent(id)}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ decision, transfer_division: true })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
+      return payload;
+    }
+
+    async function loadAssistRequestsAdmin() {
+      assistStatusEl.style.color = "";
+      assistStatusEl.textContent = "Loading assist requests...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/dispatch/assist-requests?status=pending&limit=80", { credentials: "same-origin" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          assistListEl.innerHTML = `<li class="muted">No pending assist requests.</li>`;
+          assistStatusEl.textContent = "Queue clear.";
+          return;
+        }
+        assistListEl.innerHTML = list.map((r) => {
+          const id = Number(r.id);
+          const cad = Number(r.cad);
+          const canOpenCad = Number.isFinite(cad) && cad > 0;
+          const when = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+          return `
+            <li style="border:1px solid var(--line);border-radius:10px;padding:8px;">
+              <div style="font-weight:700;">#${esc(id)} • ${esc(r.callsign || "unit")}</div>
+              <div class="muted">${esc(r.from_division || "unknown")} -> ${esc(r.to_division || "unknown")}${canOpenCad ? ` • CAD #${esc(cad)}` : ""}</div>
+              <div style="margin-top:4px;">${esc(r.note || "")}</div>
+              <div class="muted" style="margin-top:4px;">${esc(r.requested_by || "unknown")} • ${esc(when)}</div>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                ${canOpenCad ? `<a class="btn" href="/plugin/ventus_response_module/cad?panel=jobs&cad=${esc(cad)}" target="_blank">Open CAD</a>` : ""}
+                <button class="btn assist-approve" data-id="${esc(id)}">Approve</button>
+                <button class="btn assist-reject" data-id="${esc(id)}">Reject</button>
+              </div>
+            </li>
+          `;
+        }).join("");
+        assistListEl.querySelectorAll(".assist-approve").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = Number(btn.dataset.id);
+            if (!Number.isFinite(id)) return;
+            btn.disabled = true;
+            try {
+              await resolveAssistRequestAdmin(id, "approve");
+              await loadAssistRequestsAdmin();
+            } catch (err) {
+              assistStatusEl.style.color = "#ef4444";
+              assistStatusEl.textContent = `Approve failed: ${err.message}`;
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+        assistListEl.querySelectorAll(".assist-reject").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = Number(btn.dataset.id);
+            if (!Number.isFinite(id)) return;
+            btn.disabled = true;
+            try {
+              await resolveAssistRequestAdmin(id, "reject");
+              await loadAssistRequestsAdmin();
+            } catch (err) {
+              assistStatusEl.style.color = "#ef4444";
+              assistStatusEl.textContent = `Reject failed: ${err.message}`;
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+        assistStatusEl.textContent = `${list.length} pending request(s).`;
+      } catch (err) {
+        assistStatusEl.style.color = "#ef4444";
+        assistStatusEl.textContent = `Assist load failed: ${err.message}`;
+      }
+    }
+
+    function qRowTemplate(q = {}) {
+      const key = q.key || "";
+      const label = q.label || "";
+      const type = q.type || "text";
+      const required = q.required ? "checked" : "";
+      const options = Array.isArray(q.options) ? q.options.join(", ") : "";
+      return `
+        <div class="q-row" style="border:1px solid var(--line);border-radius:10px;padding:8px;">
+          <div style="display:grid;grid-template-columns:1.2fr 1.5fr 1fr 1.5fr auto auto;gap:8px;align-items:center;">
+            <input class="q-key" placeholder="key" value="${key}">
+            <input class="q-label" placeholder="Label" value="${label}">
+            <select class="q-type">
+              <option value="text" ${type === "text" ? "selected" : ""}>text</option>
+              <option value="textarea" ${type === "textarea" ? "selected" : ""}>textarea</option>
+              <option value="number" ${type === "number" ? "selected" : ""}>number</option>
+              <option value="select" ${type === "select" ? "selected" : ""}>select</option>
+            </select>
+            <input class="q-options" placeholder="options (a,b,c)" value="${options}">
+            <label><input class="q-required" type="checkbox" ${required}> Req</label>
+            <button class="btn q-remove" type="button">x</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function priorityLevelRowTemplate(level = {}) {
+      const code = String(level.code || "").toUpperCase();
+      const label = String(level.label || level.code || "");
+      return `
+        <div class="priority-level-row" style="border:1px solid var(--line);border-radius:10px;padding:8px;">
+          <div style="display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:center;">
+            <input class="priority-level-code" placeholder="Code (e.g. P1, RED, CRITICAL)" value="${code}">
+            <input class="priority-level-label" placeholder="Display label" value="${label}">
+            <button class="btn priority-level-remove" type="button">x</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function priorityRuleRowTemplate(rule = {}, levels = []) {
+      const field = String(rule.field || "reason_for_call");
+      const op = String(rule.op || "contains_any");
+      const value = (rule.value == null ? "" : String(rule.value));
+      const target = String(rule.target || (levels[0]?.code || "P1"));
+      const levelOptions = levels.map((lvl) => {
+        const code = String(lvl.code || "");
+        const label = String(lvl.label || code);
+        return `<option value="${code}" ${code === target ? "selected" : ""}>${label}</option>`;
+      }).join("");
+      return `
+        <div class="priority-rule-row" draggable="true" style="border:1px solid var(--line);border-radius:10px;padding:8px;">
+          <div style="display:grid;grid-template-columns:auto 1.2fr 1fr 1.2fr 1fr auto;gap:8px;align-items:center;">
+            <span class="priority-rule-drag" title="Drag to reorder" style="cursor:grab;user-select:none;color:var(--muted);font-size:16px;">⋮⋮</span>
+            <input class="priority-rule-field" list="priorityFieldHints" value="${field}" placeholder="reason_for_call / decision / exclusion_any / question:key">
+            <select class="priority-rule-op">
+              <option value="equals" ${op === "equals" ? "selected" : ""}>equals</option>
+              <option value="not_equals" ${op === "not_equals" ? "selected" : ""}>not equals</option>
+              <option value="contains" ${op === "contains" ? "selected" : ""}>contains</option>
+              <option value="contains_any" ${op === "contains_any" ? "selected" : ""}>contains any</option>
+              <option value="in" ${op === "in" ? "selected" : ""}>in (comma list)</option>
+              <option value="is_true" ${op === "is_true" ? "selected" : ""}>is true</option>
+              <option value="is_false" ${op === "is_false" ? "selected" : ""}>is false</option>
+              <option value="gte" ${op === "gte" ? "selected" : ""}>>=</option>
+              <option value="gt" ${op === "gt" ? "selected" : ""}>&gt;</option>
+              <option value="lte" ${op === "lte" ? "selected" : ""}><=</option>
+              <option value="lt" ${op === "lt" ? "selected" : ""}>&lt;</option>
+            </select>
+            <input class="priority-rule-value" placeholder="Value (comma separated for contains any / in)" value="${value}">
+            <select class="priority-rule-target">${levelOptions}</select>
+            <button class="btn priority-rule-remove" type="button">x</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function refreshPriorityFieldHints() {
+      const staticHints = ["reason_for_call", "decision", "exclusion_any"];
+      const questionHints = Array.from(questionsListEl.querySelectorAll(".q-key"))
+        .map((el) => slugify(el.value || ""))
+        .filter(Boolean)
+        .map((key) => `question:${key}`);
+      const hints = Array.from(new Set([...staticHints, ...questionHints]));
+      priorityFieldHintsEl.innerHTML = hints.map((h) => `<option value="${h}"></option>`).join("");
+    }
+
+    function collectPriorityLevels() {
+      const rows = Array.from(priorityLevelsListEl.querySelectorAll(".priority-level-row"));
+      const seen = new Set();
+      const out = [];
+      rows.forEach((row) => {
+        const codeRaw = row.querySelector(".priority-level-code")?.value || "";
+        const code = slugify(codeRaw).toUpperCase();
+        const label = (row.querySelector(".priority-level-label")?.value || "").trim();
+        if (!code || seen.has(code)) return;
+        seen.add(code);
+        out.push({ code, label: label || code });
+      });
+      return out.length ? out : defaultPriorityConfig.levels.slice();
+    }
+
+    function renderPriorityFallback(levels, selected) {
+      const fallback = String(selected || "").toUpperCase();
+      priorityFallbackEl.innerHTML = levels.map((lvl) => {
+        const code = String(lvl.code || "");
+        const label = String(lvl.label || code);
+        return `<option value="${code}" ${code === fallback ? "selected" : ""}>${label}</option>`;
+      }).join("");
+      if (!priorityFallbackEl.value && levels.length) {
+        priorityFallbackEl.value = levels[levels.length - 1].code;
+      }
+    }
+
+    function attachPriorityLevelRowHandlers(row) {
+      row.querySelector(".priority-level-remove")?.addEventListener("click", () => {
+        row.remove();
+        if (!priorityLevelsListEl.querySelector(".priority-level-row")) {
+          priorityLevelsListEl.innerHTML = "";
+        }
+        const levels = collectPriorityLevels();
+        renderPriorityFallback(levels, priorityFallbackEl.value);
+        refreshPriorityRuleTargets(levels);
+      });
+      row.querySelectorAll("input").forEach((input) => {
+        input.addEventListener("input", () => {
+          const levels = collectPriorityLevels();
+          renderPriorityFallback(levels, priorityFallbackEl.value);
+          refreshPriorityRuleTargets(levels);
+        });
+      });
+    }
+
+    function attachPriorityRuleRowHandlers(row) {
+      row.querySelector(".priority-rule-remove")?.addEventListener("click", () => {
+        row.remove();
+        if (!priorityRulesListEl.querySelector(".priority-rule-row")) {
+          priorityRulesListEl.innerHTML = `<div class="muted">No rules configured. Fallback level will be used.</div>`;
+        }
+      });
+    }
+
+    function initPriorityRuleDragAndDrop() {
+      const rows = Array.from(priorityRulesListEl.querySelectorAll(".priority-rule-row"));
+      rows.forEach((row) => {
+        if (row.dataset.dragBound !== "1") {
+          row.addEventListener("dragstart", (e) => {
+            row.classList.add("dragging");
+            try { e.dataTransfer.effectAllowed = "move"; } catch (_) {}
+          });
+          row.addEventListener("dragend", () => {
+            row.classList.remove("dragging");
+          });
+          row.dataset.dragBound = "1";
+        }
+      });
+      if (priorityRulesListEl.dataset.dragInit !== "1") {
+        priorityRulesListEl.addEventListener("dragover", (e) => {
+          const dragging = priorityRulesListEl.querySelector(".priority-rule-row.dragging");
+          if (!dragging) return;
+          e.preventDefault();
+          const siblings = Array.from(priorityRulesListEl.querySelectorAll(".priority-rule-row:not(.dragging)"));
+          let insertBefore = null;
+          for (const sib of siblings) {
+            const rect = sib.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            if (e.clientY < midpoint) {
+              insertBefore = sib;
+              break;
+            }
+          }
+          if (insertBefore) {
+            priorityRulesListEl.insertBefore(dragging, insertBefore);
+          } else {
+            priorityRulesListEl.appendChild(dragging);
+          }
+        });
+        priorityRulesListEl.dataset.dragInit = "1";
+      }
+    }
+
+    function refreshPriorityRuleTargets(levels) {
+      const rows = Array.from(priorityRulesListEl.querySelectorAll(".priority-rule-row"));
+      rows.forEach((row) => {
+        const targetEl = row.querySelector(".priority-rule-target");
+        const current = targetEl?.value || "";
+        if (!targetEl) return;
+        targetEl.innerHTML = levels.map((lvl) => {
+          const code = String(lvl.code || "");
+          const label = String(lvl.label || code);
+          return `<option value="${code}" ${code === current ? "selected" : ""}>${label}</option>`;
+        }).join("");
+        if (!targetEl.value && levels.length) targetEl.value = levels[0].code;
+      });
+    }
+
+    function renderPriorityLevels(levels) {
+      const list = Array.isArray(levels) && levels.length ? levels : defaultPriorityConfig.levels;
+      priorityLevelsListEl.innerHTML = list.map((lvl) => priorityLevelRowTemplate(lvl)).join("");
+      priorityLevelsListEl.querySelectorAll(".priority-level-row").forEach(attachPriorityLevelRowHandlers);
+      renderPriorityFallback(collectPriorityLevels(), (list[list.length - 1] || {}).code);
+    }
+
+    function renderPriorityRules(rules, levels) {
+      const list = Array.isArray(rules) ? rules : [];
+      if (!list.length) {
+        priorityRulesListEl.innerHTML = `<div class="muted">No rules configured. Fallback level will be used.</div>`;
+        return;
+      }
+      priorityRulesListEl.innerHTML = list.map((r) => priorityRuleRowTemplate(r, levels)).join("");
+      priorityRulesListEl.querySelectorAll(".priority-rule-row").forEach(attachPriorityRuleRowHandlers);
+      initPriorityRuleDragAndDrop();
+    }
+
+    function collectPriorityRules() {
+      return Array.from(priorityRulesListEl.querySelectorAll(".priority-rule-row")).map((row) => {
+        return {
+          field: (row.querySelector(".priority-rule-field")?.value || "").trim(),
+          op: (row.querySelector(".priority-rule-op")?.value || "equals").trim(),
+          value: (row.querySelector(".priority-rule-value")?.value || "").trim(),
+          target: (row.querySelector(".priority-rule-target")?.value || "").trim().toUpperCase()
+        };
+      }).filter((r) => r.field && r.target);
+    }
+
+    function collectPriorityConfig() {
+      const levels = collectPriorityLevels();
+      const fallback = String(priorityFallbackEl.value || "").trim().toUpperCase();
+      const valid = new Set(levels.map((x) => x.code));
+      return {
+        levels,
+        fallback: valid.has(fallback) ? fallback : levels[levels.length - 1].code,
+        rules: collectPriorityRules().filter((r) => valid.has(r.target))
+      };
+    }
+
+    function renderQuestions(questions) {
+      const list = Array.isArray(questions) ? questions : [];
+      questionsListEl.innerHTML = list.length
+        ? list.map((q) => qRowTemplate(q)).join("")
+        : `<div class="muted">No custom questions yet.</div>`;
+      questionsListEl.querySelectorAll(".q-remove").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const row = btn.closest(".q-row");
+          if (row) row.remove();
+          if (!questionsListEl.querySelector(".q-row")) {
+            questionsListEl.innerHTML = `<div class="muted">No custom questions yet.</div>`;
+          }
+          refreshPriorityFieldHints();
+        });
+      });
+      questionsListEl.querySelectorAll(".q-key").forEach((input) => {
+        input.addEventListener("input", refreshPriorityFieldHints);
+      });
+      refreshPriorityFieldHints();
+    }
+
+    function slugify(v) {
+      return String(v || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+
+    function collectQuestions() {
+      return Array.from(questionsListEl.querySelectorAll(".q-row")).map((row) => {
+        const type = row.querySelector(".q-type").value;
+        const optionsRaw = row.querySelector(".q-options").value;
+        const options = type === "select" ? optionsRaw.split(",").map((x) => x.trim()).filter(Boolean) : [];
+        return {
+          key: slugify(row.querySelector(".q-key").value),
+          label: row.querySelector(".q-label").value.trim(),
+          type,
+          required: !!row.querySelector(".q-required").checked,
+          options
+        };
+      }).filter((q) => q.key && q.label);
+    }
+
+    function fillBuilder(form) {
+      if (!form) return;
+      formSlugEl.value = form.slug || "";
+      formNameEl.value = form.name || "";
+      formDescEl.value = form.description || "";
+      formExclusionsEl.value = String(!!form.show_exclusions);
+      refreshFormDivisionOptions(form.dispatch_division || "general");
+      formDispatchDivisionEl.value = form.dispatch_division || formDispatchDivisionEl.value || "general";
+      formDefaultEl.checked = !!form.is_default;
+      renderQuestions(form.questions || []);
+      const pc = form.priority_config || defaultPriorityConfig;
+      renderPriorityLevels(pc.levels || defaultPriorityConfig.levels);
+      renderPriorityFallback(collectPriorityLevels(), pc.fallback || defaultPriorityConfig.fallback);
+      renderPriorityRules(pc.rules || [], collectPriorityLevels());
+    }
+
+    async function loadForms() {
+      formsStatusEl.style.color = "";
+      formsStatusEl.textContent = "Loading profiles...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/response/forms", { credentials: "same-origin" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        formsCache = await res.json();
+        formSelectEl.innerHTML = (formsCache || []).map((f) => `<option value="${f.slug}">${f.name} (${f.slug})</option>`).join("");
+        if (!formsCache.length) {
+          formsStatusEl.textContent = "No profiles found.";
+          renderQuestions([]);
+          renderPriorityLevels(defaultPriorityConfig.levels);
+          renderPriorityFallback(defaultPriorityConfig.levels, defaultPriorityConfig.fallback);
+          renderPriorityRules([], defaultPriorityConfig.levels);
+          return;
+        }
+        fillBuilder(formsCache[0]);
+        formsStatusEl.textContent = `${formsCache.length} profile(s) loaded.`;
+      } catch (err) {
+        formsStatusEl.style.color = "#ef4444";
+        formsStatusEl.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function saveForm() {
+      const slug = slugify(formSlugEl.value || formNameEl.value);
+      const payload = {
+        slug,
+        name: (formNameEl.value || "").trim(),
+        description: (formDescEl.value || "").trim(),
+        show_exclusions: formExclusionsEl.value === "true",
+        dispatch_division: formDispatchDivisionEl.value || "general",
+        is_default: !!formDefaultEl.checked,
+        questions: collectQuestions(),
+        priority_config: collectPriorityConfig()
+      };
+      if (!payload.slug || !payload.name) {
+        formsStatusEl.style.color = "#ef4444";
+        formsStatusEl.textContent = "Slug and name are required.";
+        return;
+      }
+      formsStatusEl.style.color = "";
+      formsStatusEl.textContent = "Saving profile...";
+      try {
+        const res = await fetch("/plugin/ventus_response_module/response/forms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        formsStatusEl.style.color = "#22c55e";
+        formsStatusEl.textContent = `Saved "${payload.name}".`;
+        await loadForms();
+        formSelectEl.value = payload.slug;
+      } catch (err) {
+        formsStatusEl.style.color = "#ef4444";
+        formsStatusEl.textContent = `Save failed: ${err.message}`;
+      }
+    }
+
+    function newForm() {
+      formSlugEl.value = "";
+      formNameEl.value = "";
+      formDescEl.value = "";
+      formExclusionsEl.value = "false";
+      refreshFormDivisionOptions("general");
+      formDispatchDivisionEl.value = "general";
+      formDefaultEl.checked = false;
+      renderQuestions([]);
+      renderPriorityLevels(defaultPriorityConfig.levels);
+      renderPriorityFallback(defaultPriorityConfig.levels, defaultPriorityConfig.fallback);
+      renderPriorityRules([], defaultPriorityConfig.levels);
+      formsStatusEl.style.color = "";
+      formsStatusEl.textContent = "New profile draft.";
+    }
+
+    document.getElementById("adminRefreshKpiBtn").addEventListener("click", refreshKpis);
+    document.getElementById("repairAssignmentsBtn").addEventListener("click", repairAssignments);
+    document.getElementById("adminMotdReloadBtn").addEventListener("click", loadMotd);
+    document.getElementById("adminMotdSaveBtn").addEventListener("click", saveMotd);
+    document.getElementById("adminDivisionsReloadBtn").addEventListener("click", loadDivisionsAdmin);
+    document.getElementById("adminDivisionsAddBtn").addEventListener("click", addDivisionDraft);
+    document.getElementById("adminAssistReloadBtn").addEventListener("click", loadAssistRequestsAdmin);
+    document.getElementById("adminUserAccessLoadBtn").addEventListener("click", () => loadUserAccess());
+    document.getElementById("adminUserAccessSaveBtn").addEventListener("click", saveUserAccess);
+    document.getElementById("adminFormsReloadBtn").addEventListener("click", loadForms);
+    document.getElementById("adminFormsNewBtn").addEventListener("click", newForm);
+    document.getElementById("adminAddQuestionBtn").addEventListener("click", () => {
+      if (questionsListEl.querySelector(".q-row") === null) questionsListEl.innerHTML = "";
+      questionsListEl.insertAdjacentHTML("beforeend", qRowTemplate({}));
+      const newRow = questionsListEl.lastElementChild;
+      newRow.querySelector(".q-key")?.addEventListener("input", refreshPriorityFieldHints);
+      newRow.querySelector(".q-remove")?.addEventListener("click", () => {
+        newRow.remove();
+        if (!questionsListEl.querySelector(".q-row")) questionsListEl.innerHTML = `<div class="muted">No custom questions yet.</div>`;
+        refreshPriorityFieldHints();
+      });
+      refreshPriorityFieldHints();
+    });
+    document.getElementById("adminAddPriorityLevelBtn").addEventListener("click", () => {
+      priorityLevelsListEl.insertAdjacentHTML("beforeend", priorityLevelRowTemplate({ code: "", label: "" }));
+      const newRow = priorityLevelsListEl.lastElementChild;
+      attachPriorityLevelRowHandlers(newRow);
+      const levels = collectPriorityLevels();
+      renderPriorityFallback(levels, priorityFallbackEl.value);
+      refreshPriorityRuleTargets(levels);
+    });
+    document.getElementById("adminAddPriorityRuleBtn").addEventListener("click", () => {
+      if (priorityRulesListEl.querySelector(".priority-rule-row") === null) priorityRulesListEl.innerHTML = "";
+      const levels = collectPriorityLevels();
+      priorityRulesListEl.insertAdjacentHTML("beforeend", priorityRuleRowTemplate({}, levels));
+      const newRow = priorityRulesListEl.lastElementChild;
+      attachPriorityRuleRowHandlers(newRow);
+      initPriorityRuleDragAndDrop();
+    });
+    document.getElementById("adminSaveFormBtn").addEventListener("click", saveForm);
+    formSelectEl.addEventListener("change", () => {
+      const slug = formSelectEl.value;
+      const form = (formsCache || []).find((f) => f.slug === slug);
+      fillBuilder(form);
+    });
+    formNameEl.addEventListener("blur", () => {
+      if (!formSlugEl.value.trim()) formSlugEl.value = slugify(formNameEl.value);
+    });
+    refreshKpis();
+    loadMotd();
+    loadDivisionsAdmin();
+    loadUserAccess();
+    loadAssistRequestsAdmin();
+    loadForms();
+    setInterval(loadAssistRequestsAdmin, 12000);
+  })();
+</script>
+{% endblock %}

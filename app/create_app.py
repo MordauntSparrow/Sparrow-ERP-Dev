@@ -12,6 +12,30 @@ from dotenv import load_dotenv, set_key
 
 from app.objects import User  # Your user model with get_user_by_id
 
+from flask_session import Session as FlaskSession
+import redis as _redis
+
+# Security and monitoring
+try:
+    from flask_seasurf import SeaSurf
+except Exception:
+    SeaSurf = None
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+except Exception:
+    Limiter = None
+    get_remote_address = None
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+except Exception:
+    sentry_sdk = None
+try:
+    from prometheus_flask_exporter import PrometheusMetrics
+except Exception:
+    PrometheusMetrics = None
+
 
 # ---------------------------------------------------------------------
 # Environment (.env) loading
@@ -196,5 +220,142 @@ def create_app():
 
     # CORS
     CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+    # ------------------------------------------------------------------
+    # Session store (Redis) for multi-instance deployments
+    # ------------------------------------------------------------------
+    redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_URLS')
+    if redis_url:
+        try:
+            app.config['SESSION_TYPE'] = 'redis'
+            app.config['SESSION_REDIS'] = _redis.from_url(redis_url)
+            app.config['SESSION_COOKIE_HTTPONLY'] = True
+            app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+            # In production ensure SESSION_COOKIE_SECURE is True (requires TLS)
+            app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
+                'SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+            FlaskSession(app)
+        except Exception as e:
+            print(f"[WARN] Redis session setup failed: {e}")
+
+    # ------------------------------------------------------------------
+    # CSRF protection (SeaSurf) and rate limiting
+    # ------------------------------------------------------------------
+    if SeaSurf:
+        try:
+            csrf = SeaSurf(app)
+        except Exception as e:
+            print(f"[WARN] SeaSurf init failed: {e}")
+
+    # Basic rate limiting
+    if Limiter:
+        try:
+            limiter = Limiter(key_func=get_remote_address, default_limits=[
+                              os.environ.get('RATE_LIMIT', '200 per minute')])
+            limiter.init_app(app)
+        except Exception as e:
+            print(f"[WARN] Limiter init failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Sentry (optional)
+    # ------------------------------------------------------------------
+    try:
+        sentry_dsn = os.environ.get('SENTRY_DSN')
+        if sentry_sdk and sentry_dsn:
+            sentry_sdk.init(dsn=sentry_dsn, integrations=[
+                            FlaskIntegration()], traces_sample_rate=0.1)
+    except Exception as e:
+        print(f"[WARN] Sentry init failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Prometheus metrics (optional)
+    # ------------------------------------------------------------------
+    try:
+        if PrometheusMetrics:
+            PrometheusMetrics(app)
+    except Exception as e:
+        print(f"[WARN] Prometheus metrics init failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Structured audit logging (rotating JSON file)
+    # ------------------------------------------------------------------
+    try:
+        import logging
+        import json
+        from logging.handlers import RotatingFileHandler
+
+        logs_dir = os.path.join(app_root, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+        audit_path = os.path.join(logs_dir, 'audit.log')
+
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                payload = {
+                    'time': self.formatTime(record, self.datefmt),
+                    'level': record.levelname,
+                    'logger': record.name,
+                    'message': record.getMessage()
+                }
+                # include extra fields if present
+                if hasattr(record, 'extra') and isinstance(record.extra, dict):
+                    payload.update(record.extra)
+                return json.dumps(payload, default=str)
+
+        audit_handler = RotatingFileHandler(
+            audit_path, maxBytes=10*1024*1024, backupCount=5)
+        audit_handler.setLevel(logging.INFO)
+        audit_handler.setFormatter(JsonFormatter())
+
+        audit_logger = logging.getLogger('audit')
+        audit_logger.setLevel(logging.INFO)
+        audit_logger.addHandler(audit_handler)
+        # make available on app for use
+        app.audit_logger = audit_logger
+    except Exception as e:
+        print(f"[WARN] Audit logging setup failed: {e}")
+    # ------------------------------------------------------------------
+    # Socket.IO initialization (optional Redis message queue)
+    # ------------------------------------------------------------------
+    try:
+        from . import socketio
+        redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_URLS')
+        socketio_opts = {}
+        # If a Redis message queue is configured, provide it so SocketIO can
+        # scale across processes/instances.
+        if redis_url:
+            socketio_opts['message_queue'] = redis_url
+        # Preferred async mode may be set via env var (default to eventlet)
+        async_mode = os.environ.get('SOCKETIO_ASYNC_MODE', 'eventlet')
+        socketio.init_app(app, cors_allowed_origins='*',
+                          async_mode=async_mode, **socketio_opts)
+        # Enforce authentication on socket connect
+        try:
+            from flask_login import current_user
+            from flask_socketio import disconnect
+
+            @socketio.on('connect')
+            def _on_connect():
+                try:
+                    if not getattr(current_user, 'is_authenticated', False):
+                        # reject anonymous socket connections
+                        disconnect()
+                except Exception:
+                    disconnect()
+        except Exception:
+            pass
+        # Simple pass-through for panel messages coming from clients (popouts/main)
+        try:
+            @socketio.on('panel_message')
+            def _on_panel_message(msg):
+                try:
+                    socketio.emit('panel_message', msg,
+                                  broadcast=True, include_self=False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception as e:
+        # Non-fatal: if SocketIO imports fail, continue without realtime features.
+        print(f"[WARN] SocketIO initialization failed: {e}")
 
     return app

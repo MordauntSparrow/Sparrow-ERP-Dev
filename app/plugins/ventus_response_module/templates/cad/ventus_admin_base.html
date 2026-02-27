@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ventus CAD — Professional Dispatch System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  
+  <!-- Interact.js for draggable/resizable elements -->
+  <script src="https://cdn.jsdelivr.net/npm/interactjs@1.10.19/dist/interact.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #1e40af;
+      --primary-light: #3b82f6;
+      --primary-dark: #1e3a8a;
+      --secondary: #0f172a;
+      --secondary-light: #1e293b;
+      --secondary-lighter: #475569;
+      --accent: #06b6d4;
+      --accent-warning: #f59e0b;
+      --accent-danger: #ef4444;
+      --accent-success: #10b981;
+      --bg-dark: #0f172a;
+      --bg-darker: #0a0e27;
+      --text-primary: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+      --border-color: #1e293b;
+      --border-light: #334155;
+      --shadow-sm: 0 2px 4px rgba(0,0,0,0.1);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.2);
+      --shadow-xl: 0 16px 40px rgba(0,0,0,0.25);
+      --topbar-bg: linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(15,23,42,0.95) 100%);
+      --panel-bg: linear-gradient(135deg, rgba(30,41,66,0.98) 0%, rgba(20,28,48,0.98) 100%);
+      --panel-border: rgba(100,150,200,0.3);
+      --panel-header-bg: linear-gradient(90deg, rgba(59,130,246,0.15), rgba(6,182,214,0.08));
+      --panel-header-border: rgba(100,150,200,0.2);
+      --panel-body-bg: rgba(0,0,0,0.15);
+      --input-bg: rgba(0,0,0,0.2);
+      --input-focus-bg: rgba(6,182,214,0.05);
+      --link-hover-bg: rgba(255,255,255,0.05);
+      --panel-btn-bg: rgba(255,255,255,0.05);
+      --panel-btn-hover-bg: rgba(255,255,255,0.1);
+      --list-item-bg: rgba(0,0,0,0.2);
+      --list-item-hover-bg: rgba(6,182,214,0.1);
+      --notification-bg: linear-gradient(135deg, rgba(30,41,66,0.95) 0%, rgba(30,41,66,0.85) 100%);
+      --kpi-bg: linear-gradient(90deg, rgba(30,41,66,0.9), rgba(6,182,214,0.1));
+      --secondary-btn-bg: rgba(255,255,255,0.05);
+      --secondary-btn-hover-bg: rgba(255,255,255,0.1);
+    }
+    :root[data-theme="light"] {
+      --primary: #1d4ed8;
+      --primary-light: #2563eb;
+      --primary-dark: #1e40af;
+      --secondary: #e2e8f0;
+      --secondary-light: #f1f5f9;
+      --secondary-lighter: #cbd5e1;
+      --accent: #0891b2;
+      --accent-warning: #d97706;
+      --accent-danger: #dc2626;
+      --accent-success: #059669;
+      --bg-dark: #f8fafc;
+      --bg-darker: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --border-color: #cbd5e1;
+      --border-light: #94a3b8;
+      --shadow-sm: 0 2px 4px rgba(2,6,23,0.08);
+      --shadow-md: 0 4px 12px rgba(2,6,23,0.12);
+      --shadow-lg: 0 8px 24px rgba(2,6,23,0.14);
+      --shadow-xl: 0 16px 40px rgba(2,6,23,0.18);
+      --topbar-bg: linear-gradient(180deg, rgba(248,250,252,0.98) 0%, rgba(241,245,249,0.96) 100%);
+      --panel-bg: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.98) 100%);
+      --panel-border: rgba(148,163,184,0.45);
+      --panel-header-bg: linear-gradient(90deg, rgba(37,99,235,0.12), rgba(8,145,178,0.1));
+      --panel-header-border: rgba(148,163,184,0.4);
+      --panel-body-bg: rgba(255,255,255,0.72);
+      --input-bg: rgba(255,255,255,0.95);
+      --input-focus-bg: rgba(8,145,178,0.08);
+      --link-hover-bg: rgba(15,23,42,0.06);
+      --panel-btn-bg: rgba(15,23,42,0.06);
+      --panel-btn-hover-bg: rgba(15,23,42,0.12);
+      --list-item-bg: rgba(248,250,252,0.92);
+      --list-item-hover-bg: rgba(8,145,178,0.12);
+      --notification-bg: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(241,245,249,0.95) 100%);
+      --kpi-bg: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(8,145,178,0.09));
+      --secondary-btn-bg: rgba(15,23,42,0.06);
+      --secondary-btn-hover-bg: rgba(15,23,42,0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(135deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
+      color: var(--text-primary);
+      overflow: hidden;
+      font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ====== TOPBAR ====== */
+    .cad-topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      background: var(--topbar-bg);
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      z-index: 1000;
+      box-shadow: var(--shadow-md);
+    }
+
+    .cad-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.5px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .cad-brand img {
+      height: 36px;
+      filter: brightness(1.1);
+    }
+
+    .cad-brand::after {
+      content: 'CAD';
+      background: linear-gradient(135deg, var(--primary-light), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+
+    .cad-topbar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+    }
+
+    .cad-topbar-right a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: all 0.2s ease;
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+
+    .cad-topbar-right a:hover {
+      color: var(--text-primary);
+      background: var(--link-hover-bg);
+    }
+    .dispatch-mode-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: rgba(148,163,184,0.08);
+    }
+    .dispatch-mode-wrap select {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--input-bg);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+    :root[data-theme="light"] .dispatch-mode-wrap select {
+      background: var(--input-bg);
+    }
+    .division-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: rgba(148,163,184,0.08);
+    }
+    .division-wrap select {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--input-bg);
+      color: var(--text-primary);
+      font-size: 12px;
+      min-width: 120px;
+    }
+    :root[data-theme="light"] .division-wrap select {
+      background: var(--input-bg);
+    }
+    .division-visibility-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      user-select: none;
+    }
+    .division-visibility-wrap input {
+      accent-color: var(--accent);
+    }
+
+    /* ====== MAIN LAYOUT ====== */
+    .cad-root {
+      position: fixed;
+      top: 64px;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ====== LEFT SIDEBAR RAIL ====== */
+    .cad-rail {
+      width: 72px;
+      background: linear-gradient(180deg, var(--secondary) 0%, var(--secondary-light) 100%);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 8px;
+      gap: 8px;
+      z-index: 200;
+      box-shadow: inset -1px 0 0 var(--border-color);
+    }
+
+    .cad-rail-btn {
+      width: 50px;
+      height: 50px;
+      border-radius: 10px;
+      background: var(--secondary-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 20px;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cad-rail-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1), transparent);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .cad-rail-btn:hover {
+      background: var(--secondary-lighter);
+      color: var(--text-primary);
+      border-color: var(--border-light);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .cad-rail-btn.active {
+      background: linear-gradient(135deg, var(--primary-light), var(--accent));
+      color: white;
+      border-color: var(--accent);
+      box-shadow: 0 0 20px rgba(3, 182, 214, 0.3);
+    }
+
+    .cad-rail-btn.active::before {
+      opacity: 1;
+    }
+
+    /* ====== MAIN CONTENT AREA ====== */
+    .cad-main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .map-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: auto;
+    }
+
+    /* Leaflet panes should not block UI elements */
+    #map .leaflet-pane {
+      z-index: 0 !important;
+      pointer-events: none;
+    }
+
+    #map .leaflet-interactive {
+      pointer-events: auto;
+    }
+
+    /* Keep map popups/tooltips clickable; otherwise events pass through to map drag */
+    #map .leaflet-popup-pane,
+    #map .leaflet-tooltip-pane {
+      pointer-events: auto !important;
+    }
+
+    #map .leaflet-popup-content-wrapper,
+    #map .leaflet-popup-content,
+    #map .leaflet-popup-tip-container {
+      pointer-events: auto !important;
+      cursor: default;
+    }
+
+    /* ====== MULTI-PANEL CONTAINER ====== */
+    .cad-panels {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      pointer-events: none;
+      z-index: 500;
+    }
+
+    .cad-panels::-webkit-scrollbar {
+      display: none;
+    }
+
+    .cad-panels::-webkit-scrollbar-track {
+      display: none;
+    }
+
+    .cad-panels::-webkit-scrollbar-thumb {
+      display: none;
+    }
+
+    .cad-panels::-webkit-scrollbar-thumb:hover {
+      display: none;
+    }
+
+    /* ====== INDIVIDUAL PANELS ====== */
+    .cad-panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 280px;
+      min-width: 360px;
+      width: 420px;
+      height: 400px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(15px);
+      will-change: transform;
+      transition: all 0.15s ease;
+      position: absolute;
+      z-index: 550;
+      pointer-events: auto;
+      resize: both;
+      overflow: auto;
+    }
+
+    .cad-panel:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow-xl), 0 0 20px rgba(6, 182, 214, 0.1);
+    }
+
+    .cad-panel-header {
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 12px;
+      background: var(--panel-header-bg);
+      border-bottom: 1px solid var(--panel-header-border);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-primary);
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+      flex-shrink: 0;
+    }
+
+    .cad-panel-header:active {
+      cursor: grabbing;
+    }
+
+    .cad-panel-header::before {
+      content: '⋮⋮';
+      color: var(--text-muted);
+      letter-spacing: 2px;
+      font-size: 10px;
+      margin-right: 4px;
+    }
+
+    .panel-title {
+      color: var(--text-primary);
+      flex: 1;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .cad-panel-controls {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-left: auto;
+    }
+
+    .panel-btn {
+      background: var(--panel-btn-bg);
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .panel-btn:hover {
+      background: var(--panel-btn-hover-bg);
+      color: var(--text-primary);
+    }
+
+    .panel-btn.popout:hover {
+      background: var(--primary-light);
+      color: white;
+    }
+
+    .panel-btn.close:hover {
+      background: var(--accent-danger);
+      color: white;
+    }
+
+    .cad-panel-body {
+      padding: 14px 16px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      pointer-events: auto;
+      flex: 1;
+      background: var(--panel-body-bg);
+    }
+
+    .cad-panel .resize-handle {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(0,0,0,0.05));
+      cursor: se-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      opacity: 0.9;
+    }
+    .cad-panel .resize-handle::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border-right: 2px solid rgba(255,255,255,0.18);
+      border-bottom: 2px solid rgba(255,255,255,0.18);
+      transform: rotate(45deg);
+      display: block;
+      opacity: 0.9;
+    }
+
+    #kpiStatsPanel .resize-handle {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      cursor: se-resize;
+      background: linear-gradient(135deg, rgba(255,255,255,0.02), transparent);
+      pointer-events: auto;
+    }
+
+    /* ====== NOTIFICATION STACK ====== */
+    .notifications-container {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 360px;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 10px;
+      z-index: 7000;
+      pointer-events: none;
+    }
+
+    .notification {
+      pointer-events: auto;
+      background: var(--notification-bg);
+      border: 1px solid var(--border-light);
+      border-left: 3px solid var(--primary-light);
+      color: var(--text-primary);
+      padding: 12px 14px;
+      border-radius: 10px;
+      box-shadow: var(--shadow-lg);
+      font-size: 13px;
+      overflow: hidden;
+      animation: slideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      backdrop-filter: blur(10px);
+    }
+
+    .notification.success {
+      border-left-color: var(--accent-success);
+    }
+
+    .notification.warning {
+      border-left-color: var(--accent-warning);
+    }
+
+    .notification.danger {
+      border-left-color: var(--accent-danger);
+    }
+
+    .notif-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .notif-body {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .notif-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      padding: 4px;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .notif-close:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.05);
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* ====== TOAST MESSAGE ====== */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--primary-light), var(--accent));
+      color: white;
+      padding: 14px 28px;
+      border-radius: 10px;
+      box-shadow: var(--shadow-xl);
+      z-index: 5000;
+      display: none;
+      font-size: 14px;
+      font-weight: 500;
+      animation: toastSlideUp 0.3s ease;
+    }
+
+    @keyframes toastSlideUp {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+
+    /* ====== STATS PANEL TOPBAR ====== */
+    #kpiStatsPanel {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      padding: 10px 18px;
+      background: var(--kpi-bg);
+      border-radius: 10px;
+      border: 1px solid var(--border-light);
+      box-shadow: var(--shadow-md);
+      font-size: 12px;
+      font-weight: 500;
+      z-index: 2000;
+    }
+
+    #kpiStatsPanel > span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #kpiStatsPanel > span::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    #kpiStatsPanel > span:nth-child(2)::before {
+      background: var(--accent-success);
+    }
+
+    #kpiStatsPanel > span:nth-child(3)::before {
+      background: var(--accent-warning);
+    }
+
+    #kpiStatsPanel > span:nth-child(4)::before {
+      background: var(--primary-light);
+    }
+
+
+
+    /* ====== PANELS CONTENT STYLING ====== */
+    .panel-list-item {
+      list-style: none;
+      padding: 10px;
+      margin-bottom: 6px;
+      background: var(--list-item-bg);
+      border-radius: 8px;
+      border-left: 2px solid var(--primary-light);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-list-item:hover {
+      background: var(--list-item-hover-bg);
+      border-left-color: var(--accent);
+      box-shadow: inset 0 0 10px rgba(6,182,214,0.1);
+    }
+
+    .panel-list-item span {
+      flex: 1;
+    }
+
+    .panel-list-item .status {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: rgba(59,130,246,0.2);
+      color: var(--primary-light);
+      margin-left: 6px;
+    }
+
+    .panel-list-item .status.cleared {
+      background: rgba(16,185,129,0.2);
+      color: var(--accent-success);
+    }
+
+    .panel-list-item .status.assigned {
+      background: rgba(59,130,246,0.2);
+      color: var(--primary-light);
+    }
+
+    input[type="text"],
+    input[type="search"],
+    input[type="number"],
+    input[type="date"],
+    input[type="datetime-local"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 13px;
+      transition: all 0.2s ease;
+    }
+
+    input[type="text"]:focus,
+    input[type="search"]:focus,
+    input[type="number"]:focus,
+    input[type="date"]:focus,
+    input[type="datetime-local"]:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--input-focus-bg);
+      box-shadow: 0 0 10px rgba(6,182,214,0.2);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 72px;
+      line-height: 1.4;
+    }
+
+    select {
+      appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+        linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+      background-position:
+        calc(100% - 16px) calc(50% - 3px),
+        calc(100% - 11px) calc(50% - 3px);
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+      padding-right: 28px;
+    }
+
+    select option,
+    select optgroup {
+      background: var(--bg-darker);
+      color: var(--text-primary);
+    }
+
+    button {
+      font-family: inherit;
+    }
+
+    /* ====== GENERIC BUTTONS ====== */
+    .btn {
+      padding: 8px 14px;
+      background: linear-gradient(135deg, var(--primary-light), var(--primary));
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary-dark));
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn.secondary {
+      background: var(--secondary-btn-bg);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn.secondary:hover {
+      background: var(--secondary-btn-hover-bg);
+      border-color: var(--border-light);
+    }
+
+    .btn.danger {
+      background: linear-gradient(135deg, var(--accent-danger), #dc2626);
+    }
+
+    .btn.danger:hover {
+      background: linear-gradient(135deg, #b91c1c, #991b1b);
+    }
+
+    .btn.success {
+      background: linear-gradient(135deg, var(--accent-success), #059669);
+    }
+
+    .btn.success:hover {
+      background: linear-gradient(135deg, #047857, #065f46);
+    }
+  </style>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</head>
+<body>
+  <div class="cad-topbar">
+    <a class="cad-brand" href="/" title="Home">
+      <img src="/static/uploads/logo-whitebg.png" alt="Sparrow">
+    </a>
+    <div class="cad-topbar-right">
+      <a href="/plugin/ventus_response_module/" title="Module Router"><i class="bi bi-grid-1x2"></i> Router</a>
+      <span class="dispatch-mode-wrap" title="Dispatch assignment mode">
+        <span>Dispatch</span>
+        <select id="dispatchModeTopbar">
+          <option value="auto">Auto</option>
+          <option value="manual">Manual</option>
+        </select>
+      </span>
+      <span class="division-wrap" title="Focused division">
+        <span>Division</span>
+        <select id="divisionTopbar">
+          <option value="general">general</option>
+        </select>
+      </span>
+      <label class="division-visibility-wrap" title="Show units/jobs outside selected division">
+        <input type="checkbox" id="showExternalToggle">
+        <span>Show Other Divisions</span>
+      </label>
+      <a href="#" id="themeToggle" title="Theme"><i class="bi bi-circle-half"></i> Auto</a>
+      <a href="/logout" title="Logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
+    </div>
+  </div>
+  
+  <div class="cad-root">
+    <div class="cad-rail">
+      <div class="cad-rail-btn" id="btnJobs" title="CAD Stack / Jobs">
+        <i class="bi bi-stack"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnUnits" title="Active Units">
+        <i class="bi bi-truck-front"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnMsgs" title="Messages / Comms">
+        <i class="bi bi-chat-dots"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnKPI" title="Live KPI Stats">
+        <i class="bi bi-graph-up"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnPastJobs" title="Past / Cleared Jobs">
+        <i class="bi bi-clock-history"></i>
+      </div>
+    </div>
+    <div class="cad-main" id="cadMain">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+
+
+  <!-- Toast notifications -->
+  <div id="toast"></div>
+
+  <!-- Notification stack (bottom-right) -->
+  <div id="notifications" class="notifications-container" aria-live="polite"></div>
+</body>
+
+<script>
+// Socket.IO / BroadcastChannel initialization
+(function(){
+  try{
+    if(typeof io !== 'undefined'){
+      const socket = io();
+      if(typeof window.BroadcastChannel === 'undefined'){
+        window.BroadcastChannel = function(channelName){
+          const ch = channelName || 'default';
+          const obj = { channel: ch, onmessage: null };
+          obj.postMessage = function(msg){ socket.emit('panel_message', {channel: ch, message: msg}); };
+          return obj;
+        };
+      }
+      try{
+        if(!window.bc){ window.bc = new BroadcastChannel('ventus_cad'); }
+      }catch(e){ window.bc = null; }
+      socket.on('panel_message', function(payload){
+        try{
+          if(!payload) return;
+          const ch = payload.channel || 'ventus_cad';
+          const msg = payload.message || payload;
+          if(window.bc && window.bc.channel && window.bc.channel === ch && typeof window.bc.onmessage === 'function'){
+            window.bc.onmessage({data: msg});
+          }
+        }catch(e){}
+      });
+      socket.on('mdt_event', function(msg){
+        try{ if(window.bc && typeof window.bc.onmessage === 'function') window.bc.onmessage({data: msg}); }catch(e){}
+      });
+    }
+  }catch(e){ console.warn('realtime init failed', e); }
+})();
+</script>
+
+<script>
+// CSRF + fetch shim
+(function(){
+  function readCookie(name){
+    const v = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return v ? v.pop() : null;
+  }
+  const csrf = readCookie('csrf_token') || readCookie('csrf');
+  if(csrf){
+    const _fetch = window.fetch.bind(window);
+    window.fetch = function(input, init){
+      init = init || {};
+      init.headers = init.headers || {};
+      try{
+        const method = (init.method||'GET').toUpperCase();
+        if(!['GET','HEAD','OPTIONS'].includes(method)){
+          if(!init.headers['X-CSRFToken'] && !init.headers['X-CSRF-Token']){
+            init.headers['X-CSRFToken'] = csrf;
+          }
+        }
+      }catch(e){}
+      return _fetch(input, init);
+    };
+  }
+})();
+</script>
+
+<script>
+// Theme engine: light/dark/auto (auto follows local time)
+(function(){
+  const KEY = 'cad_theme_pref';
+  const root = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+
+  function resolveTheme(pref){
+    if(pref === 'light' || pref === 'dark') return pref;
+    const hour = new Date().getHours();
+    return (hour >= 19 || hour < 7) ? 'dark' : 'light';
+  }
+
+  function getPref(){
+    const p = (localStorage.getItem(KEY) || 'auto').toLowerCase();
+    return (p === 'light' || p === 'dark' || p === 'auto') ? p : 'auto';
+  }
+
+  function setBtn(pref){
+    if(!btn) return;
+    const label = pref.charAt(0).toUpperCase() + pref.slice(1);
+    const icon = pref === 'light' ? 'bi-sun' : (pref === 'dark' ? 'bi-moon-stars' : 'bi-circle-half');
+    btn.innerHTML = `<i class="bi ${icon}"></i> ${label}`;
+    btn.dataset.pref = pref;
+  }
+
+  function apply(pref){
+    const effective = resolveTheme(pref);
+    root.setAttribute('data-theme', effective);
+    setBtn(pref);
+  }
+
+  function setPref(pref){
+    const p = (pref || 'auto').toLowerCase();
+    localStorage.setItem(KEY, (p === 'light' || p === 'dark' || p === 'auto') ? p : 'auto');
+    apply(getPref());
+  }
+
+  apply(getPref());
+
+  if(btn){
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      const current = getPref();
+      const next = current === 'auto' ? 'dark' : (current === 'dark' ? 'light' : 'auto');
+      setPref(next);
+    });
+  }
+
+  setInterval(function(){
+    if(getPref() === 'auto') apply('auto');
+  }, 60000);
+
+  window.cadTheme = {
+    get: getPref,
+    set: setPref,
+    apply: function(){ apply(getPref()); }
+  };
+})();
+</script>
+
+</html>

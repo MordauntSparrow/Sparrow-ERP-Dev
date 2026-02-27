@@ -66,6 +66,98 @@ os.makedirs(STATIC_UPLOAD_FOLDER, exist_ok=True)
 # Create blueprint for core routes
 routes = Blueprint('routes', __name__)
 
+
+@routes.route('/plugin/ventus_response_module/jobs/history', methods=['GET'])
+@routes.route('/plugin/ventus_response_module/history', methods=['GET'])
+@login_required
+def ventus_history_compat():
+    """Compatibility history endpoint when plugin route registration is stale."""
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'claimedBy'")
+        has_claimed_by = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'updated_at'")
+        has_updated_at = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'data'")
+        has_data = cur.fetchone() is not None
+
+        claimed_by_sql = "claimedBy" if has_claimed_by else "NULL AS claimedBy"
+        updated_at_sql = "updated_at" if has_updated_at else "NULL AS updated_at"
+        data_sql = "data" if has_data else "NULL AS data"
+        order_by_sql = "updated_at DESC" if has_updated_at else "created_at DESC"
+
+        cur.execute(f"""
+            SELECT cad,
+                   TRIM(COALESCE(status, '')) AS status,
+                   {data_sql},
+                   created_at,
+                   {updated_at_sql},
+                   {claimed_by_sql}
+            FROM mdt_jobs
+            WHERE LOWER(TRIM(COALESCE(status, ''))) = 'cleared'
+            ORDER BY {order_by_sql}
+            LIMIT 500
+        """)
+        jobs = cur.fetchall()
+
+        for job in jobs:
+            payload = job.get('data')
+            reason_for_call = None
+            chief_complaint = None
+            outcome = None
+            lat = None
+            lng = None
+
+            try:
+                if isinstance(payload, (bytes, bytearray)):
+                    payload = payload.decode('utf-8', errors='ignore')
+                if isinstance(payload, str):
+                    payload = json.loads(payload) if payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+            except Exception:
+                payload = {}
+
+            try:
+                reason_for_call = payload.get('reason_for_call')
+                chief_complaint = payload.get('chief_complaint')
+                outcome = payload.get('outcome')
+                coords = payload.get('coordinates') or {}
+                if isinstance(coords, dict):
+                    lat = coords.get('lat')
+                    lng = coords.get('lng')
+            except Exception:
+                pass
+
+            try:
+                lat = float(lat) if lat is not None else None
+                lng = float(lng) if lng is not None else None
+            except Exception:
+                lat = None
+                lng = None
+
+            job['reason_for_call'] = reason_for_call
+            job['chief_complaint'] = chief_complaint
+            job['outcome'] = outcome
+            job['lat'] = lat
+            job['lng'] = lng
+            job['completedAt'] = job.get('updated_at')
+            job.pop('data', None)
+
+        return jsonify(jobs)
+    except Exception:
+        return jsonify([])
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 ##############################################################################
 # Restart scheduling helper (touch restart.flag after response)
 ##############################################################################

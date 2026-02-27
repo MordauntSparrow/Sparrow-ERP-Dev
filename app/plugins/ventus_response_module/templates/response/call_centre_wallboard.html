@@ -1,0 +1,117 @@
+{% extends "response/call_centre_base.html" %}
+{% block page_title %}Response Centre Wallboard{% endblock %}
+{% set nav_section = 'call_centre' %}
+{% block cc_content %}
+<div class="panel">
+  <div class="panel-head">
+    <div>
+      <h1 class="panel-title">Response Centre Wallboard</h1>
+      <div class="muted">Live CAD queue overview</div>
+    </div>
+    <div class="muted" id="stamp">--</div>
+  </div>
+  <div class="panel-body" style="padding:10px;">
+    <div id="grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:10px;"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function esc(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function statusClass(status) {
+  const s = String(status || '').toLowerCase().trim();
+  if (!s) return 'success';
+  if (s === 'queued') return 'secondary';
+  if (s === 'assigned' || s === 'claimed') return 'primary';
+  if (s === 'mobile' || s === 'on_scene' || s === 'leave_scene' || s === 'at_hospital') return 'warning';
+  if (s === 'cleared') return 'success';
+  return 'danger';
+}
+
+function priorityClass(p) {
+  const s = String(p || '').toLowerCase().replaceAll(' ', '_');
+  if (!s) return '';
+  if (['high','critical','p1'].includes(s)) return 'danger';
+  if (['urgent','medium','p2'].includes(s)) return 'warning';
+  if (['low','p3'].includes(s)) return 'success';
+  return 'secondary';
+}
+
+function fmtDate(v) {
+  if (!v) return '-';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleTimeString();
+}
+
+function fmtElapsed(startValue) {
+  if (!startValue) return '-';
+  const d = new Date(startValue);
+  if (Number.isNaN(d.getTime())) return '-';
+  const ms = Date.now() - d.getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '-';
+  const totalSeconds = Math.floor(ms / 1000);
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  if (hrs > 0) return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+  return `${mins}m ${String(secs).padStart(2, '0')}s`;
+}
+
+function tickElapsed() {
+  const nodes = document.querySelectorAll('.elapsed-live[data-start]');
+  nodes.forEach((el) => {
+    const start = el.getAttribute('data-start');
+    el.textContent = fmtElapsed(start);
+  });
+}
+
+async function tick() {
+  const grid = document.getElementById('grid');
+  document.getElementById('stamp').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  try {
+    const res = await fetch('/plugin/ventus_response_module/call-centre/stack');
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) {
+      grid.innerHTML = '<div class="panel"><div class="panel-body">No active incidents</div></div>';
+      return;
+    }
+    grid.innerHTML = rows.map((j) => {
+      const priority = j.priority ? `<span class="badge ${priorityClass(j.priority)}" style="margin-left:6px;">${esc(j.priority)}</span>` : '';
+      const units = (Array.isArray(j.assigned_units) && j.assigned_units.length) ? j.assigned_units.join(', ') : 'Unassigned';
+      const location = [j.address, j.postcode, j.what3words].filter(Boolean).join(' | ');
+      const elapsed = fmtElapsed(j.created_at || j.updated_at);
+      return `
+        <article class="panel">
+          <div class="panel-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+              <div style="font-size:22px;font-weight:700;">CAD #${esc(j.cad)} ${priority}</div>
+              <span class="badge ${statusClass(j.status)}">${esc(j.status || 'unknown')}</span>
+            </div>
+            <div style="margin-bottom:6px;">${esc(j.reason_for_call || 'No reason provided')}</div>
+            <div class="muted">Elapsed: <span class="elapsed-live" data-start="${esc(j.created_at || j.updated_at || '')}">${esc(elapsed)}</span></div>
+            <div class="muted">${esc(location || 'No location')}</div>
+            <div class="muted">Units: ${esc(units)}</div>
+            <div class="muted">Updated: ${esc(fmtDate(j.updated_at || j.created_at))}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+  } catch (e) {
+    grid.innerHTML = '<div class="panel"><div class="panel-body" style="color:#ef4444;">Failed to load wallboard data</div></div>';
+  }
+}
+
+tick();
+setInterval(tick, 8000);
+setInterval(tickElapsed, 1000);
+</script>
+{% endblock %}

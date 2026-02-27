@@ -1,0 +1,2515 @@
+{% extends "cad/ventus_admin_base.html" %}
+
+{% block content %}
+<div class="map-wrap">
+  <div id="map"></div>
+</div>
+
+<!-- Panels container: allows multiple open sidebar panels and popouts -->
+<div class="cad-panels" id="panelsContainer" aria-live="polite"></div>
+
+<!-- KPI/Stats Topbar -->
+<div id="kpiStatsPanel" style="position:fixed;top:80px;right:20px;z-index:2000;display:flex;gap:10px;align-items:flex-start;padding:10px;flex-wrap:wrap;max-width:780px;">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <span id="kpiActiveJobs"></span>
+    <span id="kpiUnitsAvail"></span>
+    <span id="kpiClearedToday"></span>
+    <span id="kpiAvgResp"></span>
+  </div>
+  <div style="flex-basis:100%;height:1px;background:var(--border-color);opacity:0.6;"></div>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
+    <span id="kpiAvgWaitAssign"></span>
+    <span id="kpiAvgMobileScene"></span>
+    <span id="kpiAvgOnScene"></span>
+    <span id="kpiAvgLeaveHosp"></span>
+    <span id="kpiAvgAtHosp"></span>
+  </div>
+  <button id="darkModeBtn" title="Toggle dark">🌙</button>
+  <button id="kpiClose" class="panel-btn close" title="Close KPI" style="margin-left:6px;padding:6px 8px;border-radius:6px;">&times;</button>
+  <div class="resize-handle" title="Resize KPI"></div>
+</div>
+
+<!-- Toast notifications -->
+<div id="toast" style="position:fixed;bottom:28px;left:50%;transform:translateX(-50%);display:none;z-index:5000;"></div>
+
+<!-- Notification stack (bottom-right) -->
+<div id="notifications" class="notifications-container" aria-live="polite"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ===== GLOBALS =====
+let map, jobsLayer, unitsLayer;
+let jobsData = [], unitsData = [];
+let openPanels = {};
+let currentMsgCallsign = null;
+let selectedJobs = new Set();
+let activeJobCad = null;
+let jobSnapshot = new Map();
+let jobSnapshotInitialized = false;
+let seenCommIds = new Set();
+let commSnapshotInitialized = false;
+let unitsSnapshot = new Set();
+let unitsSnapshotInitialized = false;
+// Optional sounds disabled by default to avoid CDN/autoplay errors in console.
+let soundNewJob = null;
+let soundUrgent = null;
+let darkMode = false;
+let audioCtx = null;
+let selectedDivision = 'general';
+let showExternalDivisions = true;
+let divisionMeta = new Map();
+let isPopoutMode = false;
+let assignModalLoading = false;
+
+// BroadcastChannel / Socket.IO
+let socket = null;
+let bc = null;
+try {
+  if (typeof io !== 'undefined') socket = io();
+} catch (e) { console.warn('Socket.IO failed', e); }
+try { bc = new BroadcastChannel('ventus_cad'); } catch (e) { console.warn('BroadcastChannel unavailable', e); }
+
+function normalizeStatus(status) {
+  return String(status || '').trim().toLowerCase();
+}
+
+function parseTime(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatOngoing(createdAt) {
+  if (!createdAt) return null;
+  const d = parseTime(createdAt);
+  if (!d) return null;
+  return formatDuration(new Date() - d);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function getDivisionParams() {
+  const p = new URLSearchParams();
+  if (selectedDivision) p.set('division', selectedDivision);
+  p.set('include_external', showExternalDivisions ? '1' : '0');
+  return p;
+}
+
+function withDivision(url) {
+  const params = getDivisionParams().toString();
+  if (!params) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${params}`;
+}
+
+function renderJobMapQuickPreview(job) {
+  const cad = Number(job && job.cad);
+  const status = String((job && job.status) || 'unknown');
+  const priority = String((job && job.priority) || '').trim() || '--';
+  const reason = String((job && job.reason_for_call) || '').trim() || 'No reason recorded';
+  const address = String((job && (job.address || job.postcode || job.what3words)) || '').trim() || 'No location detail';
+  const division = String((job && job.division) || 'general');
+  const elapsed = formatOngoing(job && job.created_at) || '--';
+  return `
+    <div style="min-width:260px;max-width:320px;">
+      <div style="font-weight:700;margin-bottom:6px;">CAD #${escapeHtml(Number.isFinite(cad) ? cad : '?')}</div>
+      <div class="meta" style="margin-bottom:4px;">Priority: ${escapeHtml(priority)} • Status: ${escapeHtml(status)}</div>
+      <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
+      <div class="meta" style="margin-bottom:6px;">Elapsed: ${escapeHtml(elapsed)}</div>
+      <div style="font-size:12px;margin-bottom:4px;"><b>Reason:</b> ${escapeHtml(reason)}</div>
+      <div style="font-size:12px;margin-bottom:8px;"><b>Location:</b> ${escapeHtml(address)}</div>
+      <button class="btn" style="width:100%;padding:6px 8px;font-size:12px;" onclick="window.openJobDetailFromMap(${Number.isFinite(cad) ? cad : 0})">Open Full CAD Details</button>
+    </div>
+  `;
+}
+
+function prettyFieldLabel(key) {
+  return String(key || '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderIncidentDetails(triageRaw) {
+  const triage = (triageRaw && typeof triageRaw === 'object') ? triageRaw : {};
+  const take = (k) => triage[k];
+  const row = (label, val) => {
+    if (val === undefined || val === null || String(val).trim() === '') return '';
+    return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(val)}</div>`;
+  };
+
+  const coreRows = [
+    row('Reason for Call', take('reason_for_call')),
+    row('Additional Details', take('additional_details')),
+    row('Address', take('address')),
+    row('Postcode', take('postcode')),
+    row('what3words', take('what3words')),
+    row('Caller Name', take('caller_name')),
+    row('Caller Phone', take('caller_phone')),
+    row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
+    row('DOB', take('patient_dob')),
+    row('Gender', take('patient_gender')),
+    row('Patient Phone', take('phone_number')),
+    row('Onset', take('onset_datetime')),
+    row('Form Profile', [take('form_name'), take('form_slug') ? `(${take('form_slug')})` : ''].join(' ').trim())
+  ].filter(Boolean);
+
+  const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
+  const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v)).filter(Boolean);
+
+  const updates = Array.isArray(take('incident_updates')) ? take('incident_updates') : [];
+  const updateRows = updates.length
+    ? updates.slice(-8).reverse().map((u) => {
+        const t = u && u.time ? new Date(u.time).toLocaleString() : '';
+        const by = (u && u.by) ? ` by ${u.by}` : '';
+        const text = (u && u.text) ? u.text : '';
+        return `<div style="padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;background:rgba(0,0,0,0.15);"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)}${escapeHtml(by)}</div><div>${escapeHtml(text)}</div></div>`;
+      }).join('')
+    : '<div class="meta"><i>No controller updates logged.</i></div>';
+
+  const hidden = new Set([
+    'reason_for_call','additional_details','address','postcode','what3words',
+    'caller_name','caller_phone','first_name','middle_name','last_name',
+    'patient_dob','patient_gender','phone_number','onset_datetime',
+    'form_name','form_slug','form_answers','incident_updates'
+  ]);
+  const rawRows = Object.entries(triage)
+    .filter(([k]) => !hidden.has(String(k)))
+    .map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v))
+    .filter(Boolean);
+
+  return `
+    <div>
+      <div style="font-weight:600;margin-bottom:6px;">Incident Summary</div>
+      <div style="font-size:12px;color:var(--text-secondary);">${coreRows.join('') || '<i>No incident summary fields.</i>'}</div>
+      <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+      <div style="font-weight:600;margin-bottom:6px;">Profile Questions</div>
+      <div style="font-size:12px;color:var(--text-secondary);">${answerRows.join('') || '<i>No profile answers captured.</i>'}</div>
+      <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+      <div style="font-weight:600;margin-bottom:6px;">Incident Updates</div>
+      <div style="font-size:12px;color:var(--text-secondary);">${updateRows}</div>
+      ${rawRows.length ? `<hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;"><div style="font-weight:600;margin-bottom:6px;">Other Captured Data</div><div style="font-size:12px;color:var(--text-secondary);">${rawRows.join('')}</div>` : ''}
+    </div>
+  `;
+}
+
+function getCurrentStatusTimer(job, timingRow) {
+  if (!timingRow) return '';
+  const status = normalizeStatus(job.status);
+  const now = new Date();
+  const statusStarts = {
+    received: parseTime(timingRow.received_time),
+    assigned: parseTime(timingRow.assigned_time),
+    mobile: parseTime(timingRow.mobile_time),
+    on_scene: parseTime(timingRow.on_scene_time),
+    leave_scene: parseTime(timingRow.leave_scene_time),
+    at_hospital: parseTime(timingRow.at_hospital_time),
+    stood_down: parseTime(timingRow.stood_down_time),
+    cleared: parseTime(timingRow.cleared_time)
+  };
+  const started = statusStarts[status];
+  if (!started) return '';
+  const dur = formatDuration(now - started);
+  if (!dur) return '';
+  return `${status.replaceAll('_', ' ')} ${dur}`;
+}
+
+function formatStatusTimesTable(job, timingRow) {
+  if (!timingRow) {
+    return '<div class="meta"><i>No status timestamps available.</i></div>';
+  }
+  const order = [
+    ['received_time', 'Received'],
+    ['assigned_time', 'Assigned'],
+    ['mobile_time', 'Mobile'],
+    ['on_scene_time', 'On Scene'],
+    ['leave_scene_time', 'Leave Scene'],
+    ['at_hospital_time', 'At Hospital'],
+    ['cleared_time', 'Cleared'],
+    ['stood_down_time', 'Stood Down']
+  ];
+  const points = order
+    .map(([key, label]) => ({ key, label, time: parseTime(timingRow[key]) }))
+    .filter(p => p.time);
+  if (points.length === 0) {
+    return '<div class="meta"><i>No status timestamps available.</i></div>';
+  }
+
+  const currentStatus = normalizeStatus(job.status);
+  let rows = '';
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[i + 1];
+    let stageDuration = '-';
+    if (next && next.time) {
+      stageDuration = formatDuration(next.time - current.time) || '-';
+    } else if (!['cleared', 'stood_down'].includes(currentStatus)) {
+      stageDuration = formatDuration(new Date() - current.time) || '-';
+    }
+    rows += `
+      <tr>
+        <td style="padding:6px;border-bottom:1px solid var(--border-color);">${current.label}</td>
+        <td style="padding:6px;border-bottom:1px solid var(--border-color);">${escapeHtml(current.time.toLocaleString())}</td>
+        <td style="padding:6px;border-bottom:1px solid var(--border-color);">${escapeHtml(stageDuration)}</td>
+      </tr>
+    `;
+  }
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Status</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Time</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-color);">Duration</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function fetchJobsTimings(cadList) {
+  const cads = (cadList || [])
+    .map(c => parseInt(c, 10))
+    .filter(c => Number.isInteger(c) && c > 0);
+  if (cads.length === 0) return Promise.resolve({});
+
+  const query = cads.map(c => `cad=${encodeURIComponent(c)}`).join('&');
+  return fetch(`/plugin/ventus_response_module/jobs/timings?${query}`)
+    .then(res => (res.ok ? res.json() : []))
+    .then(rows => {
+      const map = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { map[r.cad] = r; });
+      return map;
+    })
+    .catch(() => ({}));
+}
+
+function fetchJobsEligibility(cadList) {
+  const cads = (cadList || [])
+    .map(c => parseInt(c, 10))
+    .filter(c => Number.isInteger(c) && c > 0);
+  if (cads.length === 0) return Promise.resolve({});
+
+  const query = cads.map(c => `cad=${encodeURIComponent(c)}`).join('&');
+  const d = getDivisionParams().toString();
+  const fullQuery = `${query}${d ? `&${d}` : ''}`;
+  return fetch(`/plugin/ventus_response_module/jobs/eligibility?${fullQuery}`)
+    .then(res => (res.ok ? res.json() : []))
+    .then(rows => {
+      const map = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { map[r.cad] = r; });
+      return map;
+    })
+    .catch(() => ({}));
+}
+
+function formatEligibilityText(eligibilityRow) {
+  if (!eligibilityRow || !eligibilityRow.recommended) return 'Best units: no match';
+  const top = eligibilityRow.candidates || [];
+  if (!top.length) return 'Best units: no match';
+  return `Best units: ${top.map(c => {
+    const dist = (c.distance_km !== null && c.distance_km !== undefined) ? `${c.distance_km}km` : 'n/a';
+    const skill = c.skill_match ? 'skills ok' : `missing ${((c.missing_skills || []).join(', ') || 'skills')}`;
+    const div = c.division ? `, ${c.division}` : '';
+    const ext = c.external ? ', external' : '';
+    return `${c.callsign} (${dist}, ${skill}${div}${ext})`;
+  }).join(' | ')}`;
+}
+
+function emitPanelAction(action, payload) {
+  const msg = { type: 'panel_action', action, payload };
+  try {
+    if (socket) socket.emit('panel_message', { channel: 'ventus_cad', message: msg });
+    else if (bc) bc.postMessage(msg);
+  } catch (e) { }
+}
+
+function handleRemoteAction(msg) {
+  const a = msg.action;
+  const p = msg.payload || {};
+  
+  if (a === 'assign_job' && p.cad && p.callsign) {
+    fetch(`/plugin/ventus_response_module/job/${p.cad}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callsign: p.callsign })
+    })
+      .then(r => r.json())
+      .then(data => {
+        showNotification('success', 'Assigned', data.message || 'Job assigned');
+        setTimeout(refreshMap, 400);
+      })
+      .catch(() => showNotification('danger', 'Error', 'Failed to assign job'));
+  }
+  
+  if (a === 'close_job' && p.cad) {
+    fetch(`/plugin/ventus_response_module/job/${p.cad}/close`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        showNotification('success', 'Closed', data.message || 'Job closed');
+        setTimeout(refreshMap, 400);
+      })
+      .catch(() => showNotification('danger', 'Error', 'Failed to close job'));
+  }
+  
+  if (a === 'send_msg' && p.callsign && p.text) {
+    fetch(`/plugin/ventus_response_module/messages/${p.callsign}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: p.text, from: 'dispatcher' })
+    })
+      .then(r => r.json())
+      .then(() => showNotification('success', 'Sent', `Message sent to ${p.callsign}`))
+      .catch(() => showNotification('danger', 'Error', 'Failed to send message'));
+  }
+  
+  if (a === 'change_unit_status' && p.callsign && p.status) {
+    fetch(`/plugin/ventus_response_module/api/mdt/${p.callsign}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: p.status, callSign: p.callsign })
+    })
+      .then(r => r.json())
+      .then(() => {
+        showNotification('success', 'Updated', `${p.callsign}: ${p.status}`);
+      })
+      .catch(() => showNotification('danger', 'Error', 'Failed to update status'));
+  }
+}
+
+function initAudioOnce() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') {
+      try { audioCtx.resume(); } catch (e) {}
+    }
+  } catch (e) { }
+}
+
+function playTone(freq, durationMs, delayMs = 0, gain = 0.18) {
+  initAudioOnce();
+  if (!audioCtx) return;
+  if (audioCtx.state !== 'running') {
+    audioCtx.resume()
+      .then(() => { setTimeout(() => playTone(freq, durationMs, 0, gain), Math.max(0, delayMs)); })
+      .catch(() => {});
+    return;
+  }
+  const now = audioCtx.currentTime + (delayMs / 1000);
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  amp.gain.value = 0.0001;
+  osc.connect(amp);
+  amp.connect(audioCtx.destination);
+  amp.gain.setValueAtTime(0.0001, now);
+  amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+  amp.gain.exponentialRampToValueAtTime(0.0001, now + (durationMs / 1000));
+  osc.start(now);
+  osc.stop(now + (durationMs / 1000) + 0.02);
+}
+
+function playChime(kind) {
+  initAudioOnce();
+  if (!audioCtx) return;
+  if (kind === 'new_job') {
+    playTone(880, 120, 0, 0.22); playTone(1175, 180, 130, 0.25);
+  } else if (kind === 'message') {
+    playTone(740, 100, 0, 0.18); playTone(740, 100, 140, 0.18);
+  } else if (kind === 'job_update') {
+    playTone(660, 120, 0, 0.2); playTone(830, 120, 130, 0.22); playTone(660, 120, 260, 0.2);
+  } else if (kind === 'unit_signon') {
+    playTone(520, 140, 0, 0.2); playTone(780, 160, 150, 0.22);
+  } else if (kind === 'unit_signoff') {
+    playTone(720, 140, 0, 0.2); playTone(440, 180, 150, 0.22);
+  }
+}
+
+if (socket) {
+  socket.on('panel_message', function(payload) {
+    try { if (payload && payload.message && payload.message.type === 'panel_action') handleRemoteAction(payload.message); } catch (e) { }
+  });
+  socket.on('mdt_event', function(ev) {
+    try {
+      if (ev && ev.type === 'jobs_updated') {
+        setTimeout(refreshMap, 300);
+        showNotification('info', 'Updated', 'Activity updated');
+        refreshOpenPanels(['jobs']);
+      } else if (ev && ev.type === 'units_updated') {
+        setTimeout(refreshMap, 220);
+        refreshOpenPanels(['units']);
+      } else if (ev && ev.type === 'unit_signon') {
+        const cs = String(ev.callsign || '').trim();
+        if (cs) {
+          showNotification('success', 'Unit Signed On', cs);
+          playChime('unit_signon');
+        }
+        setTimeout(refreshMap, 220);
+        refreshOpenPanels(['units', 'messages']);
+      } else if (ev && ev.type === 'unit_signoff') {
+        const cs = String(ev.callsign || '').trim();
+        if (cs) {
+          showNotification('warning', 'Unit Signed Off', cs);
+          playChime('unit_signoff');
+        }
+        setTimeout(refreshMap, 220);
+        refreshOpenPanels(['units', 'messages']);
+      } else if (ev && ev.type === 'message_posted') {
+        const from = String(ev.from || '').trim();
+        const to = String(ev.to || '').trim();
+        const txt = String(ev.text || '').trim();
+        showNotification('info', 'Message', `${from || 'sender'} -> ${to || 'recipient'}${txt ? `: ${txt.slice(0, 90)}` : ''}`);
+        playChime('message');
+        refreshOpenPanels(['messages']);
+      } else if (ev && ev.type === 'job_update') {
+        const cad = parseInt(ev.cad, 10);
+        const text = String(ev.text || '').trim();
+        showNotification('info', 'Incident Update', cad ? `CAD #${cad}${text ? `: ${text}` : ''}` : (text || 'New incident update'));
+        playChime('job_update');
+        if (Number.isInteger(cad) && cad > 0 && activeJobCad === cad) {
+          setTimeout(() => {
+            try { loadJobDetail(cad); } catch (e) {}
+          }, 200);
+        }
+        refreshOpenPanels(['jobs', 'messages']);
+      } else if (ev && ev.type === 'status_update') {
+        const cad = parseInt(ev.cad, 10);
+        const st = String(ev.status || '').trim();
+        if (Number.isInteger(cad) && cad > 0) {
+          showNotification('info', 'Status Updated', `CAD #${cad}${st ? ` -> ${st}` : ''}`);
+          playChime('job_update');
+        }
+        setTimeout(refreshMap, 220);
+        refreshOpenPanels(['jobs', 'units']);
+      } else if (ev && ev.type === 'unit_division_transferred') {
+        const cs = String(ev.callsign || '').trim();
+        const to = String(ev.to_division || '').trim();
+        if (cs && to) {
+          showNotification('info', 'Unit Transferred', `${cs} -> ${to}`);
+          setTimeout(refreshMap, 250);
+          refreshOpenPanels(['units', 'messages']);
+        }
+      } else if (ev && ev.type === 'assist_request_created') {
+        const cs = String(ev.callsign || '').trim();
+        const from = String(ev.from_division || '').trim();
+        const to = String(ev.to_division || '').trim();
+        showNotification('info', 'Assist Request', `${cs || 'Unit'} ${from ? `${from} -> ` : ''}${to || ''}`);
+        playChime('message');
+        refreshOpenPanels(['messages']);
+      } else if (ev && ev.type === 'assist_request_resolved') {
+        const cs = String(ev.callsign || '').trim();
+        const decision = String(ev.decision || '').trim();
+        showNotification('success', 'Assist Resolved', `${cs || 'Unit'} ${decision || 'updated'}`);
+        setTimeout(refreshMap, 300);
+        refreshOpenPanels(['messages', 'units']);
+      }
+    } catch (e) { }
+  });
+}
+if (bc) {
+  bc.onmessage = function(ev) { try { handleRemoteAction(ev.data || {}); } catch (e) { } };
+}
+
+// ===== DOM REFS =====
+const btnJobs = document.getElementById('btnJobs');
+const btnUnits = document.getElementById('btnUnits');
+const btnMsgs = document.getElementById('btnMsgs');
+const btnKPI = document.getElementById('btnKPI');
+const btnPastJobs = document.getElementById('btnPastJobs');
+const cadMain = document.getElementById('cadMain');
+const panelsContainer = document.getElementById('panelsContainer');
+const toast = document.getElementById('toast');
+const darkModeBtn = document.getElementById('darkModeBtn');
+const dispatchModeSelect = document.getElementById('dispatchModeTopbar');
+const divisionSelect = document.getElementById('divisionTopbar');
+const showExternalToggle = document.getElementById('showExternalToggle');
+const kpiStatsPanel = document.getElementById('kpiStatsPanel');
+const kpiCloseBtn = document.getElementById('kpiClose');
+
+// Restore KPI visibility preference
+try{
+  if (localStorage.getItem('cad_kpi_hidden')) {
+    if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
+  }
+}catch(e){}
+
+if (kpiCloseBtn) {
+  kpiCloseBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
+    try{ localStorage.setItem('cad_kpi_hidden','1'); }catch(e){}
+    try { if (btnKPI) btnKPI.classList.remove('active'); } catch (e2) {}
+  });
+}
+
+// ===== PANEL CREATION =====
+function getOrCreatePanel(type, title) {
+  const existingPanel = Object.values(openPanels).find(p => p.type === type);
+  if (existingPanel) {
+    existingPanel.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return existingPanel.element;
+  }
+  return createPanel(type, title);
+}
+
+function createPanel(type, title) {
+  const panelId = 'panel-' + type + '-' + Date.now();
+  const panelEl = document.createElement('div');
+  panelEl.className = 'cad-panel';
+  panelEl.id = panelId;
+  panelEl.dataset.panelType = type;
+  panelEl.innerHTML = `
+    <div class="cad-panel-header">
+      <span class="panel-title">${title}</span>
+      <div class="cad-panel-controls">
+        <button class="panel-btn popout" data-action="popout" title="Pop out">
+          <i class="bi bi-box-arrow-up-right"></i>
+        </button>
+        <button class="panel-btn close" data-action="close" title="Close">
+          <i class="bi bi-x"></i>
+        </button>
+      </div>
+    </div>
+    <div class="cad-panel-body" style="padding:16px;">
+      <div style="text-align:center;color:var(--text-muted);">
+        <i class="bi bi-hourglass-split" style="font-size:24px;display:block;margin-bottom:8px;"></i>
+        Loading...
+      </div>
+    </div>
+    <div class="resize-handle" title="Resize"></div>
+  `;
+
+  panelsContainer.appendChild(panelEl);
+  // make panels float over the map (absolute) to avoid affecting layout
+  panelEl.style.pointerEvents = 'auto';
+  panelEl.style.position = 'absolute';
+  panelEl.style.display = 'flex';
+  panelEl.style.flexDirection = 'column';
+  panelEl.style.width = '420px';
+  panelEl.style.height = '400px';
+  panelEl.style.minWidth = '360px';
+  panelEl.style.minHeight = '280px';
+  panelEl.style.zIndex = '550';
+
+  openPanels[panelId] = { id: panelId, type: type, title: title, element: panelEl };
+
+  // smart initial positioning
+  const panelCount = Object.keys(openPanels).length;
+  let posLeft, posTop;
+  if (type === 'jobs') { posLeft = 40; posTop = 120; }
+  else if (type === 'units') { posLeft = 480; posTop = 120; }
+  else if (type === 'messages') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
+  else { posLeft = 40 + panelCount * 30; posTop = 120 + panelCount * 40; }
+  // prefer saved spawn position for this panel type
+  try {
+    const savedKey = 'cad_panel_state_' + type;
+    const saved = localStorage.getItem(savedKey);
+    if (saved) {
+      const s = JSON.parse(saved);
+      if (s.left) panelEl.style.left = s.left;
+      else panelEl.style.left = posLeft + 'px';
+      if (s.top) panelEl.style.top = s.top;
+      else panelEl.style.top = posTop + 'px';
+      if (s.width) panelEl.style.width = s.width;
+      if (s.height) panelEl.style.height = s.height;
+    } else {
+      panelEl.style.left = posLeft + 'px';
+      panelEl.style.top = posTop + 'px';
+    }
+  } catch (e) {
+    panelEl.style.left = posLeft + 'px';
+    panelEl.style.top = posTop + 'px';
+  }
+
+  panelEl.querySelector('[data-action="popout"]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    popoutPanel(panelId);
+  });
+
+  panelEl.querySelector('[data-action="close"]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    closePanel(panelId);
+  });
+
+  setupDragResize(panelId);
+  loadPanelContent(panelId, type);
+
+  // Clamp panel into viewport so it opens on-map
+  try {
+    const clamp = (el) => {
+      if (!el) return;
+      const w = el.offsetWidth || 420;
+      const h = el.offsetHeight || 400;
+      const left = parseInt(el.style.left) || 0;
+      const top = parseInt(el.style.top) || 0;
+      const maxX = Math.max(16, window.innerWidth - w - 16);
+      const maxY = Math.max(80, window.innerHeight - h - 16);
+      const nx = Math.min(maxX, Math.max(8, left));
+      const ny = Math.min(maxY, Math.max(8, top));
+      el.style.left = nx + 'px'; el.style.top = ny + 'px';
+    };
+    clamp(panelEl);
+  } catch (e) {}
+
+  return panelEl;
+}
+
+function setupDragResize(panelId) {
+  const panelEl = document.getElementById(panelId);
+  if (!panelEl) return;
+
+  const header = panelEl.querySelector('.cad-panel-header');
+  if (!header) return;
+
+  header.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.cad-panel-controls')) return;
+    panelEl.style.opacity = '0.85';
+    panelEl.style.zIndex = '150';
+
+    const onUp = () => {
+      document.removeEventListener('pointerup', onUp);
+      panelEl.style.opacity = '1';
+      panelEl.style.zIndex = '';
+    };
+
+    document.addEventListener('pointerup', onUp);
+  });
+
+  // Add resize handle behavior (bottom-right)
+  try {
+    const resizeHandle = panelEl.querySelector('.resize-handle');
+    const key = 'cad_panel_state_' + panelEl.dataset.panelType;
+    if (resizeHandle) {
+      resizeHandle.style.touchAction = 'none';
+      resizeHandle.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        resizeHandle.setPointerCapture?.(e.pointerId);
+        const startX = e.clientX, startY = e.clientY;
+        const startW = panelEl.offsetWidth, startH = panelEl.offsetHeight;
+        const minW = 260, minH = 120;
+
+        const aspect = startW / startH || 1;
+        const onMove = (ev) => {
+          const dx = ev.clientX - startX, dy = ev.clientY - startY;
+          const nw = Math.max(minW, startW + dx);
+          const nh = Math.max(minH, Math.round(nw / aspect));
+          panelEl.style.width = nw + 'px';
+          panelEl.style.height = nh + 'px';
+          try {
+            let sizeOverlay = document.getElementById('panel-size-overlay');
+            if (!sizeOverlay) {
+              sizeOverlay = document.createElement('div');
+              sizeOverlay.id = 'panel-size-overlay';
+              Object.assign(sizeOverlay.style, {
+                position: 'fixed', left: '0px', top: '0px', padding: '6px 8px',
+                background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '12px',
+                borderRadius: '6px', zIndex: 99999, pointerEvents: 'none', display: 'none'
+              });
+              document.body.appendChild(sizeOverlay);
+            }
+            sizeOverlay.style.display = 'block';
+            sizeOverlay.textContent = nw + ' × ' + nh;
+            sizeOverlay.style.left = (ev.clientX + 12) + 'px';
+            sizeOverlay.style.top = (ev.clientY + 12) + 'px';
+          } catch (e) {}
+        };
+
+        const onUp = (ev) => {
+          try { resizeHandle.releasePointerCapture?.(e.pointerId); } catch (err) {}
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          try { const state = { left: panelEl.style.left, top: panelEl.style.top, width: panelEl.style.width, height: panelEl.style.height }; localStorage.setItem(key, JSON.stringify(state)); } catch (err) {}
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      });
+    }
+  } catch (e) {}
+}
+
+function loadPanelContent(panelId, type) {
+  const panelEl = document.getElementById(panelId);
+  if (!panelEl) return;
+  const contentEl = panelEl.querySelector('.cad-panel-body');
+
+  if (type === 'jobs') {
+    const view = String(panelEl.dataset.jobsView || '').toLowerCase();
+    const cad = parseInt(panelEl.dataset.jobsCad || '', 10);
+    if (view === 'detail' && Number.isInteger(cad) && cad > 0) {
+      loadJobDetail(cad);
+      return;
+    }
+    loadJobsPanel(contentEl);
+  }
+  else if (type === 'units') loadUnitsPanel(contentEl);
+  else if (type === 'messages') loadMsgPanel(contentEl);
+  else if (type === 'past_jobs') loadPastJobsPanel(contentEl);
+}
+
+let panelRefreshTimer = null;
+function isMessageComposerActive() {
+  const active = document.activeElement;
+  if (!active) return false;
+  if (active.id === 'msgTextInput' || active.id === 'msgReplyInput') return true;
+  const panel = active.closest && active.closest('.cad-panel');
+  if (!panel) return false;
+  return panel.dataset && panel.dataset.panelType === 'messages' && /INPUT|TEXTAREA/.test(active.tagName || '');
+}
+function isJobDetailEditorActive() {
+  const active = document.activeElement;
+  if (!active) return false;
+  const panel = active.closest && active.closest('.cad-panel');
+  if (!panel) return false;
+  if (!(panel.dataset && panel.dataset.panelType === 'jobs')) return false;
+  if (String(panel.dataset.jobsView || '').toLowerCase() !== 'detail') return false;
+  return /INPUT|TEXTAREA|SELECT/.test(active.tagName || '');
+}
+function refreshOpenPanels(types = null) {
+  const wanted = Array.isArray(types) && types.length ? new Set(types) : null;
+  if (panelRefreshTimer) clearTimeout(panelRefreshTimer);
+  panelRefreshTimer = setTimeout(() => {
+    Object.values(openPanels).forEach((p) => {
+      if (p.type === 'messages' && isMessageComposerActive()) return;
+      if (p.type === 'jobs') {
+        const view = String((p.element && p.element.dataset && p.element.dataset.jobsView) || '').toLowerCase();
+        if (view === 'detail') {
+          if (isJobDetailEditorActive()) return;
+          return;
+        }
+      }
+      if (!wanted || wanted.has(p.type)) loadPanelContent(p.id, p.type);
+    });
+  }, 120);
+}
+
+function closePanel(panelId) {
+  const panel = openPanels[panelId];
+  if (!panel) return;
+  const el = panel.element;
+  // fade out without touching transform to avoid teleporting
+  el.style.transition = 'opacity 0.28s ease';
+  el.style.opacity = '0';
+  el.style.pointerEvents = 'none';
+  setTimeout(() => {
+    el.remove();
+    try {
+      if (panel.type === 'jobs' && btnJobs) btnJobs.classList.remove('active');
+      else if (panel.type === 'units' && btnUnits) btnUnits.classList.remove('active');
+      else if (panel.type === 'messages' && btnMsgs) btnMsgs.classList.remove('active');
+      else if (panel.type === 'past_jobs' && btnPastJobs) btnPastJobs.classList.remove('active');
+    } catch (e) {}
+    delete openPanels[panelId];
+    if (isPopoutMode && Object.keys(openPanels).length === 0) {
+      try { window.close(); } catch (e) {}
+    }
+    if (Object.keys(openPanels).length === 0) cadMain.classList.remove('drawer-open');
+  }, 300);
+}
+
+function popoutPanel(panelId) {
+  const panel = openPanels[panelId];
+  if (!panel) return;
+  const scope = getDivisionParams().toString();
+  const url = `/plugin/ventus_response_module/cad?panel=${encodeURIComponent(panel.type)}&title=${encodeURIComponent(panel.title)}&popout=1${scope ? `&${scope}` : ''}`;
+  const w = window.open(url, 'ventus-popout-' + panelId, 'width=500,height=600');
+  if (!w) {
+    showNotification('warning', 'Blocked', 'Browser blocked pop-out window');
+    return;
+  }
+  closePanel(panelId);
+  showNotification('success', 'Opened', `${panel.title} opened in new window`);
+}
+
+function applySinglePanelPopoutLayout(panelType) {
+  const topbar = document.querySelector('.cad-topbar');
+  const root = document.querySelector('.cad-root');
+  const rail = document.querySelector('.cad-rail');
+  const mapWrap = document.querySelector('.map-wrap');
+  if (topbar) topbar.style.display = 'none';
+  if (root) root.style.top = '0';
+  if (rail) rail.style.display = 'none';
+  if (mapWrap) mapWrap.style.display = 'none';
+  if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
+  if (cadMain) {
+    cadMain.style.display = 'block';
+    cadMain.style.padding = '0';
+  }
+  if (panelsContainer) {
+    panelsContainer.style.position = 'relative';
+    panelsContainer.style.height = '100vh';
+    panelsContainer.style.pointerEvents = 'auto';
+  }
+  const fit = () => {
+    const p = Object.values(openPanels).find(x => x.type === panelType);
+    const el = p && p.element;
+    if (!el) return;
+    el.style.left = '8px';
+    el.style.top = '8px';
+    el.style.width = 'calc(100vw - 16px)';
+    el.style.height = 'calc(100vh - 16px)';
+    el.style.minWidth = '320px';
+    el.style.minHeight = '220px';
+  };
+  setTimeout(fit, 120);
+  window.addEventListener('resize', fit);
+}
+
+// ===== ICONS & MAP =====
+const jobIcon = L.icon({
+  iconUrl: 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/icons/geo-alt-fill.svg',
+  iconSize: [22, 32], iconAnchor: [11, 32], popupAnchor: [0, -30]
+});
+const unitIcon = L.icon({
+  iconUrl: 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/icons/truck-front-fill.svg',
+  iconSize: [22, 32], iconAnchor: [11, 32], popupAnchor: [0, -30]
+});
+
+function initMap() {
+  let defaultLat = 53.9583, defaultLng = -1.0803, defaultZoom = 9;
+  map = L.map('map').setView([defaultLat, defaultLng], defaultZoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  jobsLayer = L.layerGroup().addTo(map);
+  unitsLayer = L.layerGroup().addTo(map);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+    });
+  }
+  refreshMap();
+}
+
+let lastJobsCount = 0;
+function refreshMap() {
+  jobsLayer.clearLayers();
+  unitsLayer.clearLayers();
+
+  fetch(withDivision('/plugin/ventus_response_module/jobs')).then(r => r.json()).then(jobs => {
+    jobsData = jobs;
+    if (jobs.length > lastJobsCount) {
+      const newest = jobs[0] || {};
+      showNotification('info', 'New Job', `CAD #${newest.cad || '??'}`);
+      playChime('new_job');
+      try {
+        if (soundNewJob && typeof soundNewJob.play === 'function') {
+          const p = soundNewJob.play();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      } catch (e) { }
+    }
+    lastJobsCount = jobs.length;
+    jobs.forEach(job => {
+      if (job.lat && job.lng) {
+        const marker = L.marker([job.lat, job.lng], { icon: jobIcon })
+          .addTo(jobsLayer);
+        if (job.is_external) marker.setOpacity(0.45);
+        marker
+          .bindTooltip(`CAD #${job.cad}`, { direction: "top" })
+          .bindPopup(renderJobMapQuickPreview(job), { closeButton: true, autoPan: true, maxWidth: 360 });
+      }
+    });
+    refreshOpenPanels(['jobs']);
+  });
+
+  fetch(withDivision('/plugin/ventus_response_module/units')).then(r => r.json()).then(units => {
+    unitsData = units;
+    const nextUnits = new Set((Array.isArray(units) ? units : []).map(u => String(u.callSign || '')).filter(Boolean));
+    if (unitsSnapshotInitialized) {
+      nextUnits.forEach(cs => {
+        if (!unitsSnapshot.has(cs)) {
+          showNotification('success', 'Unit Signed On', cs);
+          playChime('unit_signon');
+        }
+      });
+      unitsSnapshot.forEach(cs => {
+        if (!nextUnits.has(cs)) {
+          showNotification('warning', 'Unit Signed Off', cs);
+          playChime('unit_signoff');
+        }
+      });
+    }
+    unitsSnapshot = nextUnits;
+    unitsSnapshotInitialized = true;
+    units.forEach(unit => {
+      if (unit.latitude && unit.longitude) {
+        const marker = L.marker([unit.latitude, unit.longitude], { icon: unitIcon })
+          .addTo(unitsLayer);
+        if (unit.is_external) marker.setOpacity(0.4);
+        marker
+          .bindTooltip(unit.callSign, { direction: "top" });
+      }
+    });
+    refreshOpenPanels(['units', 'messages']);
+  });
+}
+
+setInterval(refreshMap, 15000);
+
+function pollDispatcherAlerts() {
+  fetch(withDivision('/plugin/ventus_response_module/jobs'))
+    .then(r => (r.ok ? r.json() : []))
+    .then((jobs) => {
+      const activeJobs = (Array.isArray(jobs) ? jobs : []).filter(j => normalizeStatus(j.status) !== 'cleared');
+      const next = new Map();
+      activeJobs.forEach((j) => {
+        const sig = [
+          normalizeStatus(j.status),
+          String(j.priority || ''),
+          String(j.claimedBy || ''),
+          String(j.reason_for_call || ''),
+          String(j.updated_at || '')
+        ].join('|');
+        next.set(Number(j.cad), sig);
+      });
+
+      if (jobSnapshotInitialized) {
+        next.forEach((sig, cad) => {
+          const prev = jobSnapshot.get(cad);
+          if (!prev) {
+            showNotification('info', 'New Job', `CAD #${cad}`);
+            playChime('new_job');
+          } else if (prev !== sig) {
+            showNotification('info', 'Job Updated', `CAD #${cad} changed`);
+            playChime('job_update');
+            if (activeJobCad === cad) {
+              try { loadJobDetail(cad); } catch (e) {}
+            }
+          }
+        });
+      }
+      jobSnapshot = next;
+      jobSnapshotInitialized = true;
+    })
+    .catch(() => {});
+
+  fetch('/plugin/ventus_response_module/job-comms/recent?limit=60')
+    .then(r => (r.ok ? r.json() : []))
+    .then((rows) => {
+      const items = Array.isArray(rows) ? rows : [];
+      if (!commSnapshotInitialized) {
+        items.forEach((m) => { if (m && m.id != null) seenCommIds.add(Number(m.id)); });
+        commSnapshotInitialized = true;
+        return;
+      }
+      items.forEach((m) => {
+        const id = Number(m && m.id);
+        if (!Number.isFinite(id) || seenCommIds.has(id)) return;
+        seenCommIds.add(id);
+        const cad = Number(m && m.cad);
+        const sender = String((m && (m.sender_user || m.sender_role)) || 'response centre');
+        const text = String((m && m.message_text) || '').trim();
+        const body = `CAD #${Number.isFinite(cad) ? cad : '?'} • ${sender}${text ? `: ${text.slice(0, 90)}` : ''}`;
+        showNotification('info', (m && m.message_type === 'update') ? 'Incident Update' : 'Response Centre Message', body);
+        playChime((m && m.message_type === 'update') ? 'job_update' : 'message');
+        if (Number.isFinite(cad) && activeJobCad === cad) {
+          try { loadJobDetail(cad); } catch (e) {}
+        }
+      });
+      if (seenCommIds.size > 1000) {
+        const keep = items.slice(-200).map(m => Number(m.id)).filter(Number.isFinite);
+        seenCommIds = new Set(keep);
+      }
+      refreshOpenPanels(['messages']);
+    })
+    .catch(() => {});
+}
+
+setInterval(pollDispatcherAlerts, 5000);
+
+// ===== KPI/STATS =====
+function refreshKPIs() {
+  fetch(withDivision('/plugin/ventus_response_module/kpis')).then(r => r.json()).then(k => {
+    document.getElementById('kpiActiveJobs').textContent = `📋 ${k.active_jobs} Active`;
+    document.getElementById('kpiUnitsAvail').textContent = `🚑 ${k.units_available} Available`;
+    document.getElementById('kpiClearedToday').textContent = `✅ ${k.cleared_today} Cleared`;
+    document.getElementById('kpiAvgResp').textContent = `⏱ Avg Cycle Today ${k.avg_response_time || '--'}`;
+    const stage = (k && k.stage_averages) || {};
+    document.getElementById('kpiAvgWaitAssign').textContent = `Wait->Assign ${stage.wait_to_assigned || '--'}`;
+    document.getElementById('kpiAvgMobileScene').textContent = `Mobile->Scene ${stage.mobile_to_scene || '--'}`;
+    document.getElementById('kpiAvgOnScene').textContent = `On Scene ${stage.on_scene || '--'}`;
+    document.getElementById('kpiAvgLeaveHosp').textContent = `Leave->Hospital ${stage.leave_to_hospital || '--'}`;
+    document.getElementById('kpiAvgAtHosp').textContent = `At Hospital ${stage.at_hospital || '--'}`;
+  });
+}
+
+function refreshDispatchMode() {
+  fetch('/plugin/ventus_response_module/dispatch/mode')
+    .then(r => r.json())
+    .then(data => {
+      if (dispatchModeSelect && data && data.mode) dispatchModeSelect.value = data.mode;
+    })
+    .catch(() => { });
+}
+
+function refreshDivisions() {
+  const applyDivisionData = (data) => {
+    const items = Array.isArray(data.items) && data.items.length
+      ? data.items
+      : (Array.isArray(data.divisions) ? data.divisions.map(d => ({ slug: d, name: d, color: '#64748b', is_default: false })) : [{ slug: 'general', name: 'General', color: '#64748b', is_default: true }]);
+    const divisions = items.map(i => String(i.slug || '').trim()).filter(Boolean);
+    divisionMeta = new Map(items.map(i => [String(i.slug || ''), i]));
+    const defaultDiv = String(data.default || 'general');
+    if (!selectedDivision || !divisions.includes(selectedDivision)) {
+      selectedDivision = divisions.includes(defaultDiv) ? defaultDiv : divisions[0];
+    }
+    if (divisionSelect) {
+      divisionSelect.innerHTML = items.map(d => `<option value="${escapeHtml(d.slug)}">${escapeHtml(d.name || d.slug)}</option>`).join('');
+      divisionSelect.value = selectedDivision;
+    }
+    if (showExternalToggle) {
+      const canShowExternal = !!(data && data.can_show_external);
+      if (!canShowExternal) {
+        showExternalDivisions = false;
+        showExternalToggle.checked = false;
+        showExternalToggle.disabled = true;
+        showExternalToggle.title = 'Cross-division visibility not permitted for this account';
+      } else {
+        showExternalToggle.disabled = false;
+        showExternalToggle.checked = !!showExternalDivisions;
+        showExternalToggle.title = 'Show units/jobs outside selected division';
+      }
+    }
+    return items;
+  };
+
+  fetch('/plugin/ventus_response_module/dispatch/divisions')
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      const items = applyDivisionData(data);
+      // Superuser/admin safety: if API gave only "general", try full catalog endpoint.
+      const onlyGeneral = (items.length === 1 && String(items[0]?.slug || '') === 'general');
+      const unrestricted = !!(data && data.access && data.access.restricted === false);
+      if (onlyGeneral && unrestricted) {
+        fetch('/plugin/ventus_response_module/dispatch/divisions/manage', { credentials: 'same-origin' })
+          .then(r => (r.ok ? r.json() : null))
+          .then(managed => {
+            if (!managed || !Array.isArray(managed.items)) return;
+            const activeItems = managed.items.filter(d => d && d.is_active !== false);
+            if (activeItems.length > 1) {
+              applyDivisionData({ items: activeItems, default: managed.default || 'general', can_show_external: true });
+            }
+          })
+          .catch(() => {});
+      }
+    })
+    .catch(async (err) => {
+      try {
+        const res = await fetch('/plugin/ventus_response_module/dispatch/my-division-access');
+        if (res.ok) {
+          const access = await res.json();
+          const owned = Array.isArray(access?.divisions) ? access.divisions.filter(Boolean) : [];
+          if (owned.length) {
+            const fallbackItems = owned.map((slug) => ({ slug, name: String(slug).replaceAll('_', ' ').replace(/\b\w/g, m => m.toUpperCase()) }));
+            divisionMeta = new Map(fallbackItems.map(i => [String(i.slug || ''), i]));
+            if (!selectedDivision || !owned.includes(selectedDivision)) selectedDivision = owned[0];
+            if (divisionSelect) {
+              divisionSelect.innerHTML = fallbackItems.map(d => `<option value="${escapeHtml(d.slug)}">${escapeHtml(d.name || d.slug)}</option>`).join('');
+              divisionSelect.value = selectedDivision;
+            }
+            return;
+          }
+          if (access && access.restricted === false) {
+            const divRes = await fetch('/plugin/ventus_response_module/dispatch/divisions/manage', { credentials: 'same-origin' });
+            if (divRes.ok) {
+              const managed = await divRes.json();
+              const activeItems = Array.isArray(managed?.items) ? managed.items.filter(d => d && d.is_active !== false) : [];
+              if (activeItems.length) {
+                applyDivisionData({ items: activeItems, default: managed.default || 'general', can_show_external: true });
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      if (divisionSelect && !divisionSelect.options.length) {
+        divisionSelect.innerHTML = '<option value="general">general</option>';
+        divisionSelect.value = selectedDivision || 'general';
+      }
+      try { showNotification('danger', 'Divisions', `Division list failed (${(err && err.message) || 'unknown error'})`); } catch (e) {}
+    });
+}
+
+if (dispatchModeSelect) {
+  dispatchModeSelect.addEventListener('change', () => {
+    const mode = dispatchModeSelect.value;
+    fetch('/plugin/ventus_response_module/dispatch/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok }) => {
+        if (!ok) throw new Error('Update failed');
+        showNotification('success', 'Dispatch Mode', `Set to ${mode}`);
+      })
+      .catch(() => {
+        showNotification('danger', 'Dispatch Mode', 'Update failed');
+        refreshDispatchMode();
+      });
+  });
+}
+
+try {
+  const storedDiv = localStorage.getItem('cad_division_focus');
+  if (storedDiv) selectedDivision = storedDiv;
+  const storedExt = localStorage.getItem('cad_show_external_divisions');
+  if (storedExt != null) showExternalDivisions = storedExt === '1';
+} catch (e) {}
+
+if (showExternalToggle) {
+  showExternalToggle.checked = !!showExternalDivisions;
+  showExternalToggle.addEventListener('change', () => {
+    showExternalDivisions = !!showExternalToggle.checked;
+    try { localStorage.setItem('cad_show_external_divisions', showExternalDivisions ? '1' : '0'); } catch (e) {}
+    refreshKPIs();
+    refreshMap();
+    Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+  });
+}
+
+if (divisionSelect) {
+  divisionSelect.addEventListener('change', () => {
+    selectedDivision = divisionSelect.value || 'general';
+    try { localStorage.setItem('cad_division_focus', selectedDivision); } catch (e) {}
+    refreshKPIs();
+    refreshMap();
+    Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+  });
+}
+
+setInterval(refreshKPIs, 20000);
+refreshKPIs();
+refreshDispatchMode();
+refreshDivisions();
+
+// ===== NOTIFICATIONS =====
+function showToast(msg, duration = 2500) {
+  toast.textContent = msg;
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, duration);
+}
+
+const MAX_NOTIFICATIONS = 5;
+let notifications = [];
+
+function showNotification(type, title, body = '') {
+  try {
+    const container = document.getElementById('notifications');
+    const id = 'n' + Date.now() + Math.floor(Math.random() * 1000);
+    const el = document.createElement('div');
+    el.className = `notification ${type}`;
+    el.id = id;
+    el.innerHTML = `
+      <div class="notif-header">
+        <span>${title}</span>
+        <button class="notif-close">×</button>
+      </div>
+      <div class="notif-body">${body}</div>
+    `;
+    container.appendChild(el);
+
+    el.querySelector('.notif-close').addEventListener('click', () => removeNotification(id));
+    notifications.unshift(id);
+
+    while (notifications.length > MAX_NOTIFICATIONS) {
+      const old = notifications.pop();
+      const node = document.getElementById(old);
+      if (node) node.remove();
+    }
+
+    setTimeout(() => removeNotification(id), 5000);
+    return id;
+  } catch (e) { }
+}
+
+function removeNotification(id) {
+  const node = document.getElementById(id);
+  if (node) {
+    node.style.animation = 'slideIn 0.3s ease reverse';
+    setTimeout(() => { if (node.parentElement) node.remove(); }, 300);
+  }
+  notifications = notifications.filter(x => x !== id);
+}
+
+// ===== PANEL CONTENT =====
+function loadJobsPanel(contentEl) {
+  const panelEl = contentEl.closest('.cad-panel');
+  if (panelEl) {
+    panelEl.dataset.jobsView = 'list';
+    panelEl.dataset.jobsCad = '';
+  }
+  contentEl.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <input type="search" placeholder="🔍 Search..." class="job-filter" style="margin-bottom:8px;">
+      <div style="display:flex;gap:6px;">
+        <button class="btn" onclick="bulkAssign()" style="width:100%;"><i class="bi bi-person-check"></i> Assign</button>
+      </div>
+    </div>
+    <ul id="jobsList" style="list-style:none;padding:0;margin:0;"></ul>
+  `;
+
+  fetch(withDivision('/plugin/ventus_response_module/jobs'))
+    .then(res => res.json())
+    .then(jobs => {
+      jobsData = jobs;
+      Promise.all([
+        fetchJobsTimings(jobs.map(j => j.cad)),
+        fetchJobsEligibility(jobs.map(j => j.cad))
+      ]).then(([timingsMap, eligibilityMap]) => {
+        renderJobsList(jobs, contentEl, timingsMap, eligibilityMap);
+        const filter = contentEl.querySelector('.job-filter');
+        if (filter) {
+          filter.oninput = function() {
+            const val = this.value.toLowerCase();
+            renderJobsList(jobs.filter(j =>
+              ("" + j.cad).includes(val) ||
+              normalizeStatus(j.status).includes(val) ||
+              (j.reason_for_call || '').toLowerCase().includes(val)
+            ), contentEl, timingsMap, eligibilityMap);
+          };
+        }
+      });
+    })
+    .catch(() => { contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load jobs.</div>'; });
+}
+
+function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
+  let html = '';
+  jobs.forEach(job => {
+    const currentTimer = getCurrentStatusTimer(job, timingsMap[job.cad]);
+    const ongoing = formatOngoing(job.created_at || (timingsMap[job.cad] && timingsMap[job.cad].received_time));
+    const priority = String(job.priority || '').trim();
+    const priorityClass = priority === 'P1'
+      ? 'background:rgba(239,68,68,0.22);color:#fecaca;'
+      : priority === 'P2'
+        ? 'background:rgba(245,158,11,0.22);color:#fde68a;'
+        : priority === 'P3'
+          ? 'background:rgba(59,130,246,0.22);color:#bfdbfe;'
+          : 'background:rgba(34,197,94,0.2);color:#bbf7d0;';
+    const eligibility = formatEligibilityText(eligibilityMap[job.cad]);
+    const suggested = (eligibilityMap[job.cad] && eligibilityMap[job.cad].recommended && eligibilityMap[job.cad].recommended.callsign)
+      ? String(eligibilityMap[job.cad].recommended.callsign)
+      : '';
+    html += `
+      <li class="panel-list-item" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})">
+        <input type="checkbox" onchange="toggleJobSelect(${job.cad}, event)" ${selectedJobs.has(job.cad) ? 'checked' : ''}>
+        <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
+        <span>
+          <div style="font-weight:500;">CAD #${job.cad}</div>
+          <div class="meta">${job.reason_for_call || 'No reason'} • ${job.status}</div>
+          <div class="meta">Division: ${escapeHtml(job.division || 'general')}${job.is_external ? ' (external)' : ''}</div>
+          ${priority ? `<div class="meta"><span class="status" style="${priorityClass}">${escapeHtml(priority)}</span></div>` : ''}
+          ${ongoing ? `<div class="meta" style="font-size:11px;color:#fcd34d;">Ongoing: ${escapeHtml(ongoing)}</div>` : ''}
+          ${currentTimer ? `<div class="meta" style="font-size:11px;color:#93c5fd;">Current: ${escapeHtml(currentTimer)}</div>` : ''}
+          <div class="meta" style="font-size:11px;color:#a7f3d0;cursor:${suggested ? 'pointer' : 'default'};text-decoration:${suggested ? 'underline' : 'none'};" onclick='event.stopPropagation();${suggested ? `assignJobWithSuggestion(${job.cad}, ${JSON.stringify(suggested)})` : ""}'>${escapeHtml(eligibility)}${suggested ? ' (click to prefill assign)' : ''}</div>
+        </span>
+        <span class="status" style="background:rgba(59,130,246,0.2);color:var(--primary-light);">${job.status}</span>
+      </li>
+    `;
+  });
+  const jobsList = contentEl.querySelector('#jobsList');
+  if (jobsList) jobsList.innerHTML = html;
+}
+
+function loadUnitsPanel(contentEl) {
+  contentEl.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <input type="search" placeholder="🔍 Search units..." class="unit-filter" style="margin-bottom:8px;">
+    </div>
+    <ul id="unitsList" style="list-style:none;padding:0;margin:0;"></ul>
+  `;
+
+  const filter = contentEl.querySelector('.unit-filter');
+  const renderFiltered = (units) => {
+    const val = String(filter?.value || '').toLowerCase();
+    const list = Array.isArray(units) ? units : [];
+    const filtered = !val ? list : list.filter(u =>
+      (u.callSign || '').toLowerCase().includes(val) ||
+      (u.status || '').toLowerCase().includes(val)
+    );
+    renderUnitsList(filtered, contentEl);
+  };
+  const refreshUnits = () =>
+    fetch(withDivision('/plugin/ventus_response_module/units'))
+      .then(res => res.json())
+      .then(units => {
+        unitsData = Array.isArray(units) ? units : [];
+        renderFiltered(unitsData);
+      });
+
+  if (filter) {
+    filter.oninput = function() { renderFiltered(unitsData || []); };
+  }
+
+  refreshUnits()
+    .catch(() => { contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load units.</div>'; });
+
+  const unitsPoll = setInterval(() => {
+    if (!document.body.contains(contentEl)) { clearInterval(unitsPoll); return; }
+    refreshUnits().catch(() => {});
+  }, 5000);
+}
+
+function loadPastJobsPanel(contentEl) {
+  contentEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">Loading cleared / past CAD jobs...</div>';
+  fetch(withDivision('/plugin/ventus_response_module/jobs/history'))
+    .then(r => r.ok ? r.json() : [])
+    .then(rows => {
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) {
+        contentEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">No past/cleared jobs found.</div>';
+        return;
+      }
+      contentEl.innerHTML = `
+        <ul class="panel-list">
+          ${list.map(j => `
+            <li class="panel-list-item" style="cursor:pointer;" onclick="openJobDetailFromMap(${parseInt(j.cad || 0, 10) || 0})">
+              <div class="title">CAD #${escapeHtml(j.cad || '?')} - ${escapeHtml(j.status || 'cleared')}</div>
+              <div class="meta">${escapeHtml(j.priority || '--')} • ${escapeHtml(j.reason_for_call || 'No reason')}</div>
+              <div class="meta">${escapeHtml(j.address || j.postcode || '')}</div>
+            </li>
+          `).join('')}
+        </ul>
+      `;
+    })
+    .catch(() => {
+      contentEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">Failed to load past jobs.</div>';
+    });
+}
+
+function renderUnitsList(units, contentEl) {
+  let html = '';
+  units.forEach(u => {
+    const callsign = String(u.callSign || '').trim();
+    const st = String(u.status || '').toLowerCase();
+    const statusColor = (st === 'on_standby' || st === 'on_station' || st === 'at_station' || st === 'available')
+      ? 'var(--accent-success)'
+      : 'var(--accent-warning)';
+    const externalActions = (u.is_external && selectedDivision)
+      ? `
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="event.stopPropagation();requestAssistForUnit('${escapeHtml(callsign)}', '${escapeHtml(u.division || 'general')}')">Request</button>
+            <button class="btn" style="padding:4px 8px;font-size:11px;background:transparent;border:1px solid var(--border-color);" onclick="event.stopPropagation();transferUnitToMyDivision('${escapeHtml(callsign)}')">Transfer</button>
+          </div>
+        `
+      : '';
+    html += `
+      <li class="panel-list-item" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})'>
+        <i class="bi bi-truck-front" style="color:${statusColor};"></i>
+        <span>
+          <div style="font-weight:600;">${callsign}</div>
+          <div class="meta">${u.station || 'Mobile'} • ${u.status}</div>
+          <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
+        </span>
+        ${externalActions}
+        <span class="status" style="background:rgba(16,185,129,0.2);color:var(--accent-success);">${u.status}</span>
+      </li>
+    `;
+  });
+  const unitsList = contentEl.querySelector('#unitsList');
+  if (unitsList) unitsList.innerHTML = html;
+}
+
+
+const dispatchMsgState = {
+  selectedUnit: '',
+  draft: ''
+};
+
+function loadMsgPanel(contentEl) {
+  contentEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr;gap:10px;">
+      <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
+        <div style="font-weight:700;margin-bottom:8px;">Response Centre / Incident Inbox</div>
+        <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;"></ul>
+      </div>
+      <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
+        <div style="font-weight:700;margin-bottom:8px;">Conversations</div>
+        <div id="msgRecipientChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+        <div id="msgsList" style="list-style:none;padding:8px;margin:0 0 10px 0;height:220px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.16);"></div>
+        <div id="msgReplyMeta" class="meta" style="margin-bottom:8px;">Select a unit to start messaging.</div>
+        <textarea id="msgTextInput" rows="3" placeholder="Type message to selected unit..." style="margin-bottom:8px;resize:vertical;"></textarea>
+        <div style="display:flex;gap:8px;">
+          <button id="msgAckBtn" class="btn" style="flex:1;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-check2-circle"></i> Acknowledge</button>
+          <button id="msgSendBtn" class="btn" style="flex:1;"><i class="bi bi-send"></i> Send Reply</button>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
+        <div style="font-weight:700;margin-bottom:6px;">Cross-Division Assist Requests</div>
+        <ul id="dispatcherAssistList" style="list-style:none;padding:0;margin:0;max-height:150px;overflow:auto;"></ul>
+      </div>
+      <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
+        <div style="font-weight:700;margin-bottom:6px;">Dispatch Note / Message of the Day</div>
+        <div id="motdDisplay" style="font-size:12px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);margin-bottom:8px;">Loading note...</div>
+        <button id="motdReloadBtn" class="btn" style="width:100%;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-arrow-clockwise"></i> Refresh Note</button>
+        <div id="motdMeta" class="meta" style="margin-top:6px;">Loading note...</div>
+      </div>
+    </div>
+  `;
+
+  const msgsList = contentEl.querySelector('#msgsList');
+  const recipientChips = contentEl.querySelector('#msgRecipientChips');
+  const msgReplyMeta = contentEl.querySelector('#msgReplyMeta');
+  const msgTextInput = contentEl.querySelector('#msgTextInput');
+  const msgSendBtn = contentEl.querySelector('#msgSendBtn');
+  const msgAckBtn = contentEl.querySelector('#msgAckBtn');
+  const dispatcherInboxList = contentEl.querySelector('#dispatcherInboxList');
+  const dispatcherAssistList = contentEl.querySelector('#dispatcherAssistList');
+  const motdDisplay = contentEl.querySelector('#motdDisplay');
+  const motdMeta = contentEl.querySelector('#motdMeta');
+  const motdReloadBtn = contentEl.querySelector('#motdReloadBtn');
+
+  msgTextInput.value = dispatchMsgState.draft || '';
+  msgTextInput.addEventListener('input', () => { dispatchMsgState.draft = msgTextInput.value || ''; });
+
+  const loadConversation = (callsign) => {
+    if (!callsign) {
+      msgsList.innerHTML = '<div class="meta" style="padding:8px;">Select a unit to view messages.</div>';
+      return Promise.resolve();
+    }
+    return fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          msgsList.innerHTML = '<div class="meta" style="padding:8px;">No messages yet.</div>';
+          return;
+        }
+        msgsList.innerHTML = list.slice(-80).map((m) => {
+          const from = String(m.from || '').trim();
+          const outgoing = from.toLowerCase() === 'dispatcher';
+          return `
+            <div style="display:flex;justify-content:${outgoing ? 'flex-end' : 'flex-start'};margin-bottom:8px;">
+              <div style="max-width:78%;padding:8px 10px;border-radius:10px;border:1px solid var(--border-color);background:${outgoing ? 'rgba(59,130,246,0.2)' : 'rgba(2,6,23,0.55)'};">
+                <div style="font-size:11px;opacity:0.85;margin-bottom:4px;">${escapeHtml(from || 'unknown')} | ${escapeHtml(m.timestamp ? new Date(m.timestamp).toLocaleString() : '')}</div>
+                <div>${escapeHtml(m.text || '')}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        msgsList.scrollTop = msgsList.scrollHeight;
+      })
+      .catch(() => {
+        msgsList.innerHTML = '<div class="meta" style="padding:8px;">Failed to load conversation.</div>';
+      });
+  };
+
+  const sendMessage = (text) => {
+    const cs = String(dispatchMsgState.selectedUnit || '').trim();
+    const body = String(text || '').trim();
+    if (!cs || !body) return Promise.resolve();
+    return fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: body, from: 'dispatcher' })
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) throw new Error(d.error || 'Send failed');
+      });
+  };
+
+  const renderRecipientChips = (callsigns) => {
+    const list = Array.isArray(callsigns) ? callsigns : [];
+    if (!list.length) {
+      recipientChips.innerHTML = '<span class="meta">No active units.</span>';
+      dispatchMsgState.selectedUnit = '';
+      msgReplyMeta.textContent = 'No active units signed on.';
+      loadConversation('');
+      return;
+    }
+    if (!dispatchMsgState.selectedUnit || !list.includes(dispatchMsgState.selectedUnit)) {
+      dispatchMsgState.selectedUnit = list[0];
+    }
+    recipientChips.innerHTML = list.map((cs) => {
+      const active = cs === dispatchMsgState.selectedUnit;
+      return `<button class="btn" data-cs="${escapeHtml(cs)}" style="padding:5px 10px;${active ? '' : 'background:transparent;border:1px solid var(--border-color);'}">${escapeHtml(cs)}</button>`;
+    }).join('');
+    Array.from(recipientChips.querySelectorAll('button[data-cs]')).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        dispatchMsgState.selectedUnit = btn.getAttribute('data-cs') || '';
+        dispatchMsgState.draft = '';
+        msgTextInput.value = '';
+        msgReplyMeta.textContent = `Replying to ${dispatchMsgState.selectedUnit}`;
+        renderRecipientChips(list);
+        loadConversation(dispatchMsgState.selectedUnit);
+      });
+    });
+    msgReplyMeta.textContent = `Replying to ${dispatchMsgState.selectedUnit}`;
+    loadConversation(dispatchMsgState.selectedUnit);
+  };
+
+  const loadUnits = () =>
+    fetch(withDivision('/plugin/ventus_response_module/units'))
+      .then(r => r.ok ? r.json() : [])
+      .then((units) => {
+        const callsigns = (Array.isArray(units) ? units : []).map(u => String(u.callSign || '')).filter(Boolean);
+        renderRecipientChips(callsigns);
+      })
+      .catch(() => {
+        recipientChips.innerHTML = '<span class="meta">Unable to load units.</span>';
+      });
+
+  const loadDispatcherInbox = () =>
+    fetch('/plugin/ventus_response_module/job-comms/recent?limit=80')
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const list = (Array.isArray(rows) ? rows : []);
+        if (!list.length) {
+          dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No incident messages yet.</li>';
+          return;
+        }
+        dispatcherInboxList.innerHTML = list.slice(-25).reverse().map((m) => {
+          const type = (m && m.message_type === 'update') ? 'Update' : 'Message';
+          const who = (m && (m.sender_user || m.sender_role)) || 'unknown';
+          const when = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
+          const cad = Number(m && m.cad);
+          return `
+            <li class="panel-list-item" style="cursor:pointer;" onclick="${Number.isFinite(cad) && cad > 0 ? `loadJobDetail(${cad});` : ''}">
+              <i class="bi bi-bell" style="color:var(--accent);"></i>
+              <span>
+                <div style="font-weight:600;">CAD #${escapeHtml(Number.isFinite(cad) ? cad : '?')} | ${escapeHtml(type)}</div>
+                <div class="meta">${escapeHtml(m && m.message_text ? m.message_text : '')}</div>
+                <div class="meta">${escapeHtml(who)} | ${escapeHtml(when)}</div>
+              </span>
+            </li>
+          `;
+        }).join('');
+      })
+      .catch(() => { dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">Unable to load inbox.</li>'; });
+
+  const resolveAssistRequest = (id, decision) =>
+    fetch(`/plugin/ventus_response_module/dispatch/assist-requests/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, transfer_division: true })
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) throw new Error((d && d.error) || 'Resolve failed');
+        showNotification('success', 'Assist Request', `Request #${id} ${decision}d`);
+        return loadAssistRequests();
+      })
+      .catch((e) => showNotification('danger', 'Assist Request Failed', e.message || 'Failed'));
+  window.__resolveAssistReq = resolveAssistRequest;
+
+  const loadAssistRequests = () => {
+    const q = getDivisionParams().toString();
+    const url = `/plugin/ventus_response_module/dispatch/assist-requests?status=pending${q ? `&${q}` : ''}`;
+    return fetch(url)
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          dispatcherAssistList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No pending assist requests.</li>';
+          return;
+        }
+        dispatcherAssistList.innerHTML = list.slice(0, 20).map(r => {
+          const id = Number(r && r.id);
+          const cad = Number(r && r.cad);
+          const reqFrom = String((r && r.from_division) || 'unknown');
+          const reqTo = String((r && r.to_division) || 'unknown');
+          const cs = String((r && r.callsign) || '');
+          return `
+            <li class="panel-list-item">
+              <i class="bi bi-arrow-left-right" style="color:var(--accent);"></i>
+              <span>
+                <div style="font-weight:600;">#${escapeHtml(id)} | ${escapeHtml(cs)}</div>
+                <div class="meta">${escapeHtml(reqFrom)} -> ${escapeHtml(reqTo)}${Number.isFinite(cad) && cad > 0 ? ` | CAD #${escapeHtml(cad)}` : ''}</div>
+              </span>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                ${Number.isFinite(cad) && cad > 0 ? `<button class="btn" style="padding:4px 8px;font-size:11px;" onclick="loadJobDetail(${cad})">Open</button>` : ''}
+                <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="window.__resolveAssistReq(${id},'approve')">Approve</button>
+                <button class="btn" style="padding:4px 8px;font-size:11px;background:transparent;border:1px solid var(--border-color);" onclick="window.__resolveAssistReq(${id},'reject')">Reject</button>
+              </div>
+            </li>
+          `;
+        }).join('');
+      })
+      .catch(() => { dispatcherAssistList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">Unable to load assist requests.</li>'; });
+  };
+
+  const loadMotd = () =>
+    fetch('/plugin/ventus_response_module/dispatch/motd')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(data => {
+        motdDisplay.textContent = (data.text || '').trim() || 'No dispatch note set.';
+        const stamp = data.updated_at ? new Date(data.updated_at).toLocaleString() : 'never';
+        const by = data.updated_by || 'unknown';
+        motdMeta.textContent = `Last updated ${stamp} by ${by}`;
+      })
+      .catch((e) => {
+        motdDisplay.textContent = 'Unable to load dispatch note.';
+        motdMeta.textContent = `Unable to load note (${e.message})`;
+      });
+
+  motdReloadBtn.addEventListener('click', loadMotd);
+  msgAckBtn.addEventListener('click', () => {
+    if (!dispatchMsgState.selectedUnit) {
+      showNotification('warning', 'Acknowledge', 'Select a unit first');
+      return;
+    }
+    sendMessage('Acknowledged. Message received.')
+      .then(() => {
+        showNotification('success', 'Acknowledge', `Acknowledged ${dispatchMsgState.selectedUnit}`);
+        return loadConversation(dispatchMsgState.selectedUnit);
+      })
+      .catch((e) => showNotification('danger', 'Acknowledge', e.message || 'Failed'));
+  });
+  msgSendBtn.addEventListener('click', () => {
+    const text = (msgTextInput.value || '').trim();
+    if (!dispatchMsgState.selectedUnit || !text) {
+      showNotification('warning', 'Message', 'Select a unit and enter a reply');
+      return;
+    }
+    msgSendBtn.disabled = true;
+    sendMessage(text)
+      .then(() => {
+        dispatchMsgState.draft = '';
+        msgTextInput.value = '';
+        showNotification('success', 'Message', `Sent to ${dispatchMsgState.selectedUnit}`);
+        return loadConversation(dispatchMsgState.selectedUnit);
+      })
+      .catch((e) => showNotification('danger', 'Message', e.message || 'Failed'))
+      .finally(() => { msgSendBtn.disabled = false; });
+  });
+
+  Promise.all([loadMotd(), loadUnits(), loadDispatcherInbox(), loadAssistRequests()]);
+  const inboxPoll = setInterval(() => {
+    if (!document.body.contains(contentEl)) { clearInterval(inboxPoll); return; }
+    loadDispatcherInbox();
+    loadAssistRequests();
+    if (!isMessageComposerActive()) {
+      loadUnits();
+    }
+  }, 5000);
+}
+
+// ===== ACTIONS =====
+window.toggleJobSelect = function(cad, ev) {
+  ev.stopPropagation();
+  if (ev.target.checked) selectedJobs.add(cad);
+  else selectedJobs.delete(cad);
+};
+
+window.transferUnitToMyDivision = function(callsign) {
+  if (!callsign || !selectedDivision) return;
+  fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(callsign)}/transfer-division`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ division: selectedDivision })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) throw new Error((d && d.error) || 'Transfer failed');
+      showNotification('success', 'Unit Transferred', `${callsign} -> ${selectedDivision}`);
+      setTimeout(refreshMap, 300);
+      Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+    })
+    .catch((e) => showNotification('danger', 'Transfer Failed', e.message || 'Unable to transfer unit'));
+};
+
+window.requestAssistForUnit = function(callsign, fromDivision = 'general') {
+  if (!callsign || !selectedDivision) return;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:7100;';
+  const active = (Array.isArray(jobsData) ? jobsData : []).filter(j => normalizeStatus(j.status) !== 'cleared' && normalizeStatus(j.status) !== 'stood_down');
+  const opts = ['<option value="">No CAD link</option>'].concat(active.map(j => `<option value="${escapeHtml(j.cad)}">CAD #${escapeHtml(j.cad)} - ${escapeHtml(j.reason_for_call || j.status || '')}</option>`));
+  modal.innerHTML = `
+    <div style="width:min(560px,92vw);background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:6px;">Request Cross-Division Assist</div>
+      <div class="meta" style="margin-bottom:10px;">Unit <b>${escapeHtml(callsign)}</b> from <b>${escapeHtml(fromDivision || 'general')}</b> -> <b>${escapeHtml(selectedDivision)}</b></div>
+      <label class="meta">Attach to CAD (optional)</label>
+      <select id="assistCadSel" style="width:100%;margin:6px 0 10px 0;">${opts.join('')}</select>
+      <label class="meta">Request note</label>
+      <textarea id="assistNoteTxt" style="width:100%;min-height:86px;" placeholder="Reason for requesting support..."></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button id="assistCancelBtn" class="btn" style="width:100%;background:transparent;border:1px solid var(--border-color);">Cancel</button>
+        <button id="assistSendBtn" class="btn" style="width:100%;"><i class="bi bi-send"></i> Send Request</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => { try { modal.remove(); } catch (e) {} };
+  modal.querySelector('#assistCancelBtn')?.addEventListener('click', close);
+  modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
+  modal.querySelector('#assistSendBtn')?.addEventListener('click', () => {
+    const cadRaw = modal.querySelector('#assistCadSel')?.value || '';
+    const note = (modal.querySelector('#assistNoteTxt')?.value || '').trim();
+    const cad = cadRaw ? parseInt(cadRaw, 10) : null;
+    fetch('/plugin/ventus_response_module/dispatch/assist-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callsign,
+        from_division: fromDivision || 'general',
+        to_division: selectedDivision,
+        cad: Number.isInteger(cad) ? cad : null,
+        note
+      })
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) throw new Error((d && d.error) || 'Request failed');
+        close();
+        showNotification('success', 'Assist Requested', `${callsign} requested for ${selectedDivision}`);
+      })
+      .catch((e) => showNotification('danger', 'Assist Request Failed', e.message || 'Failed'));
+  });
+};
+
+window.loadUnitDetail = function(callsign) {
+  const cs = String(callsign || '').trim();
+  if (!cs) return;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:7200;';
+  modal.innerHTML = `
+    <div style="width:min(820px,96vw);max-height:90vh;overflow:auto;background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-weight:700;">Unit Detail • ${escapeHtml(cs)}</div>
+        <button id="unitDetailCloseBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);padding:4px 10px;">Close</button>
+      </div>
+      <div id="unitDetailBody" class="meta">Loading unit detail...</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  let unitDetailPoll = null;
+  const close = () => {
+    try { if (unitDetailPoll) clearInterval(unitDetailPoll); } catch (e) {}
+    try { modal.remove(); } catch (e) {}
+  };
+  modal.querySelector('#unitDetailCloseBtn')?.addEventListener('click', close);
+  modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
+
+  const bodyEl = modal.querySelector('#unitDetailBody');
+
+  const loadAll = () => Promise.all([
+    fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/detail`).then(r => r.ok ? r.json() : Promise.reject(new Error(`Detail ${r.status}`))),
+    fetch('/plugin/ventus_response_module/standby-locations').then(r => r.ok ? r.json() : []),
+    fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`).then(r => r.ok ? r.json() : [])
+  ]);
+
+  const sendUnitMessage = (text) =>
+    fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: String(text || '').trim(), from: 'dispatcher' })
+    }).then(r => r.json().then(d => ({ ok: r.ok, d })));
+
+  const formatAgo = (seconds) => {
+    if (seconds == null || !Number.isFinite(Number(seconds))) return '--';
+    const s = Math.max(0, Number(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0) return `${h}h ${m}m ${sec}s`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  };
+
+  const render = (detail, presets, messages) => {
+    const currentJob = detail.current_job || null;
+    const recentJobs = Array.isArray(detail.recent_jobs) ? detail.recent_jobs : [];
+    const conversation = Array.isArray(messages) ? messages.slice(-40) : [];
+    const presetOptions = (Array.isArray(presets) ? presets : []).map(p =>
+      `<option value="${escapeHtml(JSON.stringify({ name: p.name, lat: p.lat, lng: p.lng }))}">${escapeHtml(p.name)} (${escapeHtml(p.lat)}, ${escapeHtml(p.lng)})</option>`
+    ).join('');
+    bodyEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+        <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+          <div style="font-weight:700;margin-bottom:8px;">Live Status</div>
+          <div class="meta">Status: <b>${escapeHtml(detail.status || '--')}</b></div>
+          <div class="meta">Division: <b>${escapeHtml(detail.division || 'general')}</b></div>
+          <div class="meta">Last Ping: <b>${escapeHtml(formatAgo(detail.last_ping_seconds))}</b></div>
+          <div class="meta">Last Seen: ${escapeHtml(detail.last_seen_at || '--')}</div>
+          <div class="meta">Coordinates: ${detail.last_lat != null ? escapeHtml(String(detail.last_lat)) : '--'}, ${detail.last_lng != null ? escapeHtml(String(detail.last_lng)) : '--'}</div>
+          <div class="meta">Crew: ${escapeHtml((Array.isArray(detail.crew) ? detail.crew.join(', ') : '') || '--')}</div>
+          ${detail.meal_break_until ? `<div class="meta" style="color:#fbbf24;">Meal break until ${escapeHtml(detail.meal_break_until)}</div>` : ''}
+        </div>
+        <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+          <div style="font-weight:700;margin-bottom:8px;">Workload</div>
+          <div class="meta">Current Job: ${currentJob ? `<b>CAD #${escapeHtml(currentJob.cad)}</b> (${escapeHtml(currentJob.status || '--')})` : '--'}</div>
+          ${currentJob ? `<div class="meta">${escapeHtml(currentJob.reason_for_call || '')}</div><button id="unitOpenJobBtn" class="btn" style="margin-top:8px;width:100%;"><i class="bi bi-folder2-open"></i> Open Current CAD</button>` : ''}
+          <div class="meta" style="margin-top:8px;">Jobs since sign on: <b>${escapeHtml(String(detail.jobs_since_sign_on || 0))}</b></div>
+          <div style="max-height:120px;overflow:auto;margin-top:6px;border:1px dashed var(--border-color);border-radius:8px;padding:6px;">
+            ${(recentJobs.length ? recentJobs.map(j => `<div class="meta" style="margin-bottom:4px;">CAD #${escapeHtml(j.cad)} • ${escapeHtml(j.status || '')} • ${escapeHtml(j.last_event || '')}</div>`).join('') : '<div class="meta">No jobs logged yet.</div>')}
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+        <div style="font-weight:700;margin-bottom:8px;">Send to Standby / Location</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <input id="unitStandbyName" placeholder="Location name" value="Standby ${escapeHtml(cs)}">
+          <input id="unitStandbyLat" placeholder="Latitude">
+          <input id="unitStandbyLng" placeholder="Longitude">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:8px;">
+          <select id="unitStandbyPreset"><option value="">Preset standby locations...</option>${presetOptions}</select>
+          <button id="unitUseMapCenterBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">Use Map Center</button>
+          <button id="unitSetStandbyBtn" class="btn"><i class="bi bi-send"></i> Send</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+        <div style="font-weight:700;margin-bottom:8px;">Unit Messaging</div>
+        <div id="unitConversationList" style="max-height:180px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;padding:8px;background:rgba(0,0,0,0.18);margin-bottom:8px;">
+          ${conversation.length ? conversation.map((m) => {
+            const from = String(m && m.from ? m.from : '').trim() || 'unknown';
+            const outgoing = from.toLowerCase() === 'dispatcher';
+            const when = m && m.timestamp ? new Date(m.timestamp).toLocaleString() : '';
+            const text = String(m && m.text ? m.text : '');
+            return `
+              <div style="display:flex;justify-content:${outgoing ? 'flex-end' : 'flex-start'};margin-bottom:8px;">
+                <div style="max-width:85%;padding:8px 10px;border-radius:10px;border:1px solid var(--border-color);background:${outgoing ? 'rgba(59,130,246,0.2)' : 'rgba(2,6,23,0.55)'};">
+                  <div style="font-size:11px;opacity:0.85;margin-bottom:4px;">${escapeHtml(from)} | ${escapeHtml(when)}</div>
+                  <div>${escapeHtml(text)}</div>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="meta">No messages yet.</div>'}
+        </div>
+        <textarea id="unitMsgText" rows="3" placeholder="Type message to ${escapeHtml(cs)}..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="unitAckBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">Acknowledge</button>
+          <button id="unitSendMsgBtn" class="btn"><i class="bi bi-send"></i> Send Message</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+        <div style="font-weight:700;margin-bottom:8px;">Controls</div>
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;">
+          <input id="unitMealMins" type="number" min="5" max="180" value="30" placeholder="Meal break minutes">
+          <button id="unitMealStartBtn" class="btn" style="background:rgba(245,158,11,0.18);border:1px solid #f59e0b;">Start Meal Break</button>
+          <button id="unitMealStopBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">End Meal Break</button>
+        </div>
+        <button id="unitForceSignoffBtn" class="btn" style="margin-top:8px;width:100%;background:rgba(220,38,38,0.18);border:1px solid #dc2626;"><i class="bi bi-box-arrow-right"></i> Force Sign Off Unit</button>
+      </div>
+    `;
+
+    const setLatLng = (lat, lng) => {
+      bodyEl.querySelector('#unitStandbyLat').value = (lat != null ? String(lat) : '');
+      bodyEl.querySelector('#unitStandbyLng').value = (lng != null ? String(lng) : '');
+    };
+    if (detail.last_lat != null && detail.last_lng != null) setLatLng(detail.last_lat, detail.last_lng);
+
+    bodyEl.querySelector('#unitOpenJobBtn')?.addEventListener('click', () => {
+      if (currentJob && currentJob.cad) {
+        close();
+        loadJobDetail(currentJob.cad);
+      }
+    });
+    bodyEl.querySelector('#unitStandbyPreset')?.addEventListener('change', (ev) => {
+      const raw = ev.target.value || '';
+      if (!raw) return;
+      try {
+        const p = JSON.parse(raw);
+        bodyEl.querySelector('#unitStandbyName').value = p.name || '';
+        setLatLng(p.lat, p.lng);
+      } catch (e) {}
+    });
+    bodyEl.querySelector('#unitUseMapCenterBtn')?.addEventListener('click', () => {
+      try {
+        const c = map && map.getCenter ? map.getCenter() : null;
+        if (!c) return;
+        setLatLng(c.lat, c.lng);
+        showNotification('info', 'Standby', `Using map center for ${cs}`);
+      } catch (e) {}
+    });
+    bodyEl.querySelector('#unitSetStandbyBtn')?.addEventListener('click', () => {
+      const name = (bodyEl.querySelector('#unitStandbyName').value || '').trim() || `Standby ${cs}`;
+      const lat = parseFloat(bodyEl.querySelector('#unitStandbyLat').value || '');
+      const lng = parseFloat(bodyEl.querySelector('#unitStandbyLng').value || '');
+      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/standby`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, lat, lng })
+      }).then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed to send');
+          showNotification('success', 'Standby Sent', `${cs} -> ${name}`);
+          refreshMap();
+          refreshOpenPanels(['units']);
+        })
+        .catch((e) => showNotification('danger', 'Standby', e.message || 'Failed'));
+    });
+    bodyEl.querySelector('#unitAckBtn')?.addEventListener('click', () => {
+      sendUnitMessage('Acknowledged. Please continue as planned.')
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed');
+          showNotification('success', 'Message', `Acknowledged ${cs}`);
+          return loadAll().then(([detail2, presets2, messages2]) => render(detail2, presets2, messages2));
+        })
+        .catch((e) => showNotification('danger', 'Message', e.message || 'Failed'));
+    });
+    bodyEl.querySelector('#unitSendMsgBtn')?.addEventListener('click', () => {
+      const text = (bodyEl.querySelector('#unitMsgText').value || '').trim();
+      if (!text) {
+        showNotification('warning', 'Message', 'Enter message text');
+        return;
+      }
+      sendUnitMessage(text)
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed');
+          bodyEl.querySelector('#unitMsgText').value = '';
+          showNotification('success', 'Message', `Sent to ${cs}`);
+          return loadAll().then(([detail2, presets2, messages2]) => render(detail2, presets2, messages2));
+        })
+        .catch((e) => showNotification('danger', 'Message', e.message || 'Failed'));
+    });
+    bodyEl.querySelector('#unitMealStartBtn')?.addEventListener('click', () => {
+      const minutes = parseInt(bodyEl.querySelector('#unitMealMins').value || '30', 10);
+      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/meal-break`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start', minutes })
+      }).then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed');
+          showNotification('success', 'Meal Break', `${cs} set to meal break`);
+          return loadAll().then(([detail2, presets2, messages2]) => render(detail2, presets2, messages2));
+        })
+        .catch((e) => showNotification('danger', 'Meal Break', e.message || 'Failed'));
+    });
+    bodyEl.querySelector('#unitMealStopBtn')?.addEventListener('click', () => {
+      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/meal-break`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' })
+      }).then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed');
+          showNotification('success', 'Meal Break', `${cs} returned to on_standby`);
+          return loadAll().then(([detail2, presets2, messages2]) => render(detail2, presets2, messages2));
+        })
+        .catch((e) => showNotification('danger', 'Meal Break', e.message || 'Failed'));
+    });
+    bodyEl.querySelector('#unitForceSignoffBtn')?.addEventListener('click', () => {
+      if (!confirm(`Force sign off ${cs}?`)) return;
+      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/force-signoff`, { method: 'POST' })
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) throw new Error((d && d.error) || 'Failed');
+          showNotification('warning', 'Unit Signed Off', cs);
+          close();
+          refreshMap();
+          refreshOpenPanels(['units']);
+        })
+        .catch((e) => showNotification('danger', 'Force Sign Off', e.message || 'Failed'));
+    });
+  };
+
+  loadAll()
+    .then(([detail, presets, messages]) => render(detail, presets, messages))
+    .catch((e) => {
+      bodyEl.innerHTML = `<div style="color:var(--text-muted);">Failed to load unit detail: ${escapeHtml(e.message || 'error')}</div>`;
+    });
+
+  unitDetailPoll = setInterval(() => {
+    if (!document.body.contains(modal)) { try { clearInterval(unitDetailPoll); } catch (e) {} return; }
+    const active = document.activeElement;
+    const editing = !!(active && modal.contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName || ''));
+    if (editing) return;
+    loadAll()
+      .then(([detail, presets, messages]) => render(detail, presets, messages))
+      .catch(() => {});
+  }, 5000);
+};
+
+function openAssignUnitsModal(options = {}) {
+  const existingModal = document.getElementById('assignUnitsModal');
+  if (existingModal) {
+    try {
+      const firstCb = existingModal.querySelector('.assign-unit-cb');
+      if (firstCb) firstCb.focus();
+    } catch (e) {}
+    return;
+  }
+  if (assignModalLoading) return;
+  assignModalLoading = true;
+  const title = options.title || 'Assign Units';
+  const suggested = Array.isArray(options.suggested) ? options.suggested : [];
+  const onConfirm = typeof options.onConfirm === 'function' ? options.onConfirm : null;
+
+  fetch(withDivision('/plugin/ventus_response_module/units'))
+    .then(r => r.json())
+    .then(units => {
+      const list = Array.isArray(units) ? units : [];
+      const modal = document.createElement('div');
+      modal.id = 'assignUnitsModal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:7000;';
+
+      const suggestedSet = new Set(suggested.map(x => String(x || '').trim()).filter(Boolean));
+      const rows = list.map(u => {
+        const cs = String(u.callSign || '').trim();
+        if (!cs) return '';
+        const checked = suggestedSet.has(cs) ? 'checked' : '';
+        return `
+          <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:${u.is_external ? 'rgba(148,163,184,0.18)' : 'rgba(2,6,23,0.65)'};cursor:pointer;">
+            <input type="checkbox" class="assign-unit-cb" value="${escapeHtml(cs)}" ${checked}>
+            <span style="font-weight:600;">${escapeHtml(cs)}</span>
+            <span style="font-size:12px;color:var(--text-muted);">${escapeHtml(u.status || 'unknown')}</span>
+            <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${escapeHtml(u.division || 'general')}${u.is_external ? ' external' : ''}</span>
+          </label>
+        `;
+      }).join('');
+
+      modal.innerHTML = `
+        <div style="width:min(560px,92vw);max-height:84vh;overflow:auto;background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+          <div style="font-weight:700;margin-bottom:10px;">${escapeHtml(title)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Select one or more units for this CAD.</div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
+            <input type="checkbox" id="assignTransferDivision" checked>
+            Transfer selected units into <b>${escapeHtml(selectedDivision || 'general')}</b>
+          </label>
+          <div style="display:flex;flex-direction:column;gap:8px;">${rows || '<div style="color:var(--text-muted);">No units available</div>'}</div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button id="assignUnitsCancel" class="btn" style="width:100%;background:transparent;border:1px solid var(--border-color);">Cancel</button>
+            <button id="assignUnitsConfirm" class="btn" style="width:100%;"><i class="bi bi-person-check"></i> Assign Selected</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const close = () => { try { modal.remove(); } catch (e) { } };
+      modal.querySelector('#assignUnitsCancel')?.addEventListener('click', close);
+      modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
+      modal.querySelector('#assignUnitsConfirm')?.addEventListener('click', () => {
+        const confirmBtn = modal.querySelector('#assignUnitsConfirm');
+        if (confirmBtn && confirmBtn.disabled) return;
+        const selected = Array.from(modal.querySelectorAll('.assign-unit-cb:checked')).map(cb => cb.value);
+        if (!selected.length) {
+          showNotification('warning', 'Assign', 'Select at least one unit');
+          return;
+        }
+        if (confirmBtn) {
+          confirmBtn.disabled = true;
+          confirmBtn.textContent = 'Assigning...';
+        }
+        const transferDivision = !!modal.querySelector('#assignTransferDivision')?.checked;
+        close();
+        if (onConfirm) onConfirm({ callsigns: selected, transferDivision });
+      });
+      assignModalLoading = false;
+    })
+    .catch(() => {
+      assignModalLoading = false;
+      showNotification('danger', 'Assign', 'Failed to load units');
+    });
+}
+
+window.bulkAssign = function() {
+  if (selectedJobs.size === 0) {
+    showNotification('warning', 'Select Jobs');
+    return;
+  }
+  openAssignUnitsModal({
+    title: `Assign Units to ${selectedJobs.size} Job(s)`,
+    onConfirm: ({ callsigns, transferDivision }) => {
+      selectedJobs.forEach(cad => {
+        fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callsigns, division: selectedDivision, transfer_division: transferDivision })
+        }).catch(() => { });
+      });
+      showNotification('success', 'Assigned', `${selectedJobs.size} jobs -> ${callsigns.join(', ')}`);
+      selectedJobs.clear();
+      setTimeout(refreshMap, 1000);
+    }
+  });
+};
+
+window.assignJobWithSuggestion = function(cad, suggestedCallsign = '') {
+  const hint = (suggestedCallsign || '').trim();
+  openAssignUnitsModal({
+    title: `Assign Units to CAD #${cad}`,
+    suggested: hint ? [hint] : [],
+    onConfirm: ({ callsigns, transferDivision }) => {
+      fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callsigns, division: selectedDivision, transfer_division: transferDivision })
+      })
+        .then(r => r.json())
+        .then(() => {
+          showNotification('success', 'Assigned', `CAD #${cad} -> ${callsigns.join(', ')}`);
+          setTimeout(refreshMap, 400);
+          try { loadJobDetail(cad); } catch (e) { }
+        })
+        .catch(() => showNotification('danger', 'Error'));
+    }
+  });
+};
+
+window.bulkClose = function() {
+  if (selectedJobs.size === 0) {
+    showNotification('warning', 'Select Jobs');
+    return;
+  }
+  if (!confirm(`Close ${selectedJobs.size} jobs?`)) return;
+
+  selectedJobs.forEach(cad => {
+    fetch(`/plugin/ventus_response_module/job/${cad}/close`, { method: 'POST' }).catch(() => { });
+  });
+
+  showNotification('success', 'Closed', `${selectedJobs.size} jobs`);
+  selectedJobs.clear();
+  setTimeout(refreshMap, 1000);
+};
+
+window.loadJobDetail = function(cad) {
+  activeJobCad = parseInt(cad, 10) || null;
+  if (panelRefreshTimer) {
+    clearTimeout(panelRefreshTimer);
+    panelRefreshTimer = null;
+  }
+  const panel = Object.values(openPanels).find(p => p.type === 'jobs')?.element;
+  if (!panel) return;
+  panel.dataset.jobsView = 'detail';
+  panel.dataset.jobsCad = String(activeJobCad || '');
+
+  const contentEl = panel.querySelector('.cad-panel-body');
+  contentEl.innerHTML = '<div style="text-align:center;padding:20px;">Loading...</div>';
+
+  Promise.all([
+    fetch(`/plugin/ventus_response_module/job/${cad}`).then(res => res.json()),
+    fetchJobsTimings([cad]),
+    fetch(`/plugin/ventus_response_module/job/${cad}/comms`).then(res => (res.ok ? res.json() : []))
+  ])
+    .then(([job, timingsMap, comms]) => {
+      let triage = job.triage_data || {};
+      let incidentDetailsHtml = renderIncidentDetails(triage);
+      const statusTimesTable = formatStatusTimesTable(job, timingsMap[cad]);
+      const assignedUnits = Array.isArray(job.assigned_units) ? job.assigned_units : [];
+      const assignedUnitsHtml = assignedUnits.length
+        ? assignedUnits.map((cs) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:6px;">
+              <span>${escapeHtml(cs)}</span>
+              <button class="btn" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);" onclick='event.stopPropagation();standDownUnitFromJob(${job.cad}, ${JSON.stringify(cs)})'>Stand Down</button>
+            </div>
+          `).join('')
+        : '<div class="meta">None</div>';
+      const crewOptions = assignedUnits.map((cs) => `<option value="${escapeHtml(cs)}">${escapeHtml(cs)}</option>`).join('');
+      const commItems = Array.isArray(comms) ? comms.slice(-8).reverse() : [];
+      const commHtml = commItems.length
+        ? commItems.map((m) => {
+            const t = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
+            const by = m && (m.sender_user || m.sender_role) ? (m.sender_user || m.sender_role) : 'unknown';
+            const typeBadge = (m && m.message_type === 'update')
+              ? '<span class="badge bg-warning text-dark" style="margin-right:6px;">Update</span>'
+              : '<span class="badge bg-info text-dark" style="margin-right:6px;">Message</span>';
+            return `<div style="padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;background:rgba(0,0,0,0.15);"><div class="meta" style="margin-bottom:4px;">${typeBadge}${escapeHtml(t)} by ${escapeHtml(by)}</div><div>${escapeHtml(m && m.message_text ? m.message_text : '')}</div></div>`;
+          }).join('')
+        : '<div class="meta"><i>No response centre messages yet.</i></div>';
+
+      contentEl.innerHTML = `
+        <div>
+          <div style="font-weight:600;margin-bottom:8px;">Status: ${job.status}</div>
+          <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
+          <div style="margin-bottom:8px;">
+            <div class="meta" style="margin-bottom:4px;">Assigned Units</div>
+            ${assignedUnitsHtml}
+          </div>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          ${incidentDetailsHtml}
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <div class="meta" style="margin-bottom:8px;"><i class="bi bi-info-circle"></i> Incident details are maintained by Response Centre.</div>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <div style="font-weight:600;margin-bottom:6px;">Status Times</div>
+          ${statusTimesTable}
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <div style="font-weight:600;margin-bottom:6px;">Response Centre Comms</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${commHtml}</div>
+          <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;" placeholder="Message to call taker for this CAD"></textarea>
+          <button class="btn" style="width:100%;padding:8px;margin-bottom:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send Message to Response Centre</button>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <div style="font-weight:600;margin-bottom:6px;">Crew Comms</div>
+          ${assignedUnits.length ? `
+            <select id="jobCrewCallsign_${job.cad}" style="width:100%;margin-bottom:8px;">${crewOptions}</select>
+            <div id="jobCrewCommsList_${job.cad}" style="max-height:180px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;padding:8px;background:rgba(0,0,0,0.16);margin-bottom:8px;"></div>
+            <textarea id="jobCrewMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;" placeholder="Message to selected crew unit"></textarea>
+            <button class="btn" style="width:100%;padding:8px;margin-bottom:8px;" onclick="sendDispatcherCrewMessage(${job.cad})"><i class="bi bi-send"></i> Send Message to Crew</button>
+          ` : '<div class="meta" style="margin-bottom:8px;"><i>No assigned units to message yet.</i></div>'}
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <button class="btn" style="width:100%;padding:8px;" onclick="assignJob(${job.cad})"><i class="bi bi-person-check"></i> Assign</button>
+        </div>
+      `;
+      if (assignedUnits.length) {
+        const sel = document.getElementById(`jobCrewCallsign_${job.cad}`);
+        const refreshCrewThread = () => {
+          const cs = String(sel?.value || '').trim();
+          const target = document.getElementById(`jobCrewCommsList_${job.cad}`);
+          if (!cs || !target) return;
+          target.innerHTML = '<div class="meta">Loading crew conversation...</div>';
+          fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`)
+            .then(r => r.ok ? r.json() : [])
+            .then((rows) => {
+              const list = Array.isArray(rows) ? rows.slice(-30) : [];
+              if (!list.length) {
+                target.innerHTML = '<div class="meta">No messages with this unit yet.</div>';
+                return;
+              }
+              target.innerHTML = list.map((m) => {
+                const from = String(m && m.from ? m.from : '').trim() || 'unknown';
+                const outgoing = from.toLowerCase() === 'dispatcher';
+                const when = m && m.timestamp ? new Date(m.timestamp).toLocaleString() : '';
+                const text = String(m && m.text ? m.text : '');
+                return `
+                  <div style="display:flex;justify-content:${outgoing ? 'flex-end' : 'flex-start'};margin-bottom:8px;">
+                    <div style="max-width:82%;padding:8px 10px;border-radius:10px;border:1px solid var(--border-color);background:${outgoing ? 'rgba(59,130,246,0.2)' : 'rgba(2,6,23,0.55)'};">
+                      <div style="font-size:11px;opacity:0.85;margin-bottom:4px;">${escapeHtml(from)} | ${escapeHtml(when)}</div>
+                      <div>${escapeHtml(text)}</div>
+                    </div>
+                  </div>
+                `;
+              }).join('');
+              target.scrollTop = target.scrollHeight;
+            })
+            .catch(() => { target.innerHTML = '<div class="meta">Unable to load crew conversation.</div>'; });
+        };
+        sel?.addEventListener('change', refreshCrewThread);
+        refreshCrewThread();
+      }
+    })
+    .catch(() => {
+      contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load details.</div>';
+    });
+};
+
+window.assignJob = function(cad) {
+  window.assignJobWithSuggestion(cad, '');
+};
+
+window.openJobDetailFromMap = function(cad) {
+  const parsed = parseInt(cad, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) return;
+  try { map && map.closePopup && map.closePopup(); } catch (e) {}
+  try {
+    getOrCreatePanel('jobs', 'CAD STACK');
+  } catch (e) {}
+  setTimeout(() => {
+    try { window.loadJobDetail(parsed); } catch (e) {}
+  }, 80);
+};
+
+window.sendDispatcherJobMessage = function(cad) {
+  const input = document.getElementById(`jobCommMsg_${cad}`);
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  fetch(`/plugin/ventus_response_module/job/${cad}/comms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'message', text, sender_portal: 'dispatch' })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) throw new Error((d && d.error) || 'Message failed');
+      if (input) input.value = '';
+      showNotification('success', 'Message Sent', `CAD #${cad}`);
+      try { loadJobDetail(cad); } catch (e) {}
+    })
+    .catch((e) => showNotification('danger', 'Send Failed', e.message || 'Failed to send'));
+};
+
+window.sendDispatcherCrewMessage = function(cad) {
+  const csEl = document.getElementById(`jobCrewCallsign_${cad}`);
+  const msgEl = document.getElementById(`jobCrewMsg_${cad}`);
+  const callsign = String(csEl?.value || '').trim();
+  const text = String(msgEl?.value || '').trim();
+  if (!callsign || !text) {
+    showNotification('warning', 'Crew Message', 'Select a crew unit and enter a message');
+    return;
+  }
+  fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, from: 'dispatcher', sender_portal: 'dispatch' })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) throw new Error((d && d.error) || 'Message failed');
+      if (msgEl) msgEl.value = '';
+      showNotification('success', 'Crew Message Sent', `${callsign}`);
+      try { loadJobDetail(cad); } catch (e) {}
+    })
+    .catch((e) => showNotification('danger', 'Send Failed', e.message || 'Failed to send'));
+};
+
+window.standDownUnitFromJob = function(cad, callsign) {
+  const cs = String(callsign || '').trim();
+  if (!cs) return;
+  if (!confirm(`Stand down ${cs} from CAD #${cad}?`)) return;
+  fetch(`/plugin/ventus_response_module/job/${cad}/unassign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callsign: cs, reason: 'dispatcher_unassign' })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) throw new Error((d && d.error) || 'Stand down failed');
+      showNotification('success', 'Unit Stood Down', `${cs} from CAD #${cad}`);
+      try { loadJobDetail(cad); } catch (e) {}
+      try { refreshMap(); } catch (e) {}
+      try { refreshOpenPanels(['jobs', 'units', 'messages']); } catch (e) {}
+    })
+    .catch((e) => showNotification('danger', 'Stand Down Failed', e.message || 'Failed'));
+};
+
+window.closeJob = function(cad) {
+  if (!confirm('Close this job?')) return;
+
+  fetch(`/plugin/ventus_response_module/job/${cad}/close`, { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      showNotification('success', 'Closed');
+      setTimeout(refreshMap, 400);
+    })
+    .catch(() => showNotification('danger', 'Error'));
+};
+
+window.sendMessage = function() {
+  showNotification('info', 'Messages', 'Use the messages panel controls');
+};
+
+// ===== DARK MODE =====
+if (darkModeBtn) {
+  const updateThemeBtn = () => {
+    const pref = (window.cadTheme && typeof window.cadTheme.get === 'function') ? window.cadTheme.get() : 'auto';
+    if (pref === 'light') darkModeBtn.textContent = '☀ Light';
+    else if (pref === 'dark') darkModeBtn.textContent = '🌙 Dark';
+    else darkModeBtn.textContent = '◐ Auto';
+  };
+  updateThemeBtn();
+  darkModeBtn.addEventListener('click', () => {
+    if (window.cadTheme && typeof window.cadTheme.set === 'function') {
+      const current = window.cadTheme.get();
+      const next = current === 'auto' ? 'dark' : (current === 'dark' ? 'light' : 'auto');
+      window.cadTheme.set(next);
+      updateThemeBtn();
+    }
+  });
+}
+
+// ===== INITIALIZATION =====
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  pollDispatcherAlerts();
+  initAudioOnce();
+  document.addEventListener('click', initAudioOnce, { passive: true });
+  document.addEventListener('keydown', initAudioOnce);
+
+  // Optional deep-link / popout mode.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const autoPanel = String(params.get('panel') || '').trim().toLowerCase();
+    const autoTitle = String(params.get('title') || '').trim();
+    isPopoutMode = String(params.get('popout') || '').trim().toLowerCase() === '1';
+    const autoCad = parseInt(params.get('cad') || '', 10);
+    const panelTitles = {
+      jobs: 'CAD Stack',
+      units: 'Active Units',
+      messages: 'Messages',
+      past_jobs: 'Past / Cleared Jobs'
+    };
+    if (isPopoutMode && autoPanel && panelTitles[autoPanel]) {
+      setTimeout(() => {
+        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : btnMsgs)));
+        applySinglePanelPopoutLayout(autoPanel);
+        if (Number.isInteger(autoCad) && autoCad > 0) {
+          setTimeout(() => {
+            try { loadJobDetail(autoCad); } catch (e) {}
+          }, 350);
+        }
+      }, 120);
+      return;
+    }
+    if (autoPanel && panelTitles[autoPanel]) {
+      setTimeout(() => {
+        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : btnMsgs)));
+        if (autoPanel === 'jobs' && Number.isInteger(autoCad) && autoCad > 0) {
+          setTimeout(() => {
+            try { loadJobDetail(autoCad); } catch (e) {}
+          }, 350);
+        }
+      }, 180);
+    }
+  } catch (e) {}
+
+  btnJobs?.addEventListener('click', () => {
+    togglePanelByType('jobs','CAD Stack', btnJobs);
+  });
+
+  btnUnits?.addEventListener('click', () => {
+    togglePanelByType('units','Active Units', btnUnits);
+  });
+
+  btnMsgs?.addEventListener('click', () => {
+    togglePanelByType('messages','Messages', btnMsgs);
+  });
+
+  btnPastJobs?.addEventListener('click', () => {
+    togglePanelByType('past_jobs', 'Past / Cleared Jobs', btnPastJobs);
+  });
+
+  btnKPI?.addEventListener('click', () => {
+    if (!kpiStatsPanel) return;
+    const hidden = kpiStatsPanel.style.display === 'none';
+    if (hidden) {
+      kpiStatsPanel.style.display = 'flex';
+      try { localStorage.removeItem('cad_kpi_hidden'); } catch (e) {}
+      btnKPI.classList.add('active');
+    } else {
+      kpiStatsPanel.style.display = 'none';
+      try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
+      btnKPI.classList.remove('active');
+    }
+  });
+
+  try {
+    const hidden = !!(kpiStatsPanel && kpiStatsPanel.style.display === 'none');
+    if (btnKPI && !hidden) btnKPI.classList.add('active');
+  } catch (e) {}
+});
+
+function togglePanelByType(type, title, btn) {
+  try {
+    const existing = Object.values(openPanels).find(p => p.type === type);
+    if (existing) {
+      if (existing.poppedOut && existing.popoutWindow && !existing.popoutWindow.closed) {
+        try { existing.popoutWindow.focus(); } catch (e) {}
+        if (btn) btn.classList.add('active');
+      } else {
+        closePanel(existing.id);
+        if (btn) btn.classList.remove('active');
+      }
+      return;
+    }
+    const panel = getOrCreatePanel(type, title);
+    if (btn) btn.classList.add('active');
+  } catch (e) { }
+}
+</script>
+
+{% endblock %}
