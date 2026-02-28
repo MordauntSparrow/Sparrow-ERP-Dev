@@ -852,6 +852,76 @@ class UpdateManager:
         except subprocess.CalledProcessError as e:
             raise Exception(f"Running update instructions failed: {e}")
 
+    def run_upgrade_scripts(self):
+        """
+        Run idempotent upgrade scripts for core + installed plugins.
+        This is intended for live-dev environments where code is deployed
+        directly and DB migrations need a manual repair/run step.
+        """
+        import subprocess
+        import sys
+        import os
+
+        report = {
+            "core": {"ran": False, "ok": False, "message": ""},
+            "plugins_ran": [],
+            "plugins_skipped": [],
+            "plugins_failed": []
+        }
+
+        # Core upgrade script (if present)
+        core_script = os.path.join(self.APP_ROOT, "core", "install.py")
+        if os.path.exists(core_script):
+            try:
+                result = subprocess.run(
+                    [sys.executable, core_script, "upgrade"],
+                    check=True, capture_output=True, text=True
+                )
+                report["core"] = {
+                    "ran": True,
+                    "ok": True,
+                    "message": (result.stdout or "").strip()
+                }
+            except subprocess.CalledProcessError as e:
+                err = (e.stderr or e.stdout or str(e)).strip()
+                report["core"] = {"ran": True, "ok": False, "message": err}
+        else:
+            report["core"] = {
+                "ran": False,
+                "ok": True,
+                "message": "No core install.py found."
+            }
+
+        # Installed plugin upgrade scripts
+        installed = []
+        try:
+            for p in (self.plugin_manager.get_all_plugins() or []):
+                name = (p.get("system_name") or "").strip()
+                if name and p.get("installed"):
+                    installed.append(name)
+        except Exception:
+            installed = []
+
+        for plugin_name in sorted(set(installed), key=str.lower):
+            script_path = os.path.join(
+                self.PLUGINS_DIR, plugin_name, "install.py")
+            if not os.path.exists(script_path):
+                report["plugins_skipped"].append(plugin_name)
+                continue
+
+            try:
+                subprocess.run(
+                    [sys.executable, script_path, "upgrade"],
+                    check=True, capture_output=True, text=True
+                )
+                report["plugins_ran"].append(plugin_name)
+            except subprocess.CalledProcessError as e:
+                err = (e.stderr or e.stdout or str(e)).strip()
+                report["plugins_failed"].append(
+                    {"plugin": plugin_name, "error": err})
+
+        return report
+
     # ------------- Detailed Logging -------------
     def log_update(self, update_type, name, update_mode, old_version, new_version, status, details):
         log_entry = {

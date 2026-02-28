@@ -706,6 +706,48 @@ def version():
     )
 
 
+@routes.route('/version/run-upgrades', methods=['POST'])
+@login_required
+def run_version_upgrades():
+    if not admin_only():
+        return redirect(url_for('routes.dashboard'))
+
+    update_manager = UpdateManager()
+
+    try:
+        report = update_manager.run_upgrade_scripts()
+
+        core_state = report.get("core", {})
+        core_msg = "core: skipped"
+        if core_state.get("ran") and core_state.get("ok"):
+            core_msg = "core: ok"
+        elif core_state.get("ran") and not core_state.get("ok"):
+            core_msg = "core: failed"
+
+        plugin_ok = len(report.get("plugins_ran", []))
+        plugin_skipped = len(report.get("plugins_skipped", []))
+        plugin_failed = len(report.get("plugins_failed", []))
+
+        if plugin_failed or (core_state.get("ran") and not core_state.get("ok")):
+            failed_plugins = ", ".join(
+                [x.get("plugin", "unknown")
+                 for x in report.get("plugins_failed", [])]
+            ) or "none"
+            flash(
+                f"Upgrade run completed with issues ({core_msg}, plugins ok={plugin_ok}, failed={plugin_failed}, skipped={plugin_skipped}). Failed plugins: {failed_plugins}",
+                "danger"
+            )
+        else:
+            flash(
+                f"Upgrade scripts completed successfully ({core_msg}, plugins ok={plugin_ok}, skipped={plugin_skipped}).",
+                "success"
+            )
+    except Exception as e:
+        flash(f"Upgrade run failed: {e}", "danger")
+
+    return redirect(url_for('routes.version'))
+
+
 ##############################################################################
 # SECTION 5: Core Module Settings (Admin Only)
 ##############################################################################

@@ -6,6 +6,9 @@
 
     <!-- Schedule Update Button -->
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleUpdateModal">Schedule an Update</button>
+    <form method="POST" action="{{ url_for('routes.run_version_upgrades') }}" class="d-inline ms-2">
+      <button type="submit" class="btn btn-outline-warning">Run DB Upgrades</button>
+    </form>
     <br/><br/>
 
     <!-- Core Module Version Info -->
