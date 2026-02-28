@@ -440,6 +440,20 @@ def install(seed_demo: bool = False):
             """,
         )
 
+        # mdt_positions: live MDT position pings
+        create_table(
+            conn,
+            "mdt_positions",
+            """
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            callSign VARCHAR(64) NOT NULL,
+            latitude DECIMAL(10,7) NOT NULL,
+            longitude DECIMAL(10,7) NOT NULL,
+            recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_call_time (callSign, recorded_at)
+            """,
+        )
+
         # mdt_dispatch_settings: dispatch assignment mode (auto/manual)
         create_table(
             conn,
@@ -734,16 +748,75 @@ def install(seed_demo: bool = False):
             conn,
             "standby_locations",
             """
-            id INT AUTO_INCREMENT PRIMARY KEY,
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
             callSign VARCHAR(64),
             name VARCHAR(255),
             lat DOUBLE,
             lng DOUBLE,
             isNew TINYINT(1) DEFAULT 0,
+            updatedBy VARCHAR(120),
             updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_standby_callsign (callSign),
             INDEX idx_standby_callSign (callSign)
             """,
         )
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "ALTER TABLE standby_locations ADD COLUMN updatedBy VARCHAR(120)")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE UNIQUE INDEX uq_standby_callsign ON standby_locations (callSign)")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+        # mdt_standby_presets: shared standby location presets
+        create_table(
+            conn,
+            "mdt_standby_presets",
+            """
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(180) NOT NULL,
+            lat DECIMAL(10,7) NOT NULL,
+            lng DECIMAL(10,7) NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_by VARCHAR(120),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_standby_preset_name (name)
+            """,
+        )
+        try:
+            cur = conn.cursor()
+            for name, lat, lng in [
+                ("HQ", 51.5074000, -0.1278000),
+                ("North Standby", 51.5400000, -0.1100000),
+                ("South Standby", 51.4700000, -0.1200000),
+            ]:
+                cur.execute(
+                    """
+                    INSERT INTO mdt_standby_presets (name, lat, lng, is_active, created_by)
+                    VALUES (%s, %s, %s, 1, 'installer')
+                    ON DUPLICATE KEY UPDATE
+                        lat = VALUES(lat),
+                        lng = VALUES(lng)
+                    """,
+                    (name, lat, lng),
+                )
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
 
         print("Ventus response module: install complete.")
     finally:
@@ -782,6 +855,8 @@ def uninstall(drop_data: bool = False):
                 "mdts_signed_on",
                 "mdt_jobs",
                 "response_triage",
+                "mdt_positions",
+                "mdt_standby_presets",
                 MIGRATIONS_TABLE,
             ]
             for t in tables:

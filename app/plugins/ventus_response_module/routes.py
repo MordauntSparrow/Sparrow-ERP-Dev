@@ -331,6 +331,17 @@ def _ensure_standby_tables(cur):
             INDEX idx_standby_updated (updatedAt)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+    # Backfill for older standby_locations schemas created by legacy installers.
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN updatedBy VARCHAR(120)")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "CREATE UNIQUE INDEX uq_standby_callsign ON standby_locations (callSign)")
+    except Exception:
+        pass
     cur.execute("""
         CREATE TABLE IF NOT EXISTS mdt_standby_presets (
             id INT AUTO_INCREMENT PRIMARY KEY,
