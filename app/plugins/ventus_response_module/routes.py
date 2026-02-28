@@ -186,6 +186,28 @@ def _ensure_dispatch_settings_table(cur):
 
 def _ensure_mdts_signed_on_schema(cur):
     """Repair legacy constraints that block real multi-unit dispatch behavior."""
+    # Ensure columns used by modern routes exist on older databases.
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN signOnTime DATETIME")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN lastSeenAt DATETIME")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakStartedAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakUntil DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("UPDATE mdts_signed_on SET lastSeenAt = COALESCE(lastSeenAt, signOnTime, NOW())")
+    except Exception:
+        pass
+
     try:
         cur.execute("SHOW INDEX FROM mdts_signed_on")
         rows = cur.fetchall() or []
@@ -1262,6 +1284,7 @@ def units():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        _ensure_mdts_signed_on_schema(cur)
         _ensure_meal_break_columns(cur)
         try:
             cur.execute("""
@@ -1279,7 +1302,19 @@ def units():
         selected_division, include_external, _ = _enforce_dispatch_scope(cur, selected_division, include_external)
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
         has_division = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'lastSeenAt'")
+        has_last_seen = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'signOnTime'")
+        has_sign_on_time = cur.fetchone() is not None
         division_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_division else "'general' AS division"
+        if has_last_seen and has_sign_on_time:
+            seen_expr = "COALESCE(lastSeenAt, signOnTime)"
+        elif has_last_seen:
+            seen_expr = "lastSeenAt"
+        elif has_sign_on_time:
+            seen_expr = "signOnTime"
+        else:
+            seen_expr = "NOW()"
         sql = """
             SELECT callSign, status, 
                    COALESCE(lastLat, NULL) AS latitude, 
@@ -1287,8 +1322,8 @@ def units():
                    {division_sql}
             FROM mdts_signed_on
             WHERE status IS NOT NULL
-              AND COALESCE(lastSeenAt, signOnTime) >= DATE_SUB(NOW(), INTERVAL 120 MINUTE)
-        """.format(division_sql=division_sql)
+              AND {seen_expr} >= DATE_SUB(NOW(), INTERVAL 120 MINUTE)
+        """.format(division_sql=division_sql, seen_expr=seen_expr)
         args = []
         if selected_division and not include_external:
             if has_division:

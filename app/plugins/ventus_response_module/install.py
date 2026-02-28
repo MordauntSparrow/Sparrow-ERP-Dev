@@ -313,6 +313,19 @@ def install(seed_demo: bool = False):
         # Ensure additional columns exist for sign-on compatibility
         try:
             cur = conn.cursor()
+            # Remove legacy over-restrictive unique indexes if present.
+            try:
+                cur.execute("ALTER TABLE mdts_signed_on DROP INDEX status_UNIQUE")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE mdts_signed_on DROP INDEX ipAddress_UNIQUE")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN signOnTime DATETIME")
+            except Exception:
+                pass
             try:
                 cur.execute(
                     "ALTER TABLE mdts_signed_on ADD COLUMN assignedIncident INT")
@@ -339,12 +352,42 @@ def install(seed_demo: bool = False):
                 pass
             try:
                 cur.execute(
+                    "ALTER TABLE mdts_signed_on ADD COLUMN lastSeenAt DATETIME")
+            except Exception:
+                pass
+            try:
+                cur.execute(
                     "ALTER TABLE mdts_signed_on ADD COLUMN updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
             except Exception:
                 pass
             try:
                 cur.execute(
+                    "ALTER TABLE mdts_signed_on ADD COLUMN mealBreakStartedAt DATETIME NULL DEFAULT NULL")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "ALTER TABLE mdts_signed_on ADD COLUMN mealBreakUntil DATETIME NULL DEFAULT NULL")
+            except Exception:
+                pass
+            try:
+                cur.execute(
                     "ALTER TABLE mdts_signed_on ADD COLUMN division VARCHAR(64) NOT NULL DEFAULT 'general'")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "UPDATE mdts_signed_on SET lastSeenAt = COALESCE(lastSeenAt, signOnTime, NOW())")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE INDEX idx_mdts_status ON mdts_signed_on (status)")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE INDEX idx_mdts_seen ON mdts_signed_on (lastSeenAt)")
             except Exception:
                 pass
             try:
@@ -371,8 +414,13 @@ def install(seed_demo: bool = False):
             crew JSON,
             lastLat DOUBLE,
             lastLon DOUBLE,
+            lastSeenAt DATETIME,
             updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            mealBreakStartedAt DATETIME NULL DEFAULT NULL,
+            mealBreakUntil DATETIME NULL DEFAULT NULL,
             division VARCHAR(64) NOT NULL DEFAULT 'general',
+            INDEX idx_mdts_status (status),
+            INDEX idx_mdts_seen (lastSeenAt),
             INDEX idx_mdts_division_status (division, status)
             """,
         )

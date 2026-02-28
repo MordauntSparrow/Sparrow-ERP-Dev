@@ -1274,7 +1274,11 @@ def clinical_view():
         return render_template("clinical/clinical_home.html", modal_pin=new_pin, pin_expires=expires_at.isoformat(), config=core_manifest)
     return render_template("clinical/clinical_home.html", config=core_manifest)
 
-emailer     = EmailManager()
+try:
+    emailer = EmailManager()
+except Exception as e:
+    logger.warning("Email manager not configured at startup: %s", e)
+    emailer = None
 
 @internal_bp.route('/admin/request_unlock_pin', methods=['POST'])
 @login_required
@@ -1341,7 +1345,8 @@ def request_unlock_pin():
     to_addrs = [row[0] for row in recipients]  # row = (email, first_name)
 
     try:
-        emailer.send_email(subject=subject, body=body, recipients=to_addrs)
+        active_emailer = emailer or EmailManager()
+        active_emailer.send_email(subject=subject, body=body, recipients=to_addrs)
     except Exception as e:
         current_app.logger.error("Failed to send PIN emails: %s", e)
         return jsonify(error="Failed to send emails"), 500
