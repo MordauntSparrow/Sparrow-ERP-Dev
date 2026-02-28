@@ -24,6 +24,10 @@ logger.setLevel(logging.INFO)
 # In-memory storage for one-time admin PINs.
 # Example: {"pin": "123456", "expires_at": datetime_object, "generated_by": "ClinicalLeadUser"}
 admin_pin_store = {}
+_schema_bootstrap_state = {
+    "mdts_signed_on": False,
+    "response_log": False,
+}
 
 
 def _json_compatible(value):
@@ -186,6 +190,10 @@ def _ensure_dispatch_settings_table(cur):
 
 def _ensure_mdts_signed_on_schema(cur):
     """Repair legacy constraints that block real multi-unit dispatch behavior."""
+    global _schema_bootstrap_state
+    if _schema_bootstrap_state.get("mdts_signed_on"):
+        return
+
     # Ensure columns used by modern routes exist on older databases.
     try:
         cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN signOnTime DATETIME")
@@ -238,6 +246,7 @@ def _ensure_mdts_signed_on_schema(cur):
         cur.execute("CREATE INDEX idx_mdts_seen ON mdts_signed_on (lastSeenAt)")
     except Exception:
         pass
+    _schema_bootstrap_state["mdts_signed_on"] = True
 
 
 def _ensure_dispatch_divisions_table(cur):
@@ -4437,6 +4446,10 @@ def _ensure_job_units_table(cur):
 
 
 def _ensure_response_log_table(cur):
+    global _schema_bootstrap_state
+    if _schema_bootstrap_state.get("response_log"):
+        return
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS mdt_response_log (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -4475,6 +4488,7 @@ def _ensure_response_log_table(cur):
             "CREATE INDEX idx_response_log_status_time ON mdt_response_log (status, event_time)")
     except Exception:
         pass
+    _schema_bootstrap_state["response_log"] = True
 
 
 def _ensure_job_comms_table(cur):
