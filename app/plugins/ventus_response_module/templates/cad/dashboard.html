@@ -24,7 +24,6 @@
     <span id="kpiAvgLeaveHosp"></span>
     <span id="kpiAvgAtHosp"></span>
   </div>
-  <button id="darkModeBtn" title="Toggle dark">🌙</button>
   <button id="kpiClose" class="panel-btn close" title="Close KPI" style="margin-left:6px;padding:6px 8px;border-radius:6px;">&times;</button>
   <div class="resize-handle" title="Resize KPI"></div>
 </div>
@@ -54,7 +53,6 @@ let unitsSnapshotInitialized = false;
 // Optional sounds disabled by default to avoid CDN/autoplay errors in console.
 let soundNewJob = null;
 let soundUrgent = null;
-let darkMode = false;
 let audioCtx = null;
 let selectedDivision = 'general';
 let showExternalDivisions = true;
@@ -539,7 +537,6 @@ const btnPastJobs = document.getElementById('btnPastJobs');
 const cadMain = document.getElementById('cadMain');
 const panelsContainer = document.getElementById('panelsContainer');
 const toast = document.getElementById('toast');
-const darkModeBtn = document.getElementById('darkModeBtn');
 const dispatchModeSelect = document.getElementById('dispatchModeTopbar');
 const divisionSelect = document.getElementById('divisionTopbar');
 const showExternalToggle = document.getElementById('showExternalToggle');
@@ -2393,25 +2390,6 @@ window.sendMessage = function() {
   showNotification('info', 'Messages', 'Use the messages panel controls');
 };
 
-// ===== DARK MODE =====
-if (darkModeBtn) {
-  const updateThemeBtn = () => {
-    const pref = (window.cadTheme && typeof window.cadTheme.get === 'function') ? window.cadTheme.get() : 'auto';
-    if (pref === 'light') darkModeBtn.textContent = '☀ Light';
-    else if (pref === 'dark') darkModeBtn.textContent = '🌙 Dark';
-    else darkModeBtn.textContent = '◐ Auto';
-  };
-  updateThemeBtn();
-  darkModeBtn.addEventListener('click', () => {
-    if (window.cadTheme && typeof window.cadTheme.set === 'function') {
-      const current = window.cadTheme.get();
-      const next = current === 'auto' ? 'dark' : (current === 'dark' ? 'light' : 'auto');
-      window.cadTheme.set(next);
-      updateThemeBtn();
-    }
-  });
-}
-
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {
   initMap();
@@ -2513,3 +2491,4 @@ function togglePanelByType(type, title, btn) {
 </script>
 
 {% endblock %}
+
