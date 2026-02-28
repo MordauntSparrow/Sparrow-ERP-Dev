@@ -58,8 +58,9 @@ def create_database_and_tables():
 
 def create_default_admin():
     db = get_db_connection()
-    cursor = db.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE role = 'admin'")
+    # Buffered cursor prevents "Unread result found" when closing cursor/connection.
+    cursor = db.cursor(dictionary=True, buffered=True)
+    cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
     admin = cursor.fetchone()
 
     if admin:
