@@ -1937,6 +1937,7 @@ def unit_detail(callsign):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        _ensure_response_log_table(cur)
         _ensure_meal_break_columns(cur)
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
         has_division = cur.fetchone() is not None
@@ -4421,6 +4422,48 @@ def _ensure_job_units_table(cur):
             INDEX idx_callsign (callsign)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+    _ensure_response_log_table(cur)
+
+
+def _ensure_response_log_table(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mdt_response_log (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            callSign VARCHAR(64) NOT NULL,
+            cad INT NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            crew JSON,
+            INDEX idx_response_log_cad_time (cad, event_time),
+            INDEX idx_response_log_callsign_time (callSign, event_time),
+            INDEX idx_response_log_status_time (status, event_time)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+    # Backward compatibility for partial schemas.
+    try:
+        cur.execute("ALTER TABLE mdt_response_log ADD COLUMN crew JSON")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE mdt_response_log ADD COLUMN event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "CREATE INDEX idx_response_log_cad_time ON mdt_response_log (cad, event_time)")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "CREATE INDEX idx_response_log_callsign_time ON mdt_response_log (callSign, event_time)")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "CREATE INDEX idx_response_log_status_time ON mdt_response_log (status, event_time)")
+    except Exception:
+        pass
 
 
 def _ensure_job_comms_table(cur):
@@ -5253,6 +5296,7 @@ def mdt_status(cad):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        _ensure_response_log_table(cur)
         if not callsign:
             # Fallback for MDT clients that omit callsign in status payload:
             # prefer explicit job-unit links, then signed-on assigned incident.
@@ -5417,6 +5461,7 @@ def _update_mdt_location(callsign, latitude, longitude):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        _ensure_response_log_table(cur)
         # Keep historic location table available across mixed schemas.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS mdt_positions (

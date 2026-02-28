@@ -522,6 +522,56 @@ def install(seed_demo: bool = False):
             """,
         )
 
+        # mdt_response_log: unit status timeline per CAD job
+        create_table(
+            conn,
+            "mdt_response_log",
+            """
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            callSign VARCHAR(64) NOT NULL,
+            cad INT NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            crew JSON,
+            INDEX idx_response_log_cad_time (cad, event_time),
+            INDEX idx_response_log_callsign_time (callSign, event_time),
+            INDEX idx_response_log_status_time (status, event_time)
+            """,
+        )
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "ALTER TABLE mdt_response_log ADD COLUMN crew JSON")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "ALTER TABLE mdt_response_log ADD COLUMN event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE INDEX idx_response_log_cad_time ON mdt_response_log (cad, event_time)")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE INDEX idx_response_log_callsign_time ON mdt_response_log (callSign, event_time)")
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "CREATE INDEX idx_response_log_status_time ON mdt_response_log (status, event_time)")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
         # mdt_dispatch_divisions: configured dispatch divisions and visual tags
         create_table(
             conn,
@@ -727,6 +777,7 @@ def uninstall(drop_data: bool = False):
                 "mdt_dispatch_user_settings",
                 "mdt_job_units",
                 "mdt_job_comms",
+                "mdt_response_log",
                 "mdt_triage_forms",
                 "mdts_signed_on",
                 "mdt_jobs",
