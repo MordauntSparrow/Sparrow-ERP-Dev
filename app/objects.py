@@ -461,6 +461,9 @@ class UpdateManager:
             elif r.status_code == 401:
                 raise Exception(
                     f"Unauthorized fetching plugin manifest for {plugin_name} (401).")
+            elif r.status_code == 404:
+                # Plugin not in remote marketplace (e.g. local-only); return empty so callers get "Unknown" version
+                return {}
             else:
                 raise Exception(
                     f"Failed to fetch plugin manifest for {plugin_name}: {r.status_code} - {r.text[:500]}")
@@ -620,8 +623,11 @@ class UpdateManager:
         return core_manifest.get('core', {}).get('current_version', 'Unknown')
 
     def get_plugin_latest_version(self, plugin_name):
-        plugin = self.get_plugin_manifest_remote(plugin_name)
-        return plugin.get('current_version', 'Unknown')
+        try:
+            plugin = self.get_plugin_manifest_remote(plugin_name) or {}
+            return plugin.get('current_version', 'Unknown')
+        except Exception:
+            return 'Unknown'
 
     def get_plugins_versions(self):
         """
