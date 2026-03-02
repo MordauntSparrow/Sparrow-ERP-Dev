@@ -25,10 +25,10 @@ def _get_expiry_hours():
         return DEFAULT_EXPIRY_HOURS
 
 
-def encode_session_token(user_id: int, username: str, role: str, expiry_hours: int = None) -> str:
+def encode_session_token(user_id, username: str, role: str, expiry_hours: int = None) -> str:
     """
     Encode a short-lived JWT for API use. Payload: sub=user_id, username, role, exp, iat.
-    Returns the token string, or empty string if JWT not available.
+    user_id can be int or str (e.g. UUID). Returns the token string, or empty string if JWT not available.
     """
     if not pyjwt:
         return ""
@@ -36,7 +36,7 @@ def encode_session_token(user_id: int, username: str, role: str, expiry_hours: i
     now = datetime.now(timezone.utc)
     exp = now + timedelta(hours=expiry)
     payload = {
-        "sub": int(user_id),
+        "sub": user_id if isinstance(user_id, (int, str)) else str(user_id),
         "username": str(username),
         "role": str(role),
         "iat": int(now.timestamp()),
@@ -65,7 +65,9 @@ def decode_session_token(token: str):
         )
         sub = payload.get("sub")
         if sub is not None and payload.get("username") and payload.get("role"):
-            payload["sub"] = int(sub)  # normalize to int (PyJWT may return int or float)
+            # Keep sub as-is (int or str e.g. UUID)
+            if isinstance(sub, float) and sub == int(sub):
+                payload["sub"] = int(sub)
             return payload
     except Exception:
         pass
