@@ -80,7 +80,7 @@ def _inventory_token_auth():
 
 @internal.before_request
 def _session_token_auth():
-    """Set g.token_user when Authorization: Bearer <session JWT> is valid (admin API clients)."""
+    """Set g.token_user when Authorization: Bearer <session JWT> is valid (any role)."""
     g.token_user = None
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer "):
@@ -91,11 +91,11 @@ def _session_token_auth():
     if getattr(g, "inventory_api_user", None):
         return
     payload = decode_session_token(token)
-    if payload and payload.get("role") in ("admin", "superuser"):
+    if payload:
         g.token_user = {
             "id": payload["sub"],
             "username": payload["username"],
-            "role": payload["role"],
+            "role": payload.get("role") or "",
         }
 
 
@@ -193,14 +193,38 @@ def admin_required(f):
     return wrapper
 
 
+def api_authenticated_required(f):
+    """Decorator for /api/* routes: allow any valid Bearer token or session. Return 401 JSON when unauthenticated."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if getattr(g, "token_user", None):
+            return f(*args, **kwargs)
+        if getattr(current_user, "is_authenticated", False):
+            return f(*args, **kwargs)
+        return _jsonify_safe({"error": "Authentication required"}, 401)
+    return wrapper
+
+
 def api_admin_required(f):
-    """Decorator for /api/* routes: allow Bearer token first, then session (admin). Return 401 JSON when unauthenticated."""
+    """Decorator for /api/* routes: allow Bearer token (admin/superuser) or session (admin). Return 401 JSON when unauthenticated."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         token_user = getattr(g, "token_user", None)
         if token_user and token_user.get("role") in ("admin", "superuser"):
             return f(*args, **kwargs)
         if getattr(current_user, "is_authenticated", False) and _is_admin():
+            return f(*args, **kwargs)
+        return _jsonify_safe({"error": "Authentication required"}, 401)
+    return wrapper
+
+
+def api_authenticated_required(f):
+    """Decorator for /api/* routes: allow any valid Bearer token or session. Return 401 JSON when unauthenticated."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if getattr(g, "token_user", None):
+            return f(*args, **kwargs)
+        if getattr(current_user, "is_authenticated", False):
             return f(*args, **kwargs)
         return _jsonify_safe({"error": "Authentication required"}, 401)
     return wrapper
@@ -307,7 +331,7 @@ def analytics_page():
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/health")
-@api_admin_required
+@api_authenticated_required
 def api_health():
     svc = get_inventory_service()
     out = svc.health_check()
@@ -402,7 +426,7 @@ def api_categories_delete(category_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/items", methods=["GET"])
-@api_admin_required
+@api_authenticated_required
 def api_items_list():
     svc = get_inventory_service()
     skip = request.args.get("skip", type=int) or 0
@@ -436,7 +460,7 @@ def api_items_create():
 
 
 @internal.route("/api/items/<int:item_id>", methods=["GET"])
-@api_admin_required
+@api_authenticated_required
 def api_items_get(item_id):
     svc = get_inventory_service()
     item = svc.get_item(item_id)
@@ -964,10 +988,8 @@ def api_invoices_apply(invoice_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/mobile/scan/in", methods=["POST"])
-@login_required
+@api_authenticated_required
 def api_mobile_scan_in():
-    if not _permission_inventory():
-        return _jsonify_safe({"error": "Forbidden"}, 403)
     data = request.get_json() or {}
     barcode_or_sku = data.get("barcode") or data.get("sku")
     location_id = data.get("location_id")
@@ -997,10 +1019,8 @@ def api_mobile_scan_in():
 
 
 @internal.route("/api/mobile/scan/out", methods=["POST"])
-@login_required
+@api_authenticated_required
 def api_mobile_scan_out():
-    if not _permission_inventory():
-        return _jsonify_safe({"error": "Forbidden"}, 403)
     data = request.get_json() or {}
     barcode_or_sku = data.get("barcode") or data.get("sku")
     location_id = data.get("location_id")
@@ -1030,7 +1050,7 @@ def api_mobile_scan_out():
 
 
 @internal.route("/api/mobile/scan/adjust", methods=["POST"])
-@login_required
+@api_authenticated_required
 def api_mobile_scan_adjust():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -1063,10 +1083,8 @@ def api_mobile_scan_adjust():
 
 
 @internal.route("/api/mobile/items/search")
-@login_required
+@api_authenticated_required
 def api_mobile_items_search():
-    if not _permission_inventory():
-        return _jsonify_safe({"error": "Forbidden"}, 403)
     q = request.args.get("q", "").strip()
     if not q:
         return _jsonify_safe({"items": []})
@@ -1076,20 +1094,16 @@ def api_mobile_items_search():
 
 
 @internal.route("/api/mobile/items/<int:item_id>/stock")
-@login_required
+@api_authenticated_required
 def api_mobile_items_stock(item_id):
-    if not _permission_inventory():
-        return _jsonify_safe({"error": "Forbidden"}, 403)
     svc = get_inventory_service()
     levels = svc.list_stock_levels(item_id)
     return _jsonify_safe({"item_id": item_id, "stock_levels": levels})
 
 
 @internal.route("/api/mobile/bulk/actions", methods=["POST"])
-@login_required
+@api_authenticated_required
 def api_mobile_bulk_actions():
-    if not _permission_inventory():
-        return _jsonify_safe({"error": "Forbidden"}, 403)
     data = request.get_json() or {}
     actions = data.get("actions") or []
     results = []
