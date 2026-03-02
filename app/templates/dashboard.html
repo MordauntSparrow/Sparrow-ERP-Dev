@@ -233,7 +233,7 @@ html, body { overflow-x: hidden; }
         <div class="time" id="liveClock">--:--</div>
         <div class="date" id="liveDate">Loading date…</div>
         <div class="quick-actions mt-2 d-flex gap-2 flex-wrap">
-            <a class="btn btn-sm btn-primary-solid" href="/plugins"><i class="bi bi-boxes me-1"></i> Plugins</a>
+            <a class="btn btn-sm btn-primary-solid" href="/plugins"><img src="{{ url_for('static', filename='plugins-icon.png') }}" alt="" class="me-1" width="20" height="20" style="vertical-align: -0.2em;"> Plugins</a>
             <a class="btn btn-sm btn-secondary-solid" href="/version"><i class="bi bi-arrow-repeat me-1"></i> Updates</a>
             <a class="btn btn-sm btn-dark-solid" href="/core/settings"><i class="bi bi-gear me-1"></i> Settings</a>
             <a class="btn btn-sm btn-dark-solid" href="/users"><i class="bi bi-people me-1"></i> Users</a>
@@ -245,7 +245,7 @@ html, body { overflow-x: hidden; }
       <div class="plugins-wrap">
         <div class="plugins-head">
           <div class="fw-semibold">Enabled Plugins</div>
-          <a class="btn btn-sm btn-primary-solid" href="/plugins"><i class="bi bi-shop me-1"></i> Marketplace</a>
+          <a class="btn btn-sm btn-primary-solid" href="/plugins"><img src="{{ url_for('static', filename='plugins-icon.png') }}" alt="" class="me-1" width="20" height="20" style="vertical-align: -0.2em;"> Marketplace</a>
         </div>
 
         {% if plugins and plugins|length > 0 %}

@@ -153,7 +153,7 @@ input, textarea, select, .form-control {
       </li>
       <li class="nav-item">
         <a class="nav-link py-2 px-3" href="/plugins" aria-current="{{ 'page' if request.path.startswith('/plugins') else 'false' }}">
-          <i class="bi bi-boxes me-1"></i> Plugins
+          <img src="{{ url_for('static', filename='plugins-icon.png') }}" alt="" class="me-1" width="20" height="20" style="vertical-align: -0.2em;"> Plugins
         </a>
       </li>
       <li class="nav-item">

@@ -867,18 +867,9 @@ def api_invoices_update(invoice_id):
     if not svc.get_invoice(invoice_id):
         return _jsonify_safe({"error": "Not found"}, 404)
     updates = {}
-    if "supplier_id" in data:
-        updates["supplier_id"] = data["supplier_id"]
-    if "external_source" in data:
-        updates["external_source"] = data["external_source"]
-    if "invoice_number" in data:
-        updates["invoice_number"] = data["invoice_number"]
-    if "invoice_date" in data:
-        updates["invoice_date"] = data["invoice_date"]
-    if "total_amount" in data:
-        updates["total_amount"] = data["total_amount"]
-    if "currency" in data:
-        updates["currency"] = data["currency"]
+    for key in ("supplier_id", "external_source", "invoice_number", "invoice_date", "total_amount", "currency"):
+        if key in data:
+            updates[key] = data[key]
     if updates:
         svc.update_invoice(invoice_id, **updates)
     return _jsonify_safe({"ok": True})

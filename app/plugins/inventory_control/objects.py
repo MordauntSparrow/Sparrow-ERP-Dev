@@ -1566,37 +1566,21 @@ class InventoryService:
         finally:
             cur.close()
 
-    def update_invoice(
-        self,
-        invoice_id: int,
-        *,
-        supplier_id: Optional[int] = None,
-        external_source: Optional[str] = None,
-        invoice_number: Optional[str] = None,
-        invoice_date: Optional[str] = None,
-        total_amount: Optional[float] = None,
-        currency: Optional[str] = None,
-    ) -> None:
-        updates = []
+    def update_invoice(self, invoice_id: int, **kwargs: Any) -> None:
+        """Update invoice header. Pass only fields to update; None clears (e.g. supplier_id)."""
+        allowed = ("supplier_id", "external_source", "invoice_number", "invoice_date", "total_amount", "currency")
+        updates: List[str] = []
         params: List[Any] = []
-        if supplier_id is not None:
-            updates.append("supplier_id = %s")
-            params.append(supplier_id)
-        if external_source is not None:
-            updates.append("external_source = %s")
-            params.append(external_source)
-        if invoice_number is not None:
-            updates.append("invoice_number = %s")
-            params.append((invoice_number or "").strip() or None)
-        if invoice_date is not None:
-            updates.append("invoice_date = %s")
-            params.append(self._normalize_invoice_date(invoice_date))
-        if total_amount is not None:
-            updates.append("total_amount = %s")
-            params.append(total_amount)
-        if currency is not None:
-            updates.append("currency = %s")
-            params.append(currency)
+        for key in allowed:
+            if key not in kwargs:
+                continue
+            val = kwargs[key]
+            if key == "invoice_date":
+                val = self._normalize_invoice_date(val) if val else None
+            elif key == "invoice_number":
+                val = (val or "").strip() or None
+            updates.append(f"{key} = %s")
+            params.append(val)
         if not updates:
             return
         params.append(invoice_id)
