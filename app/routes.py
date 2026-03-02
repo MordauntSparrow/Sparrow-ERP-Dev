@@ -1165,12 +1165,11 @@ def api_login():
     }
     # Session token for API clients (Lovable, mobile) that use Bearer auth instead of cookies
     token = encode_session_token(
-        user_data["id"],
+        int(user_data["id"]),
         user_data["username"],
         user_data["role"],
     )
-    if token:
-        response_data["token"] = token
+    response_data["token"] = token if token else None
 
     return jsonify(response_data), 200
 

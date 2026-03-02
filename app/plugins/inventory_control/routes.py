@@ -191,7 +191,7 @@ def admin_required(f):
 
 
 def api_admin_required(f):
-    """Decorator for /api/* routes: allow session (admin) or Bearer session JWT (admin/superuser)."""
+    """Decorator for /api/* routes: allow Bearer token first, then session (admin). Return 401 JSON when unauthenticated."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         token_user = getattr(g, "token_user", None)
@@ -199,7 +199,7 @@ def api_admin_required(f):
             return f(*args, **kwargs)
         if getattr(current_user, "is_authenticated", False) and _is_admin():
             return f(*args, **kwargs)
-        return _jsonify_safe({"error": "Unauthorized"}, 401)
+        return _jsonify_safe({"error": "Authentication required"}, 401)
     return wrapper
 
 
@@ -307,7 +307,15 @@ def analytics_page():
 @api_admin_required
 def api_health():
     svc = get_inventory_service()
-    return _jsonify_safe(svc.health_check())
+    out = svc.health_check()
+    if not isinstance(out, dict):
+        out = {"status": "ok"} if out else {"status": "error"}
+    token_user = getattr(g, "token_user", None)
+    if token_user:
+        out["user"] = {"id": token_user.get("id"), "username": token_user.get("username"), "role": token_user.get("role")}
+    elif getattr(current_user, "is_authenticated", False):
+        out["user"] = {"id": getattr(current_user, "id", None), "username": getattr(current_user, "username", ""), "role": getattr(current_user, "role", "")}
+    return _jsonify_safe(out)
 
 
 @internal.route("/api/dashboard")

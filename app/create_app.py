@@ -218,8 +218,12 @@ def create_app():
     plugin_manager = PluginManager(plugins_dir=plugins_dir)
     plugin_manager.register_admin_routes(app)
 
-    # CORS
-    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+    # CORS (allow Authorization header for Bearer token from Lovable / other origins)
+    CORS(
+        app,
+        resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization"]}},
+        supports_credentials=True,
+    )
 
     # ------------------------------------------------------------------
     # Session store (Redis) for multi-instance deployments

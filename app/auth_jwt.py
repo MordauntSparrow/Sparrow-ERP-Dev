@@ -1,6 +1,6 @@
 """
 Session JWT for API clients (e.g. Lovable, mobile) that prefer Bearer token over cookies.
-Uses app SECRET_KEY; tokens are short-lived (default 24h).
+Uses JWT_SECRET_KEY or SECRET_KEY; tokens are short-lived (default 24h).
 """
 import os
 from datetime import datetime, timedelta, timezone
@@ -15,7 +15,7 @@ DEFAULT_EXPIRY_HOURS = 24
 
 
 def _get_secret():
-    return os.environ.get("SECRET_KEY", "defaultsecretkey")
+    return os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY", "defaultsecretkey")
 
 
 def _get_expiry_hours():
@@ -34,12 +34,13 @@ def encode_session_token(user_id: int, username: str, role: str, expiry_hours: i
         return ""
     expiry = expiry_hours if expiry_hours is not None else _get_expiry_hours()
     now = datetime.now(timezone.utc)
+    exp = now + timedelta(hours=expiry)
     payload = {
-        "sub": user_id,
-        "username": username,
-        "role": role,
-        "iat": now,
-        "exp": now + timedelta(hours=expiry),
+        "sub": int(user_id),
+        "username": str(username),
+        "role": str(role),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
     }
     out = pyjwt.encode(
         payload,
@@ -62,7 +63,9 @@ def decode_session_token(token: str):
             _get_secret(),
             algorithms=["HS256"],
         )
-        if isinstance(payload.get("sub"), int) and payload.get("username") and payload.get("role"):
+        sub = payload.get("sub")
+        if sub is not None and payload.get("username") and payload.get("role"):
+            payload["sub"] = int(sub)  # normalize to int (PyJWT may return int or float)
             return payload
     except Exception:
         pass
