@@ -157,7 +157,10 @@ def log_audit(
 
 
 def _is_admin():
-    """True if current user has admin role (matches rest of system; permissions to be refined in core later)."""
+    """True if current user or Bearer token user has admin role (session or g.token_user)."""
+    token_user = getattr(g, "token_user", None)
+    if token_user and token_user.get("role") in ("admin", "superuser"):
+        return True
     return getattr(current_user, "role", None) in ("admin", "superuser")
 
 
