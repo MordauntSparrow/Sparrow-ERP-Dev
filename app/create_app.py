@@ -221,7 +221,8 @@ def create_app():
     # CORS (allow Authorization header for Bearer token from Lovable / other origins)
     CORS(
         app,
-        resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization"]}},
+        resources={r"/*": {"origins": "*",
+                           "allow_headers": ["Content-Type", "Authorization"]}},
         supports_credentials=True,
     )
 
@@ -247,6 +248,13 @@ def create_app():
     if SeaSurf:
         try:
             csrf = SeaSurf(app)
+            # Exempt inventory plugin API routes so Bearer token auth works (no CSRF cookie from cross-origin clients)
+            for rule in app.url_map.iter_rules():
+                if rule.rule.startswith("/plugin/inventory_control/api/"):
+                    view = app.view_functions.get(rule.endpoint)
+                    if view and not getattr(view, "_csrf_exempt", False):
+                        csrf.exempt(view)
+                        view._csrf_exempt = True
         except Exception as e:
             print(f"[WARN] SeaSurf init failed: {e}")
 
