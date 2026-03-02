@@ -21,6 +21,27 @@ def _normalize_cost_method(value: Any) -> str:
     return "AVG"
 
 
+def _coerce_int_user_id(value: Any) -> Optional[int]:
+    """
+    inventory_transactions.performed_by_user_id is INT in current schema.
+    The core `users.id` is often a UUID string, so coerce only if it looks numeric;
+    otherwise return None (and callers can store the UUID in metadata instead).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if s.isdigit():
+        try:
+            return int(s)
+        except Exception:
+            return None
+    return None
+
+
 class CostingStrategy:
     def compute_cost(
         self,
@@ -1085,7 +1106,7 @@ class InventoryService:
         unit_cost: Optional[float] = None,
         reference_type: Optional[str] = None,
         reference_id: Optional[str] = None,
-        performed_by_user_id: Optional[int] = None,
+        performed_by_user_id: Optional[Any] = None,
         metadata: Optional[Dict[str, Any]] = None,
         client_action_id: Optional[str] = None,
         weight: Optional[float] = None,
@@ -1133,6 +1154,11 @@ class InventoryService:
             weight_uom_val = (metadata or {}).get("weight_uom") or weight_uom_val
         uom_val = uom
 
+        performed_by_db = _coerce_int_user_id(performed_by_user_id)
+        tx_metadata = dict(metadata) if isinstance(metadata, dict) else ({} if metadata is None else metadata)
+        if performed_by_db is None and performed_by_user_id is not None and isinstance(tx_metadata, dict):
+            tx_metadata.setdefault("performed_by_user", str(performed_by_user_id))
+
         cur = conn.cursor()
         try:
             cur.execute(
@@ -1156,8 +1182,8 @@ class InventoryService:
                     total_cost,
                     reference_type,
                     reference_id,
-                    performed_by_user_id,
-                    json.dumps(metadata) if isinstance(metadata, dict) else metadata,
+                    performed_by_db,
+                    json.dumps(tx_metadata) if isinstance(tx_metadata, dict) else tx_metadata,
                     client_action_id,
                     weight_val,
                     weight_uom_val,
@@ -1227,7 +1253,7 @@ class InventoryService:
         to_location_id: int,
         quantity: float,
         batch_id: Optional[int] = None,
-        performed_by_user_id: Optional[int] = None,
+        performed_by_user_id: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Transfer stock between locations by recording an 'out' then an 'in'.
@@ -1258,7 +1284,7 @@ class InventoryService:
         source_batch_id: int,
         location_id: int,
         outputs: List[Dict[str, Any]],
-        performed_by_user_id: Optional[int] = None,
+        performed_by_user_id: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         One source batch -> multiple new batches. Each output has quantity and
@@ -1671,7 +1697,7 @@ class InventoryService:
         invoice_id: int,
         location_id: int,
         *,
-        performed_by_user_id: Optional[int] = None,
+        performed_by_user_id: Optional[Any] = None,
     ) -> Dict[str, Any]:
         lines = self.get_invoice_lines(invoice_id)
         applied = 0
