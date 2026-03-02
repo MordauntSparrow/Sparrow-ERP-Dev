@@ -338,6 +338,18 @@ def items_page():
     return render_template("admin/items.html")
 
 
+@internal.route("/items/<int:item_id>")
+@login_required
+@admin_required
+def item_overview_page(item_id: int):
+    svc = get_inventory_service()
+    item = svc.get_item(item_id)
+    if not item:
+        flash("Item not found.", "danger")
+        return redirect(url_for("inventory_control_internal.items_page"))
+    return render_template("admin/item_overview.html", item=item)
+
+
 @internal.route("/categories")
 @login_required
 @admin_required
@@ -528,6 +540,179 @@ def api_items_get(item_id):
     if not item:
         return _jsonify_safe({"error": "Not found"}, 404)
     return _jsonify_safe(item)
+
+
+@internal.route("/api/items/<int:item_id>/overview", methods=["GET"])
+@api_authenticated_required
+def api_item_overview(item_id: int):
+    svc = get_inventory_service()
+    item = svc.get_item(item_id)
+    if not item:
+        return _jsonify_safe({"error": "Not found"}, 404)
+
+    range_days = request.args.get("range_days", type=int) or 30
+    bucket = (request.args.get("bucket") or "auto").strip().lower()
+    data = svc.get_item_stock_series(item_id=item_id, range_days=range_days, bucket=bucket)
+
+    reorder_point = float(item.get("reorder_point") or 0)
+    lead_time_days = int(item.get("lead_time_days") or 0)
+    lead_time_threshold = reorder_point + (float(data.get("avg_daily_out") or 0) * float(max(lead_time_days, 0)))
+    current_qoh = float(data.get("current_qoh") or 0)
+
+    days_of_cover = None
+    avg_daily_out = float(data.get("avg_daily_out") or 0)
+    if avg_daily_out > 0:
+        days_of_cover = current_qoh / avg_daily_out
+
+    return _jsonify_safe(
+        {
+            "item": {
+                "id": item.get("id"),
+                "sku": item.get("sku"),
+                "name": item.get("name"),
+                "unit": item.get("unit"),
+                "reorder_point": reorder_point,
+                "reorder_quantity": float(item.get("reorder_quantity") or 0),
+                "lead_time_days": lead_time_days,
+            },
+            "range_days": data.get("range_days"),
+            "bucket_used": data.get("bucket_used"),
+            "tx_count": data.get("tx_count"),
+            "current_qoh": current_qoh,
+            "avg_daily_out": avg_daily_out,
+            "days_of_cover": days_of_cover,
+            "reorder_point": reorder_point,
+            "lead_time_days": lead_time_days,
+            "lead_time_threshold": lead_time_threshold,
+            "reorder_now": bool(current_qoh <= lead_time_threshold),
+            "series": data.get("series") or [],
+        }
+    )
+
+
+@internal.route("/api/items/<int:item_id>/usage_by_person", methods=["GET"])
+@api_admin_required
+def api_item_usage_by_person(item_id: int):
+    """
+    Consumables usage trend by assignee. Excludes loaned transactions.
+    Returns per-person totals and average monthly usage over the window.
+    """
+    months = min(request.args.get("months", type=int) or 6, 36)
+    svc = get_inventory_service()
+    if not svc.get_item(int(item_id)):
+        return _jsonify_safe({"error": "Not found"}, 404)
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            """
+            SELECT
+              assignee_type,
+              assignee_id,
+              COALESCE(assignee_label, '') AS assignee_label,
+              COUNT(*) AS tx_count,
+              SUM(CASE WHEN quantity < 0 AND COALESCE(is_loan, 0) = 0 THEN -quantity ELSE 0 END) AS total_out,
+              MAX(performed_at) AS last_used_at
+            FROM inventory_transactions
+            WHERE item_id = %s
+              AND performed_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s MONTH)
+              AND assignee_id IS NOT NULL
+            GROUP BY assignee_type, assignee_id, assignee_label
+            ORDER BY total_out DESC
+            LIMIT 50
+            """,
+            (int(item_id), int(months)),
+        )
+        rows = cur.fetchall() or []
+        for r in rows:
+            total_out = float(r.get("total_out") or 0)
+            r["avg_per_month"] = (total_out / float(months)) if months > 0 else 0.0
+        return _jsonify_safe({"months": months, "usage": rows})
+    except Exception:
+        return _jsonify_safe({"months": months, "usage": []})
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@internal.route("/api/items/<int:item_id>/usage_by_person_monthly", methods=["GET"])
+@api_admin_required
+def api_item_usage_by_person_monthly(item_id: int):
+    """
+    Monthly usage per assignee for charting. Excludes loaned.
+    Returns months[] and series[] with label and data (qty per month).
+    """
+    months = min(request.args.get("months", type=int) or 12, 36)
+    svc = get_inventory_service()
+    if not svc.get_item(int(item_id)):
+        return _jsonify_safe({"error": "Not found"}, 404)
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        # Month labels: last N months (YYYY-MM)
+        cur.execute(
+            """
+            SELECT DATE_FORMAT(DATE_SUB(UTC_TIMESTAMP(), INTERVAL n MONTH), '%%Y-%%m') AS ym
+            FROM (SELECT 0 AS n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5
+                  UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10 UNION SELECT 11
+                  UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 UNION SELECT 15 UNION SELECT 16 UNION SELECT 17
+                  UNION SELECT 18 UNION SELECT 19 UNION SELECT 20 UNION SELECT 21 UNION SELECT 22 UNION SELECT 23
+                  UNION SELECT 24 UNION SELECT 25 UNION SELECT 26 UNION SELECT 27 UNION SELECT 28 UNION SELECT 29
+                  UNION SELECT 30 UNION SELECT 31 UNION SELECT 32 UNION SELECT 33 UNION SELECT 34 UNION SELECT 35) t
+            WHERE n < %s
+            ORDER BY ym
+            """,
+            (int(months),),
+        )
+        month_list = [r["ym"] for r in (cur.fetchall() or [])]
+
+        cur.execute(
+            """
+            SELECT
+              COALESCE(assignee_label, CONCAT(COALESCE(assignee_type,''), '#', COALESCE(assignee_id,''))) AS label,
+              assignee_type,
+              assignee_id,
+              DATE_FORMAT(performed_at, '%%Y-%%m') AS ym,
+              SUM(CASE WHEN quantity < 0 AND COALESCE(is_loan, 0) = 0 THEN -quantity ELSE 0 END) AS qty
+            FROM inventory_transactions
+            WHERE item_id = %s
+              AND performed_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s MONTH)
+              AND assignee_id IS NOT NULL
+            GROUP BY assignee_type, assignee_id, assignee_label, DATE_FORMAT(performed_at, '%%Y-%%m')
+            """,
+            (int(item_id), int(months)),
+        )
+        rows = cur.fetchall() or []
+        # Map (label) -> list of (ym, qty); then build series with data aligned to month_list
+        by_person: dict = {}
+        for r in rows:
+            label = r.get("label") or "Unknown"
+            if label not in by_person:
+                by_person[label] = {}
+            by_person[label][r["ym"]] = float(r.get("qty") or 0)
+        series = []
+        for label, ym_qty in by_person.items():
+            data = [round(ym_qty.get(ym, 0.0), 4) for ym in month_list]
+            series.append({"label": label, "data": data})
+        series.sort(key=lambda s: -sum(s["data"]))
+        return _jsonify_safe({"months": month_list, "series": series[:20]})
+    except Exception:
+        return _jsonify_safe({"months": [], "series": []})
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 @internal.route("/api/items/<int:item_id>", methods=["PUT", "PATCH"])
@@ -721,6 +906,30 @@ def api_transactions_create():
         return _jsonify_safe({"error": "quantity must be numeric"}, 400)
     svc = get_inventory_service()
     try:
+        # Optional sign-out/loan fields (for consumables + equipment)
+        assignee_type = (data.get("assignee_type") or "").strip() or None
+        assignee_id = (data.get("assignee_id") or "").strip() or None
+        assignee_label = (data.get("assignee_label") or "").strip() or None
+        is_loan = bool(data.get("is_loan")) if data.get("is_loan") is not None else False
+        due_back_date = (data.get("due_back_date") or "").strip() or None
+        equipment_asset_id = data.get("equipment_asset_id")
+        equipment_serial = (data.get("equipment_serial") or "").strip() or None
+
+        if equipment_serial and not equipment_asset_id:
+            asset = svc.get_equipment_asset_by_serial(equipment_serial)
+            if not asset:
+                return _jsonify_safe({"error": "Equipment serial not found"}, 400)
+            equipment_asset_id = asset.get("id")
+        if equipment_asset_id:
+            asset = svc.get_equipment_asset(int(equipment_asset_id))
+            if not asset:
+                return _jsonify_safe({"error": "Equipment asset not found"}, 400)
+            if int(asset.get("item_id")) != int(item_id):
+                return _jsonify_safe({"error": "Equipment asset does not belong to this item"}, 400)
+            # Basic status guard
+            if transaction_type == "out" and str(asset.get("status")) not in ("in_stock",):
+                return _jsonify_safe({"error": f"Asset not available (status={asset.get('status')})"}, 400)
+
         result = svc.record_transaction(
             item_id=int(item_id),
             location_id=int(location_id),
@@ -731,12 +940,29 @@ def api_transactions_create():
             reference_type=data.get("reference_type"),
             reference_id=data.get("reference_id"),
             performed_by_user_id=_effective_user_id(),
+            assignee_type=assignee_type,
+            assignee_id=assignee_id,
+            assignee_label=assignee_label,
+            is_loan=is_loan,
+            due_back_date=due_back_date,
+            equipment_asset_id=int(equipment_asset_id) if equipment_asset_id is not None else None,
             metadata=data.get("metadata"),
             client_action_id=data.get("client_action_id"),
             weight=data.get("weight"),
             weight_uom=data.get("weight_uom"),
             uom=data.get("uom"),
         )
+
+        # Keep equipment asset status in sync (best-effort)
+        try:
+            if equipment_asset_id:
+                if transaction_type == "out":
+                    svc.set_equipment_asset_status(int(equipment_asset_id), "loaned" if is_loan else "assigned")
+                elif transaction_type in ("return", "in"):
+                    svc.set_equipment_asset_status(int(equipment_asset_id), "in_stock")
+        except Exception:
+            logger.exception("equipment asset status update failed")
+
         log_audit(
             _effective_user_id(),
             "inventory_transaction",
@@ -1372,6 +1598,159 @@ def api_supplier_receipts_confirm():
             int(invoice_id), int(location_id), performed_by_user_id=performed_by
         )
         return _jsonify_safe(result)
+    except Exception as e:
+        return _jsonify_safe({"error": str(e)}, 400)
+
+
+# ---------------------------------------------------------------------------
+# API: people search (core users + contractors)
+# ---------------------------------------------------------------------------
+
+@internal.route("/api/people/search", methods=["GET"])
+@api_admin_required
+def api_people_search():
+    q = (request.args.get("q") or "").strip()
+    limit = min(request.args.get("limit", type=int) or 20, 50)
+    if not q:
+        return _jsonify_safe({"people": []})
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    people = []
+    try:
+        like = f"%{q}%"
+        # Core users (UUID ids)
+        try:
+            cur.execute(
+                """
+                SELECT id, username, email, first_name, last_name
+                FROM users
+                WHERE username LIKE %s OR email LIKE %s OR first_name LIKE %s OR last_name LIKE %s
+                ORDER BY username
+                LIMIT %s
+                """,
+                (like, like, like, like, limit),
+            )
+            for r in (cur.fetchall() or []):
+                label = (" ".join([str(r.get("first_name") or "").strip(), str(r.get("last_name") or "").strip()]).strip()
+                         or str(r.get("username") or "").strip()
+                         or str(r.get("email") or "").strip())
+                people.append(
+                    {"type": "user", "id": str(r.get("id")), "label": label, "username": r.get("username"), "email": r.get("email")}
+                )
+        except Exception:
+            pass
+
+        # Contractors (time billing module)
+        try:
+            cur.execute(
+                """
+                SELECT id, email, name
+                FROM tb_contractors
+                WHERE name LIKE %s OR email LIKE %s
+                ORDER BY name
+                LIMIT %s
+                """,
+                (like, like, limit),
+            )
+            for r in (cur.fetchall() or []):
+                label = str(r.get("name") or r.get("email") or "").strip()
+                people.append(
+                    {"type": "contractor", "id": str(r.get("id")), "label": label, "email": r.get("email")}
+                )
+        except Exception:
+            pass
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    # Basic dedupe (type+id)
+    seen = set()
+    out = []
+    for p in people:
+        key = (p.get("type"), p.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return _jsonify_safe({"people": out[:limit]})
+
+
+# ---------------------------------------------------------------------------
+# API: equipment assets (serialised inventory)
+# ---------------------------------------------------------------------------
+
+@internal.route("/api/equipment/assets", methods=["GET"])
+@api_admin_required
+def api_equipment_assets_list():
+    svc = get_inventory_service()
+    item_id = request.args.get("item_id", type=int)
+    status = (request.args.get("status") or "").strip() or None
+    search = (request.args.get("search") or "").strip() or None
+    assets = svc.list_equipment_assets(item_id=item_id, status=status, search=search, limit=200)
+    return _jsonify_safe({"assets": assets})
+
+
+@internal.route("/api/equipment/assets", methods=["POST"])
+@api_admin_required
+def api_equipment_assets_create():
+    if not _require_admin():
+        return _jsonify_safe({"error": "Forbidden"}, 403)
+    svc = get_inventory_service()
+    data = request.get_json() or {}
+    item_id = data.get("item_id")
+    serial_number = (data.get("serial_number") or "").strip()
+    if not item_id or not serial_number:
+        return _jsonify_safe({"error": "item_id and serial_number required"}, 400)
+    # Ensure item exists and is marked as equipment (best-effort)
+    item = svc.get_item(int(item_id))
+    if not item:
+        return _jsonify_safe({"error": "Item not found"}, 404)
+    try:
+        asset_id = svc.create_equipment_asset(
+            item_id=int(item_id),
+            serial_number=serial_number,
+            make=data.get("make"),
+            model=data.get("model"),
+            purchase_date=data.get("purchase_date"),
+            warranty_expiry=data.get("warranty_expiry"),
+            service_interval_days=data.get("service_interval_days"),
+            condition=data.get("condition"),
+            metadata=data.get("metadata") or {},
+        )
+        log_audit(_effective_user_id(), "inventory_equipment_asset_create", item_id=item_id, details={"asset_id": asset_id, "serial_number": serial_number})
+        return _jsonify_safe({"id": asset_id}, 201)
+    except Exception as e:
+        return _jsonify_safe({"error": str(e)}, 400)
+
+
+@internal.route("/api/equipment/assets/<int:asset_id>", methods=["PATCH"])
+@api_admin_required
+def api_equipment_asset_update(asset_id: int):
+    if not _require_admin():
+        return _jsonify_safe({"error": "Forbidden"}, 403)
+    svc = get_inventory_service()
+    data = request.get_json() or {}
+    try:
+        svc.update_equipment_asset(
+            asset_id,
+            make=data.get("make"),
+            model=data.get("model"),
+            purchase_date=data.get("purchase_date"),
+            warranty_expiry=data.get("warranty_expiry"),
+            service_interval_days=data.get("service_interval_days"),
+            condition=data.get("condition"),
+            status=data.get("status"),
+            metadata=data.get("metadata") if "metadata" in data else None,
+        )
+        return _jsonify_safe({"ok": True})
+    except ValueError as e:
+        return _jsonify_safe({"error": str(e)}, 404)
     except Exception as e:
         return _jsonify_safe({"error": str(e)}, 400)
 

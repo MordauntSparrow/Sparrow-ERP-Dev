@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.objects import get_db_connection
@@ -40,6 +40,126 @@ def _coerce_int_user_id(value: Any) -> Optional[int]:
         except Exception:
             return None
     return None
+
+
+def _bucket_start(dt: datetime, bucket: str) -> datetime:
+    if bucket == "hour":
+        return dt.replace(minute=0, second=0, microsecond=0)
+    if bucket == "day":
+        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    if bucket == "week":
+        # Monday as week start
+        d0 = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        return d0 - timedelta(days=d0.weekday())
+    if bucket == "month":
+        return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return dt
+
+
+def _add_bucket(dt: datetime, bucket: str) -> datetime:
+    if bucket == "hour":
+        return dt + timedelta(hours=1)
+    if bucket == "day":
+        return dt + timedelta(days=1)
+    if bucket == "week":
+        return dt + timedelta(days=7)
+    if bucket == "month":
+        y = dt.year
+        m = dt.month + 1
+        if m == 13:
+            y += 1
+            m = 1
+        return dt.replace(year=y, month=m, day=1)
+    return dt
+
+
+def _choose_bucket(range_days: int, tx_count: int) -> str:
+    """
+    Adaptive bucket selection so graphs are readable:
+    - high activity / small window -> hourly
+    - medium -> daily
+    - long window -> weekly/monthly
+    """
+    rd = max(int(range_days or 30), 1)
+    if rd <= 2:
+        return "hour"
+    if rd <= 14:
+        return "hour" if tx_count >= 120 else "day"
+    if rd <= 90:
+        return "day"
+    if rd <= 365:
+        return "week"
+    return "month"
+
+
+def _alter_add_column(conn, table: str, col_def: str) -> None:
+    """Idempotent add column; ignores duplicate column errors."""
+    parts = col_def.strip().split(None, 1)
+    col_name = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    cur = conn.cursor()
+    try:
+        cur.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` {rest}")
+        conn.commit()
+    except Exception as e:
+        if "Duplicate column" in str(e):
+            return
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _ensure_inventory_equipment_schema(conn) -> None:
+    """
+    Ensure equipment/assignee columns exist (idempotent).
+    Safe to call multiple times; avoids breaking requests on older databases.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS `inventory_equipment_assets` (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                item_id INT NOT NULL,
+                serial_number VARCHAR(255) NOT NULL,
+                status ENUM('in_stock','loaned','assigned','maintenance','retired','lost') NOT NULL DEFAULT 'in_stock',
+                metadata JSON,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_inventory_equipment_serial (serial_number),
+                INDEX idx_inventory_equipment_item (item_id),
+                INDEX idx_inventory_equipment_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+        conn.commit()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+    _alter_add_column(conn, "inventory_items", "is_equipment TINYINT(1) NOT NULL DEFAULT 0")
+    _alter_add_column(conn, "inventory_items", "requires_serial TINYINT(1) NOT NULL DEFAULT 0")
+    _alter_add_column(conn, "inventory_items", "category_id INT NULL")
+
+    _alter_add_column(conn, "inventory_transactions", "assignee_type VARCHAR(16) NULL")
+    _alter_add_column(conn, "inventory_transactions", "assignee_id VARCHAR(64) NULL")
+    _alter_add_column(conn, "inventory_transactions", "assignee_label VARCHAR(255) NULL")
+    _alter_add_column(conn, "inventory_transactions", "is_loan TINYINT(1) NOT NULL DEFAULT 0")
+    _alter_add_column(conn, "inventory_transactions", "due_back_date DATE NULL")
+    _alter_add_column(conn, "inventory_transactions", "equipment_asset_id BIGINT NULL")
+    _alter_add_column(conn, "inventory_transactions", "weight DECIMAL(18, 6) NULL")
+    _alter_add_column(conn, "inventory_transactions", "weight_uom VARCHAR(32) NULL")
+
+    _alter_add_column(conn, "inventory_equipment_assets", "make VARCHAR(120) NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "model VARCHAR(120) NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "purchase_date DATE NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "warranty_expiry DATE NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "service_interval_days INT NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "condition VARCHAR(64) NULL")
 
 
 class CostingStrategy:
@@ -214,10 +334,16 @@ class InventoryService:
         self._avg_costing = AverageCostingStrategy()
         self._fifo_costing = FIFOCostingStrategy()
         self._lifo_costing = LIFOCostingStrategy()
+        self._schema_ensured = False
 
     def _connection(self):
         if self._conn is None or not getattr(self._conn, "is_connected", lambda: True)():
             self._conn = get_db_connection()
+        if not self._schema_ensured:
+            try:
+                _ensure_inventory_equipment_schema(self._conn)
+            finally:
+                self._schema_ensured = True
         return self._conn
 
     # ------------------------------------------------------------------
@@ -330,10 +456,11 @@ class InventoryService:
                 INSERT INTO inventory_items (sku, name, description, barcode, qr_code_data,
                                              category, unit, default_location_id,
                                              reorder_point, reorder_quantity, is_active,
+                                             is_equipment, requires_serial,
                                              cost_method, standard_cost, last_cost,
                                              primary_supplier_id, lead_time_days,
                                              external_sku, metadata, category_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     data.get("sku"),
@@ -347,6 +474,8 @@ class InventoryService:
                     data.get("reorder_point", 0),
                     data.get("reorder_quantity", 0),
                     1 if data.get("is_active", True) else 0,
+                    1 if data.get("is_equipment", False) else 0,
+                    1 if data.get("requires_serial", False) else 0,
                     _normalize_cost_method(data.get("cost_method")),
                     data.get("standard_cost"),
                     data.get("last_cost"),
@@ -380,6 +509,8 @@ class InventoryService:
                 "reorder_point",
                 "reorder_quantity",
                 "is_active",
+                "is_equipment",
+                "requires_serial",
                 "cost_method",
                 "standard_cost",
                 "last_cost",
@@ -392,6 +523,8 @@ class InventoryService:
                 if key in data:
                     fields.append(f"{key} = %s")
                     if key == "is_active":
+                        params.append(1 if data[key] else 0)
+                    elif key in ("is_equipment", "requires_serial"):
                         params.append(1 if data[key] else 0)
                     elif key == "cost_method":
                         params.append(_normalize_cost_method(data[key]))
@@ -685,6 +818,190 @@ class InventoryService:
         finally:
             cur.close()
 
+    # ------------------------------------------------------------------
+    # Equipment assets (serialised units)
+    # ------------------------------------------------------------------
+    def create_equipment_asset(
+        self,
+        *,
+        item_id: int,
+        serial_number: str,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        purchase_date: Optional[str] = None,
+        warranty_expiry: Optional[str] = None,
+        service_interval_days: Optional[int] = None,
+        condition: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        conn = self._connection()
+        cur = conn.cursor()
+        try:
+            sn = (serial_number or "").strip()
+            if not sn:
+                raise ValueError("serial_number required")
+            cur.execute(
+                """
+                INSERT INTO inventory_equipment_assets
+                    (item_id, serial_number, status, make, model, purchase_date, warranty_expiry, service_interval_days, `condition`, metadata)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    int(item_id),
+                    sn,
+                    "in_stock",
+                    (make or "").strip() or None,
+                    (model or "").strip() or None,
+                    purchase_date if purchase_date else None,
+                    warranty_expiry if warranty_expiry else None,
+                    int(service_interval_days) if service_interval_days is not None else None,
+                    (condition or "").strip() or None,
+                    json.dumps(metadata or {}, default=str),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            cur.close()
+
+    def update_equipment_asset(
+        self,
+        asset_id: int,
+        *,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        purchase_date: Optional[str] = None,
+        warranty_expiry: Optional[str] = None,
+        service_interval_days: Optional[int] = None,
+        condition: Optional[str] = None,
+        status: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Update equipment asset fields. Omitted kwargs leave existing values unchanged."""
+        updates: List[str] = []
+        params: List[Any] = []
+        if make is not None:
+            updates.append("make = %s")
+            params.append((make or "").strip() or None)
+        if model is not None:
+            updates.append("model = %s")
+            params.append((model or "").strip() or None)
+        if purchase_date is not None:
+            updates.append("purchase_date = %s")
+            params.append(purchase_date or None)
+        if warranty_expiry is not None:
+            updates.append("warranty_expiry = %s")
+            params.append(warranty_expiry or None)
+        if service_interval_days is not None:
+            updates.append("service_interval_days = %s")
+            params.append(int(service_interval_days) if service_interval_days else None)
+        if condition is not None:
+            updates.append("`condition` = %s")
+            params.append((condition or "").strip() or None)
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status)
+        if metadata is not None:
+            updates.append("metadata = %s")
+            params.append(json.dumps(metadata if isinstance(metadata, dict) else {}, default=str))
+        if not updates:
+            return
+        params.append(int(asset_id))
+        conn = self._connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"UPDATE inventory_equipment_assets SET {', '.join(updates)} WHERE id = %s",
+                tuple(params),
+            )
+            if cur.rowcount == 0:
+                raise ValueError("Equipment asset not found")
+            conn.commit()
+        finally:
+            cur.close()
+
+    def list_equipment_assets(
+        self,
+        *,
+        item_id: Optional[int] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 200,
+        skip: int = 0,
+    ) -> List[Dict[str, Any]]:
+        conn = self._connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            sql = "SELECT * FROM inventory_equipment_assets WHERE 1=1"
+            params: List[Any] = []
+            if item_id is not None:
+                sql += " AND item_id = %s"
+                params.append(int(item_id))
+            if status:
+                sql += " AND status = %s"
+                params.append(status)
+            if search:
+                sql += " AND serial_number LIKE %s"
+                params.append(f"%{search}%")
+            sql += " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
+            params.extend([min(int(limit or 200), 500), int(skip or 0)])
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall() or []
+            for r in rows:
+                if isinstance(r.get("metadata"), str):
+                    try:
+                        r["metadata"] = json.loads(r["metadata"])
+                    except Exception:
+                        pass
+            return rows
+        finally:
+            cur.close()
+
+    def get_equipment_asset(self, asset_id: int) -> Optional[Dict[str, Any]]:
+        conn = self._connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("SELECT * FROM inventory_equipment_assets WHERE id = %s", (int(asset_id),))
+            row = cur.fetchone()
+            if row and isinstance(row.get("metadata"), str):
+                try:
+                    row["metadata"] = json.loads(row["metadata"])
+                except Exception:
+                    pass
+            return row
+        finally:
+            cur.close()
+
+    def get_equipment_asset_by_serial(self, serial_number: str) -> Optional[Dict[str, Any]]:
+        conn = self._connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            sn = (serial_number or "").strip()
+            if not sn:
+                return None
+            cur.execute("SELECT * FROM inventory_equipment_assets WHERE serial_number = %s", (sn,))
+            row = cur.fetchone()
+            if row and isinstance(row.get("metadata"), str):
+                try:
+                    row["metadata"] = json.loads(row["metadata"])
+                except Exception:
+                    pass
+            return row
+        finally:
+            cur.close()
+
+    def set_equipment_asset_status(self, asset_id: int, status: str) -> None:
+        conn = self._connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE inventory_equipment_assets SET status = %s WHERE id = %s",
+                (status, int(asset_id)),
+            )
+            conn.commit()
+        finally:
+            cur.close()
+
     def list_stock_levels(self, item_id: int):
         conn = self._connection()
         cur = conn.cursor(dictionary=True)
@@ -696,6 +1013,121 @@ class InventoryService:
             return cur.fetchall() or []
         finally:
             cur.close()
+
+    def get_current_qoh(self, item_id: int) -> float:
+        """Current quantity on hand across all locations/batches."""
+        conn = self._connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT COALESCE(SUM(quantity_on_hand), 0) FROM inventory_stock_levels WHERE item_id = %s",
+                (item_id,),
+            )
+            row = cur.fetchone()
+            return float(row[0] or 0)
+        finally:
+            cur.close()
+
+    def get_item_stock_series(
+        self,
+        *,
+        item_id: int,
+        range_days: int = 30,
+        bucket: str = "auto",
+    ) -> Dict[str, Any]:
+        """
+        Returns a stock history series for an item: [{t, qoh, delta}] with adaptive bucketing.
+        Computes starting QOH from current stock_levels minus summed deltas in window.
+        """
+        rd = max(int(range_days or 30), 1)
+        conn = self._connection()
+        cur = conn.cursor(dictionary=True)
+        now = datetime.utcnow()
+        start_dt = now - timedelta(days=rd)
+
+        try:
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM inventory_transactions WHERE item_id = %s AND performed_at >= %s",
+                (item_id, start_dt),
+            )
+            tx_count = int((cur.fetchone() or {}).get("c") or 0)
+        except Exception:
+            tx_count = 0
+
+        bucket_used = _choose_bucket(rd, tx_count) if bucket == "auto" else str(bucket or "day").lower()
+        if bucket_used not in ("hour", "day", "week", "month"):
+            bucket_used = "day"
+
+        # Group deltas by bucket in SQL
+        if bucket_used == "hour":
+            bucket_sql = "DATE_FORMAT(performed_at, '%Y-%m-%d %H:00:00')"
+        elif bucket_used == "day":
+            bucket_sql = "DATE_FORMAT(performed_at, '%Y-%m-%d 00:00:00')"
+        elif bucket_used == "week":
+            bucket_sql = "DATE_FORMAT(DATE_SUB(DATE(performed_at), INTERVAL WEEKDAY(performed_at) DAY), '%Y-%m-%d 00:00:00')"
+        else:  # month
+            bucket_sql = "DATE_FORMAT(DATE_SUB(DATE(performed_at), INTERVAL (DAY(performed_at)-1) DAY), '%Y-%m-%d 00:00:00')"
+
+        cur2 = conn.cursor(dictionary=True)
+        try:
+            cur2.execute(
+                f"""
+                SELECT {bucket_sql} AS bucket_start,
+                       COALESCE(SUM(quantity), 0) AS delta
+                FROM inventory_transactions
+                WHERE item_id = %s AND performed_at >= %s
+                GROUP BY bucket_start
+                ORDER BY bucket_start ASC
+                """,
+                (item_id, start_dt),
+            )
+            rows = cur2.fetchall() or []
+        finally:
+            cur2.close()
+
+        delta_by_bucket: Dict[str, float] = {}
+        total_delta = 0.0
+        for r in rows:
+            k = str(r.get("bucket_start"))
+            d = float(r.get("delta") or 0)
+            delta_by_bucket[k] = d
+            total_delta += d
+
+        current_qoh = self.get_current_qoh(item_id)
+        start_qoh = current_qoh - total_delta
+
+        # Build contiguous buckets
+        start_b = _bucket_start(start_dt, bucket_used)
+        end_b = _bucket_start(now, bucket_used)
+        series = []
+        qoh = float(start_qoh)
+
+        # Ensure at least one point
+        steps = 0
+        cur_bucket = start_b
+        while cur_bucket <= end_b and steps < 5000:
+            key = cur_bucket.strftime("%Y-%m-%d %H:%M:%S")
+            delta = float(delta_by_bucket.get(key, 0.0))
+            qoh += delta
+            series.append({"t": cur_bucket.isoformat() + "Z", "delta": delta, "qoh": qoh})
+            cur_bucket = _add_bucket(cur_bucket, bucket_used)
+            steps += 1
+
+        # Usage estimate: average daily outflow (negative deltas only) over window
+        neg_total = 0.0
+        for d in delta_by_bucket.values():
+            if d < 0:
+                neg_total += abs(d)
+        avg_daily_out = (neg_total / float(rd)) if rd > 0 else 0.0
+
+        return {
+            "range_days": rd,
+            "bucket_used": bucket_used,
+            "tx_count": tx_count,
+            "current_qoh": current_qoh,
+            "avg_daily_out": avg_daily_out,
+            "series": series,
+        }
 
     def list_stock_levels_all(
         self,
@@ -1107,6 +1539,12 @@ class InventoryService:
         reference_type: Optional[str] = None,
         reference_id: Optional[str] = None,
         performed_by_user_id: Optional[Any] = None,
+        assignee_type: Optional[str] = None,
+        assignee_id: Optional[str] = None,
+        assignee_label: Optional[str] = None,
+        is_loan: bool = False,
+        due_back_date: Optional[str] = None,
+        equipment_asset_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         client_action_id: Optional[str] = None,
         weight: Optional[float] = None,
@@ -1158,6 +1596,19 @@ class InventoryService:
         tx_metadata = dict(metadata) if isinstance(metadata, dict) else ({} if metadata is None else metadata)
         if performed_by_db is None and performed_by_user_id is not None and isinstance(tx_metadata, dict):
             tx_metadata.setdefault("performed_by_user", str(performed_by_user_id))
+        if isinstance(tx_metadata, dict):
+            if assignee_type:
+                tx_metadata.setdefault("assignee_type", assignee_type)
+            if assignee_id:
+                tx_metadata.setdefault("assignee_id", assignee_id)
+            if assignee_label:
+                tx_metadata.setdefault("assignee_label", assignee_label)
+            if is_loan:
+                tx_metadata.setdefault("is_loan", True)
+            if due_back_date:
+                tx_metadata.setdefault("due_back_date", due_back_date)
+            if equipment_asset_id:
+                tx_metadata.setdefault("equipment_asset_id", int(equipment_asset_id))
 
         cur = conn.cursor()
         try:
@@ -1167,9 +1618,12 @@ class InventoryService:
                     (item_id, location_id, batch_id, transaction_type,
                      quantity, uom, unit_cost, total_cost,
                      reference_type, reference_id,
-                     performed_by_user_id, metadata, client_action_id,
+                     performed_by_user_id,
+                     assignee_type, assignee_id, assignee_label,
+                     is_loan, due_back_date, equipment_asset_id,
+                     metadata, client_action_id,
                      weight, weight_uom)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     item_id,
@@ -1183,6 +1637,12 @@ class InventoryService:
                     reference_type,
                     reference_id,
                     performed_by_db,
+                    assignee_type,
+                    assignee_id,
+                    assignee_label,
+                    1 if is_loan else 0,
+                    due_back_date,
+                    equipment_asset_id,
                     json.dumps(tx_metadata) if isinstance(tx_metadata, dict) else tx_metadata,
                     client_action_id,
                     weight_val,

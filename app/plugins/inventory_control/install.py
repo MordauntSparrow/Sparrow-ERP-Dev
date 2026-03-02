@@ -74,22 +74,28 @@ def _alter_modify_enum(conn, table: str, column: str, new_type: str) -> None:
             pass
 
 
+def _upgrade_equipment_assets(conn) -> None:
+    """Add equipment asset columns for existing installs (idempotent)."""
+    _alter_add_column(conn, "inventory_equipment_assets", "make VARCHAR(120) NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "model VARCHAR(120) NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "purchase_date DATE NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "warranty_expiry DATE NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "service_interval_days INT NULL")
+    _alter_add_column(conn, "inventory_equipment_assets", "condition VARCHAR(64) NULL")
+
+
 def install():
     """
     Install or update the Inventory Control module database schema.
 
-    This function is idempotent and safe to call multiple times. It creates
-    the core inventory tables used by the module:
-    - inventory_items
-    - inventory_locations
-    - inventory_batches
-    - inventory_stock_levels
-    - inventory_transactions
-    - inventory_suppliers
-    - inventory_invoices
-    - inventory_invoice_lines
-    - inventory_supplier_performance
-    - inventory_audit
+    Idempotent and safe to call multiple times. Creates core tables and adds
+    any missing columns (e.g. equipment fields, assignee/loan columns, weight).
+    Use upgrade() for the same behaviour when running migrations only.
+
+    Core tables: inventory_items, inventory_locations, inventory_batches,
+    inventory_stock_levels, inventory_transactions, inventory_equipment_assets,
+    inventory_suppliers, inventory_invoices, inventory_invoice_lines,
+    inventory_supplier_performance, inventory_audit, inventory_categories, etc.
     """
     conn = get_db_connection()
     try:
@@ -110,6 +116,8 @@ def install():
             reorder_point DECIMAL(18, 4) NOT NULL DEFAULT 0,
             reorder_quantity DECIMAL(18, 4) NOT NULL DEFAULT 0,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
+            is_equipment TINYINT(1) NOT NULL DEFAULT 0,
+            requires_serial TINYINT(1) NOT NULL DEFAULT 0,
             cost_method ENUM('FIFO', 'LIFO', 'AVG') NOT NULL DEFAULT 'AVG',
             standard_cost DECIMAL(18, 4) NULL,
             last_cost DECIMAL(18, 4) NULL,
@@ -123,6 +131,10 @@ def install():
             INDEX idx_inventory_items_name (name)
             """,
         )
+
+        # Ensure new columns exist on older installs
+        _alter_add_column(conn, "inventory_items", "is_equipment TINYINT(1) NOT NULL DEFAULT 0")
+        _alter_add_column(conn, "inventory_items", "requires_serial TINYINT(1) NOT NULL DEFAULT 0")
 
         # Locations (warehouses, bins, virtual)
         _create_table(
@@ -202,8 +214,16 @@ def install():
             reference_type VARCHAR(64),
             reference_id VARCHAR(255),
             performed_by_user_id INT NULL,
+            assignee_type VARCHAR(16) NULL,
+            assignee_id VARCHAR(64) NULL,
+            assignee_label VARCHAR(255) NULL,
+            is_loan TINYINT(1) NOT NULL DEFAULT 0,
+            due_back_date DATE NULL,
+            equipment_asset_id BIGINT NULL,
             performed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             metadata JSON,
+            weight DECIMAL(18, 6) NULL,
+            weight_uom VARCHAR(32) NULL,
             reversed_transaction_id BIGINT NULL,
             client_action_id VARCHAR(64) NULL,
             INDEX idx_inventory_tx_item (item_id),
@@ -214,6 +234,38 @@ def install():
             INDEX idx_inventory_tx_client_action (client_action_id)
             """,
         )
+
+        _alter_add_column(conn, "inventory_transactions", "assignee_type VARCHAR(16) NULL")
+        _alter_add_column(conn, "inventory_transactions", "assignee_id VARCHAR(64) NULL")
+        _alter_add_column(conn, "inventory_transactions", "assignee_label VARCHAR(255) NULL")
+        _alter_add_column(conn, "inventory_transactions", "is_loan TINYINT(1) NOT NULL DEFAULT 0")
+        _alter_add_column(conn, "inventory_transactions", "due_back_date DATE NULL")
+        _alter_add_column(conn, "inventory_transactions", "equipment_asset_id BIGINT NULL")
+
+        # Equipment assets (serialised inventory) - per physical unit
+        _create_table(
+            conn,
+            "inventory_equipment_assets",
+            """
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            item_id INT NOT NULL,
+            serial_number VARCHAR(255) NOT NULL,
+            status ENUM('in_stock','loaned','assigned','maintenance','retired','lost') NOT NULL DEFAULT 'in_stock',
+            make VARCHAR(120) NULL,
+            model VARCHAR(120) NULL,
+            purchase_date DATE NULL,
+            warranty_expiry DATE NULL,
+            service_interval_days INT NULL,
+            `condition` VARCHAR(64) NULL,
+            metadata JSON,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_inventory_equipment_serial (serial_number),
+            INDEX idx_inventory_equipment_item (item_id),
+            INDEX idx_inventory_equipment_status (status)
+            """,
+        )
+        _upgrade_equipment_assets(conn)
 
         # Suppliers
         _create_table(
@@ -424,14 +476,28 @@ def install():
             pass
 
 
+def upgrade() -> None:
+    """
+    Run schema migrations for the Inventory Control plugin.
+    Idempotent: adds missing tables and columns without dropping data.
+    Safe to run after initial install or after deploying new code.
+    """
+    install()
+
+
 if __name__ == "__main__":
-    # Allow running `python install.py install` or `python install.py upgrade` from the command line.
-    # Version manager "Repair DB" runs install.py upgrade; both install and upgrade run the same
-    # idempotent install() so tables are created/migrated.
-    action = sys.argv[1] if len(sys.argv) > 1 else "install"
-    if action in ("install", "upgrade"):
+    # CLI: python install.py install | upgrade | uninstall
+    # - install: full idempotent setup (creates tables, adds missing columns).
+    # - upgrade: same as install(); use for "Repair DB" or after deploying plugin updates.
+    action = (sys.argv[1] if len(sys.argv) > 1 else "install").lower()
+    if action == "install":
         install()
+    elif action == "upgrade":
+        upgrade()
     elif action == "uninstall":
         # Optional: tear-down (e.g. drop tables) if needed later
         pass
+    else:
+        print("Usage: python install.py install|upgrade|uninstall")
+        sys.exit(1)
 

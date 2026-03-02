@@ -46,9 +46,12 @@
             <div class="col-md-4"><label class="form-label">Unit (UOM)</label><input type="text" class="form-control" id="itemUnit" name="unit" placeholder="ea, kg, etc."></div>
             <div class="col-md-4"><label class="form-label">Reorder point</label><input type="number" class="form-control" id="itemReorderPoint" name="reorder_point" value="0" step="any"></div>
             <div class="col-md-4"><label class="form-label">Reorder qty</label><input type="number" class="form-control" id="itemReorderQty" name="reorder_quantity" value="0" step="any"></div>
+            <div class="col-md-4"><label class="form-label">Lead time (days)</label><input type="number" class="form-control" id="itemLeadTimeDays" name="lead_time_days" min="0"></div>
             <div class="col-md-4"><label class="form-label">Standard cost</label><input type="number" class="form-control" id="itemStandardCost" name="standard_cost" step="0.01"></div>
             <div class="col-md-4"><label class="form-label">Cost method</label><select class="form-select" id="itemCostMethod" name="cost_method"><option value="AVG">Average</option><option value="FIFO">FIFO</option><option value="LIFO">LIFO</option></select></div>
             <div class="col-md-4"><label class="form-label">Active</label><div class="form-check mt-2"><input type="checkbox" class="form-check-input" id="itemActive" name="is_active" checked></div></div>
+            <div class="col-md-4"><label class="form-label">Equipment item</label><div class="form-check mt-2"><input type="checkbox" class="form-check-input" id="itemIsEquipment" name="is_equipment"></div><div class="form-text">Serialised equipment (assets) live under this item.</div></div>
+            <div class="col-md-4"><label class="form-label">Requires serial</label><div class="form-check mt-2"><input type="checkbox" class="form-check-input" id="itemRequiresSerial" name="requires_serial"></div><div class="form-text">Force serial entry for sign-out.</div></div>
           </div>
         </form>
       </div>
@@ -81,7 +84,8 @@
         const tr = document.createElement('tr');
         const cost = item.standard_cost != null ? Number(item.standard_cost) : '';
         var catName = (item.category_name != null && item.category_name !== '') ? item.category_name : (item.category || '');
-        tr.innerHTML = '<td>' + (item.sku || '') + '</td><td>' + (item.name || '') + '</td><td>' + catName + '</td><td>' + (item.unit || '') + '</td><td>' + (item.reorder_point ?? '') + '</td><td>' + cost + '</td><td>' + (item.is_active ? 'Yes' : 'No') + '</td><td><button type="button" class="btn btn-sm btn-outline-primary me-1 edit-item" data-id="' + item.id + '">Edit</button>' + (item.is_active ? '<button type="button" class="btn btn-sm btn-outline-danger archive-item" data-id="' + item.id + '">Archive</button>' : '') + '</td>';
+        var nameLink = '<a class="text-decoration-none" href="' + base + '/items/' + item.id + '">' + (item.name || '') + '</a>';
+        tr.innerHTML = '<td>' + (item.sku || '') + '</td><td>' + nameLink + '</td><td>' + catName + '</td><td>' + (item.unit || '') + '</td><td>' + (item.reorder_point ?? '') + '</td><td>' + cost + '</td><td>' + (item.is_active ? 'Yes' : 'No') + '</td><td><button type="button" class="btn btn-sm btn-outline-primary me-1 edit-item" data-id="' + item.id + '">Edit</button>' + (item.is_active ? '<button type="button" class="btn btn-sm btn-outline-danger archive-item" data-id="' + item.id + '">Archive</button>' : '') + '</td>';
         tbody.appendChild(tr);
       });
       document.getElementById('items-status').textContent = (data.items || []).length + ' item(s)';
@@ -128,7 +132,10 @@
     fillCategorySelect(null);
     document.getElementById('itemReorderPoint').value = '0';
     document.getElementById('itemReorderQty').value = '0';
+    document.getElementById('itemLeadTimeDays').value = '';
     document.getElementById('itemActive').checked = true;
+    document.getElementById('itemIsEquipment').checked = false;
+    document.getElementById('itemRequiresSerial').checked = false;
     modal.show();
   }
 
@@ -145,9 +152,12 @@
         document.getElementById('itemUnit').value = item.unit || '';
         document.getElementById('itemReorderPoint').value = item.reorder_point ?? 0;
         document.getElementById('itemReorderQty').value = item.reorder_quantity ?? 0;
+        document.getElementById('itemLeadTimeDays').value = item.lead_time_days ?? '';
         document.getElementById('itemStandardCost').value = item.standard_cost ?? '';
         document.getElementById('itemCostMethod').value = item.cost_method || 'AVG';
         document.getElementById('itemActive').checked = item.is_active !== 0;
+        document.getElementById('itemIsEquipment').checked = !!item.is_equipment;
+        document.getElementById('itemRequiresSerial').checked = !!item.requires_serial;
         modal.show();
       });
     }).catch(function() { alert('Could not load item'); });
@@ -168,9 +178,12 @@
       unit: document.getElementById('itemUnit').value.trim() || null,
       reorder_point: parseFloat(document.getElementById('itemReorderPoint').value) || 0,
       reorder_quantity: parseFloat(document.getElementById('itemReorderQty').value) || 0,
+      lead_time_days: document.getElementById('itemLeadTimeDays').value ? parseInt(document.getElementById('itemLeadTimeDays').value, 10) : null,
       standard_cost: document.getElementById('itemStandardCost').value ? parseFloat(document.getElementById('itemStandardCost').value) : null,
       cost_method: document.getElementById('itemCostMethod').value,
-      is_active: document.getElementById('itemActive').checked
+      is_active: document.getElementById('itemActive').checked,
+      is_equipment: document.getElementById('itemIsEquipment').checked,
+      requires_serial: document.getElementById('itemRequiresSerial').checked
     };
     if (!payload.sku || !payload.name) { alert('SKU and Name are required'); return; }
     const url = id ? base + '/api/items/' + id : base + '/api/items';
