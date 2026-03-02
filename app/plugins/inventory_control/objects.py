@@ -5,6 +5,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.objects import get_db_connection
 
+# DB ENUM: cost_method must be one of these
+COST_METHOD_VALUES = ("FIFO", "LIFO", "AVG")
+
+
+def _normalize_cost_method(value: Any) -> str:
+    """Return a valid cost_method for the DB ENUM; default 'AVG'."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return "AVG"
+    s = str(value).strip().upper()
+    if s in COST_METHOD_VALUES:
+        return s
+    if s in ("AVERAGE", "AVERAGED"):
+        return "AVG"
+    return "AVG"
+
 
 class CostingStrategy:
     def compute_cost(
@@ -311,7 +326,7 @@ class InventoryService:
                     data.get("reorder_point", 0),
                     data.get("reorder_quantity", 0),
                     1 if data.get("is_active", True) else 0,
-                    data.get("cost_method", "AVG"),
+                    _normalize_cost_method(data.get("cost_method")),
                     data.get("standard_cost"),
                     data.get("last_cost"),
                     data.get("primary_supplier_id"),
@@ -357,6 +372,8 @@ class InventoryService:
                     fields.append(f"{key} = %s")
                     if key == "is_active":
                         params.append(1 if data[key] else 0)
+                    elif key == "cost_method":
+                        params.append(_normalize_cost_method(data[key]))
                     else:
                         params.append(data[key])
             if not fields:
