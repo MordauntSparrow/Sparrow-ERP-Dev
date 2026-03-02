@@ -15,6 +15,7 @@ from flask_login import login_required, current_user
 
 from app.objects import get_db_connection
 from app import socketio
+from app.auth_jwt import decode_session_token
 from app.openapi_utils import register_path
 
 from .objects import get_inventory_service
@@ -75,6 +76,27 @@ def _inventory_token_auth():
             conn.close()
         except Exception:
             pass
+
+
+@internal.before_request
+def _session_token_auth():
+    """Set g.token_user when Authorization: Bearer <session JWT> is valid (admin API clients)."""
+    g.token_user = None
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        return
+    token = auth[7:].strip()
+    if not token:
+        return
+    if getattr(g, "inventory_api_user", None):
+        return
+    payload = decode_session_token(token)
+    if payload and payload.get("role") in ("admin", "superuser"):
+        g.token_user = {
+            "id": payload["sub"],
+            "username": payload["username"],
+            "role": payload["role"],
+        }
 
 
 def _json_compatible(value):
@@ -168,6 +190,37 @@ def admin_required(f):
     return wrapper
 
 
+def api_admin_required(f):
+    """Decorator for /api/* routes: allow session (admin) or Bearer session JWT (admin/superuser)."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        token_user = getattr(g, "token_user", None)
+        if token_user and token_user.get("role") in ("admin", "superuser"):
+            return f(*args, **kwargs)
+        if getattr(current_user, "is_authenticated", False) and _is_admin():
+            return f(*args, **kwargs)
+        return _jsonify_safe({"error": "Unauthorized"}, 401)
+    return wrapper
+
+
+def _effective_user_for_audit():
+    """Username or id for audit log: session user or token user."""
+    if getattr(g, "token_user", None):
+        return g.token_user.get("username") or f"token:{g.token_user.get('id')}"
+    if getattr(current_user, "is_authenticated", False):
+        return getattr(current_user, "username", None) or str(getattr(current_user, "id", ""))
+    return "anonymous"
+
+
+def _effective_user_id():
+    """User id for audit/DB when using session or Bearer token."""
+    if getattr(g, "token_user", None):
+        return g.token_user.get("id")
+    if getattr(current_user, "is_authenticated", False):
+        return getattr(current_user, "id", None)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Dashboard & UI pages
 # ---------------------------------------------------------------------------
@@ -251,16 +304,14 @@ def analytics_page():
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/health")
-@login_required
-@admin_required
+@api_admin_required
 def api_health():
     svc = get_inventory_service()
     return _jsonify_safe(svc.health_check())
 
 
 @internal.route("/api/dashboard")
-@login_required
-@admin_required
+@api_admin_required
 def api_dashboard():
     svc = get_inventory_service()
     metrics = svc.get_dashboard_metrics()
@@ -273,8 +324,7 @@ def api_dashboard():
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/categories", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_categories_list():
     svc = get_inventory_service()
     parent_id = request.args.get("parent_id", type=int)
@@ -283,8 +333,7 @@ def api_categories_list():
 
 
 @internal.route("/api/categories", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_categories_create():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -300,8 +349,7 @@ def api_categories_create():
 
 
 @internal.route("/api/categories/<int:category_id>", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_categories_get(category_id):
     svc = get_inventory_service()
     cat = svc.get_category(category_id)
@@ -311,8 +359,7 @@ def api_categories_get(category_id):
 
 
 @internal.route("/api/categories/<int:category_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_categories_update(category_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -328,8 +375,7 @@ def api_categories_update(category_id):
 
 
 @internal.route("/api/categories/<int:category_id>", methods=["DELETE"])
-@login_required
-@admin_required
+@api_admin_required
 def api_categories_delete(category_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -345,8 +391,7 @@ def api_categories_delete(category_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/items", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_items_list():
     svc = get_inventory_service()
     skip = request.args.get("skip", type=int) or 0
@@ -362,8 +407,7 @@ def api_items_list():
 
 
 @internal.route("/api/items", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_items_create():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -373,7 +417,7 @@ def api_items_create():
     svc = get_inventory_service()
     try:
         item_id = svc.create_item(data)
-        log_audit(current_user.id, "inventory_item_create", item_id=item_id, details=data)
+        log_audit(_effective_user_id(), "inventory_item_create", item_id=item_id, details=data)
         return _jsonify_safe({"id": item_id}, 201)
     except Exception as e:
         logger.exception("create item")
@@ -381,8 +425,7 @@ def api_items_create():
 
 
 @internal.route("/api/items/<int:item_id>", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_items_get(item_id):
     svc = get_inventory_service()
     item = svc.get_item(item_id)
@@ -392,8 +435,7 @@ def api_items_get(item_id):
 
 
 @internal.route("/api/items/<int:item_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_items_update(item_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -403,15 +445,14 @@ def api_items_update(item_id):
         return _jsonify_safe({"error": "Not found"}, 404)
     try:
         svc.update_item(item_id, data)
-        log_audit(current_user.id, "inventory_item_update", item_id=item_id, details=data)
+        log_audit(_effective_user_id(), "inventory_item_update", item_id=item_id, details=data)
         return _jsonify_safe({"ok": True})
     except Exception as e:
         return _jsonify_safe({"error": str(e)}, 400)
 
 
 @internal.route("/api/items/<int:item_id>", methods=["DELETE"])
-@login_required
-@admin_required
+@api_admin_required
 def api_items_archive(item_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -419,7 +460,7 @@ def api_items_archive(item_id):
     if not svc.get_item(item_id):
         return _jsonify_safe({"error": "Not found"}, 404)
     svc.archive_item(item_id)
-    log_audit(current_user.id, "inventory_item_archive", item_id=item_id)
+    log_audit(_effective_user_id(), "inventory_item_archive", item_id=item_id)
     return _jsonify_safe({"ok": True})
 
 
@@ -428,8 +469,7 @@ def api_items_archive(item_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/locations", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_locations_list():
     svc = get_inventory_service()
     parent_id = request.args.get("parent_id", type=int)
@@ -438,8 +478,7 @@ def api_locations_list():
 
 
 @internal.route("/api/locations", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_locations_create():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -449,15 +488,14 @@ def api_locations_create():
     svc = get_inventory_service()
     try:
         loc_id = svc.create_location(data)
-        log_audit(current_user.id, "inventory_location_create", location_id=loc_id, details=data)
+        log_audit(_effective_user_id(), "inventory_location_create", location_id=loc_id, details=data)
         return _jsonify_safe({"id": loc_id}, 201)
     except Exception as e:
         return _jsonify_safe({"error": str(e)}, 400)
 
 
 @internal.route("/api/locations/<int:location_id>", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_locations_get(location_id):
     svc = get_inventory_service()
     loc = svc.get_location(location_id)
@@ -467,8 +505,7 @@ def api_locations_get(location_id):
 
 
 @internal.route("/api/locations/<int:location_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_locations_update(location_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -477,7 +514,7 @@ def api_locations_update(location_id):
     if not svc.get_location(location_id):
         return _jsonify_safe({"error": "Not found"}, 404)
     svc.update_location(location_id, data)
-    log_audit(current_user.id, "inventory_location_update", location_id=location_id, details=data)
+    log_audit(_effective_user_id(), "inventory_location_update", location_id=location_id, details=data)
     return _jsonify_safe({"ok": True})
 
 
@@ -486,8 +523,7 @@ def api_locations_update(location_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/batches", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_batches_list():
     svc = get_inventory_service()
     item_id = request.args.get("item_id", type=int)
@@ -497,8 +533,7 @@ def api_batches_list():
 
 
 @internal.route("/api/batches", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_batches_create():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -508,15 +543,14 @@ def api_batches_create():
     svc = get_inventory_service()
     try:
         batch_id = svc.create_batch(data)
-        log_audit(current_user.id, "inventory_batch_create", batch_id=batch_id, details=data)
+        log_audit(_effective_user_id(), "inventory_batch_create", batch_id=batch_id, details=data)
         return _jsonify_safe({"id": batch_id}, 201)
     except Exception as e:
         return _jsonify_safe({"error": str(e)}, 400)
 
 
 @internal.route("/api/batches/<int:batch_id>", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_batches_get(batch_id):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
@@ -532,8 +566,7 @@ def api_batches_get(batch_id):
 
 
 @internal.route("/api/batches/<int:batch_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_batches_update(batch_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -541,7 +574,7 @@ def api_batches_update(batch_id):
     svc = get_inventory_service()
     try:
         svc.update_batch(batch_id, data)
-        log_audit(current_user.id, "inventory_batch_update", batch_id=batch_id, details=data)
+        log_audit(_effective_user_id(), "inventory_batch_update", batch_id=batch_id, details=data)
         return _jsonify_safe({"ok": True})
     except Exception as e:
         return _jsonify_safe({"error": str(e)}, 400)
@@ -552,8 +585,7 @@ def api_batches_update(batch_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/transactions", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_transactions_list():
     svc = get_inventory_service()
     item_id = request.args.get("item_id", type=int)
@@ -576,8 +608,7 @@ def api_transactions_list():
 
 
 @internal.route("/api/transactions", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_transactions_create():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -603,7 +634,7 @@ def api_transactions_create():
             unit_cost=data.get("unit_cost"),
             reference_type=data.get("reference_type"),
             reference_id=data.get("reference_id"),
-            performed_by_user_id=getattr(current_user, "id", None),
+            performed_by_user_id=_effective_user_id(),
             metadata=data.get("metadata"),
             client_action_id=data.get("client_action_id"),
             weight=data.get("weight"),
@@ -611,7 +642,7 @@ def api_transactions_create():
             uom=data.get("uom"),
         )
         log_audit(
-            current_user.id,
+            _effective_user_id(),
             "inventory_transaction",
             item_id=item_id,
             location_id=location_id,
@@ -637,8 +668,7 @@ def api_transactions_create():
 
 
 @internal.route("/api/repack", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_repack():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -654,10 +684,10 @@ def api_repack():
             source_batch_id=int(source_batch_id),
             location_id=int(location_id),
             outputs=outputs,
-            performed_by_user_id=getattr(current_user, "id", None),
+            performed_by_user_id=_effective_user_id(),
         )
         log_audit(
-            current_user.id,
+            _effective_user_id(),
             "inventory_repack",
             batch_id=source_batch_id,
             location_id=location_id,
@@ -673,8 +703,7 @@ def api_repack():
 
 
 @internal.route("/api/picking/suggest")
-@login_required
-@admin_required
+@api_admin_required
 def api_picking_suggest():
     """FEFO: suggest batches to pick for outbound, ordered by expiry soonest first."""
     item_id = request.args.get("item_id", type=int)
@@ -688,15 +717,14 @@ def api_picking_suggest():
 
 
 @internal.route("/api/transactions/<int:tx_id>/rollback", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_transactions_rollback(tx_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
     svc = get_inventory_service()
     try:
         svc.rollback_transaction(tx_id)
-        log_audit(current_user.id, "inventory_transaction_rollback", transaction_id=tx_id)
+        log_audit(_effective_user_id(), "inventory_transaction_rollback", transaction_id=tx_id)
         _emit_inventory_event("stock_changed", {"transaction_id": tx_id, "rollback": True})
         return _jsonify_safe({"ok": True})
     except Exception as e:
@@ -708,8 +736,7 @@ def api_transactions_rollback(tx_id):
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/analytics/stock_levels")
-@login_required
-@admin_required
+@api_admin_required
 def api_analytics_stock_levels():
     """Stock levels report with item/location names. Optional item_id, location_id, limit."""
     item_id = request.args.get("item_id", type=int)
@@ -722,8 +749,7 @@ def api_analytics_stock_levels():
 
 
 @internal.route("/api/analytics/movers")
-@login_required
-@admin_required
+@api_admin_required
 def api_analytics_movers():
     """Fast and slow movers by transaction count and quantity in the last N days."""
     days = min(request.args.get("days", type=int) or 30, 365)
@@ -734,8 +760,7 @@ def api_analytics_movers():
 
 
 @internal.route("/api/analytics/activity")
-@login_required
-@admin_required
+@api_admin_required
 def api_analytics_activity():
     """Recent transaction activity with item and location names."""
     days = min(request.args.get("days", type=int) or 7, 90)
@@ -746,8 +771,7 @@ def api_analytics_activity():
 
 
 @internal.route("/api/analytics/suppliers")
-@login_required
-@admin_required
+@api_admin_required
 def api_analytics_suppliers():
     """Supplier list for reporting (optional performance metrics later)."""
     svc = get_inventory_service()
@@ -767,8 +791,7 @@ def _invoice_upload_dir():
 
 
 @internal.route("/api/invoices/upload", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_upload():
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -820,14 +843,13 @@ def api_invoices_upload():
             external_item_ref=line.external_item_ref,
             match_status="unmapped",
         )
-    log_audit(current_user.id, "inventory_invoice_upload", details={"invoice_id": invoice_id})
+    log_audit(_effective_user_id(), "inventory_invoice_upload", details={"invoice_id": invoice_id})
     _emit_inventory_event("invoice_parsed", {"invoice_id": invoice_id})
     return _jsonify_safe({"invoice_id": invoice_id, "lines": len(parsed.lines)}, 201)
 
 
 @internal.route("/api/invoices", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_list():
     """List invoices for admin UI."""
     svc = get_inventory_service()
@@ -839,8 +861,7 @@ def api_invoices_list():
 
 
 @internal.route("/api/invoices/<int:invoice_id>", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_get(invoice_id):
     svc = get_inventory_service()
     inv = svc.get_invoice(invoice_id)
@@ -857,8 +878,7 @@ def api_invoices_get(invoice_id):
 
 
 @internal.route("/api/invoices/<int:invoice_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_update(invoice_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -876,8 +896,7 @@ def api_invoices_update(invoice_id):
 
 
 @internal.route("/api/invoices/<int:invoice_id>/lines/<int:line_id>", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_line_update(invoice_id, line_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -896,8 +915,7 @@ def api_invoices_line_update(invoice_id, line_id):
 
 
 @internal.route("/api/invoices/<int:invoice_id>/lines/<int:line_id>/match", methods=["PUT", "PATCH"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_line_match(invoice_id, line_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -909,8 +927,7 @@ def api_invoices_line_match(invoice_id, line_id):
 
 
 @internal.route("/api/invoices/<int:invoice_id>/apply", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_invoices_apply(invoice_id):
     if not _require_admin():
         return _jsonify_safe({"error": "Forbidden"}, 403)
@@ -924,9 +941,9 @@ def api_invoices_apply(invoice_id):
     result = svc.apply_invoice_to_stock(
         invoice_id,
         int(location_id),
-        performed_by_user_id=getattr(current_user, "id", None),
+        performed_by_user_id=_effective_user_id(),
     )
-    log_audit(current_user.id, "inventory_invoice_apply", details={"invoice_id": invoice_id, **result})
+    log_audit(_effective_user_id(), "inventory_invoice_apply", details={"invoice_id": invoice_id, **result})
     _emit_inventory_event("stock_changed", {"invoice_id": invoice_id})
     return _jsonify_safe(result)
 
@@ -956,7 +973,7 @@ def api_mobile_scan_in():
             location_id=int(location_id),
             quantity=float(quantity),
             transaction_type="in",
-            performed_by_user_id=getattr(current_user, "id", None),
+            performed_by_user_id=_effective_user_id(),
             client_action_id=data.get("client_action_id"),
             weight=data.get("weight"),
             weight_uom=data.get("weight_uom"),
@@ -989,7 +1006,7 @@ def api_mobile_scan_out():
             location_id=int(location_id),
             quantity=float(quantity),
             transaction_type="out",
-            performed_by_user_id=getattr(current_user, "id", None),
+            performed_by_user_id=_effective_user_id(),
             client_action_id=data.get("client_action_id"),
             weight=data.get("weight"),
             weight_uom=data.get("weight_uom"),
@@ -1022,7 +1039,7 @@ def api_mobile_scan_adjust():
             location_id=int(location_id),
             quantity=float(quantity),
             transaction_type="adjustment",
-            performed_by_user_id=getattr(current_user, "id", None),
+            performed_by_user_id=_effective_user_id(),
             client_action_id=data.get("client_action_id"),
             weight=data.get("weight"),
             weight_uom=data.get("weight_uom"),
@@ -1080,7 +1097,7 @@ def api_mobile_bulk_actions():
                     location_id=int(a["location_id"]),
                     quantity=float(a.get("quantity", 1)),
                     transaction_type="in",
-                    performed_by_user_id=getattr(current_user, "id", None),
+                    performed_by_user_id=_effective_user_id(),
                     client_action_id=client_action_id,
                     weight=a.get("weight"),
                     weight_uom=a.get("weight_uom"),
@@ -1097,7 +1114,7 @@ def api_mobile_bulk_actions():
                     location_id=int(a["location_id"]),
                     quantity=float(a.get("quantity", 1)),
                     transaction_type="out",
-                    performed_by_user_id=getattr(current_user, "id", None),
+                    performed_by_user_id=_effective_user_id(),
                     client_action_id=client_action_id,
                     weight=a.get("weight"),
                     weight_uom=a.get("weight_uom"),
@@ -1116,8 +1133,7 @@ def api_mobile_bulk_actions():
 # ---------------------------------------------------------------------------
 
 @internal.route("/api/tokens", methods=["POST"])
-@login_required
-@admin_required
+@api_admin_required
 def api_tokens_create():
     """Create an API token for external supplier access. Raw token returned only once."""
     data = request.get_json() or {}
@@ -1148,7 +1164,7 @@ def api_tokens_create():
         except Exception:
             pass
         conn.close()
-    log_audit(getattr(current_user, "id", None), "inventory_token_create", details={"token_id": token_id, "role": role})
+    log_audit(_effective_user_id(), "inventory_token_create", details={"token_id": token_id, "role": role})
     return _jsonify_safe({
         "id": token_id,
         "name": name,
@@ -1161,8 +1177,7 @@ def api_tokens_create():
 
 
 @internal.route("/api/tokens", methods=["GET"])
-@login_required
-@admin_required
+@api_admin_required
 def api_tokens_list():
     """List API tokens (no secret value)."""
     conn = get_db_connection()
@@ -1188,8 +1203,7 @@ def api_tokens_list():
 
 
 @internal.route("/api/tokens/<int:token_id>", methods=["DELETE"])
-@login_required
-@admin_required
+@api_admin_required
 def api_tokens_revoke(token_id):
     """Revoke an API token."""
     conn = get_db_connection()
@@ -1205,7 +1219,7 @@ def api_tokens_revoke(token_id):
         except Exception:
             pass
         conn.close()
-    log_audit(getattr(current_user, "id", None), "inventory_token_revoke", details={"token_id": token_id})
+    log_audit(_effective_user_id(), "inventory_token_revoke", details={"token_id": token_id})
     return _jsonify_safe({"ok": True})
 
 
@@ -1266,7 +1280,7 @@ def api_supplier_receipts_confirm():
     api_user = getattr(g, "inventory_api_user", None)
     if api_user and api_user.get("supplier_id") is not None and inv.get("supplier_id") != api_user.get("supplier_id"):
         return _jsonify_safe({"error": "Forbidden: invoice not for this supplier"}, 403)
-    performed_by = getattr(current_user, "id", None) if getattr(current_user, "is_authenticated", False) else None
+    performed_by = _effective_user_id()
     try:
         result = svc.apply_invoice_to_stock(
             int(invoice_id), int(location_id), performed_by_user_id=performed_by

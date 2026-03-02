@@ -37,6 +37,7 @@ The core manifest is passed as "config" to all templates.
 """
 
 from app.create_app import update_env_var
+from app.auth_jwt import encode_session_token
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask_login import login_user, logout_user, current_user, login_required
 from app.objects import *
@@ -1162,6 +1163,14 @@ def api_login():
         "site_settings": site_settings,
         "core_manifest": core_manifest
     }
+    # Session token for API clients (Lovable, mobile) that use Bearer auth instead of cookies
+    token = encode_session_token(
+        user_data["id"],
+        user_data["username"],
+        user_data["role"],
+    )
+    if token:
+        response_data["token"] = token
 
     return jsonify(response_data), 200
 

@@ -4,11 +4,44 @@ Copy the block below into Lovable when you want to align the Inventory Control a
 
 ---
 
+## Auth update prompt (use token for API calls)
+
+Use this first if the app runs on a different origin than the ERP (e.g. Lovable preview or a separate domain). It makes the app use a Bearer token instead of relying on cookies, so login and all inventory API calls work cross-origin.
+
+**Inventory Control app — switch to Bearer token auth**
+
+Our backend now returns a **session token** on login. Please update the app so it uses this token for all Inventory API calls instead of (or in addition to) cookies. This allows the app to work when it is served from a different origin than the ERP (e.g. Lovable preview, tablets, mobile).
+
+**1. Login**
+- Keep calling `POST {erpBase}/api/login` with body `{ "username": "...", "password": "..." }`.
+  - `{erpBase}` is the ERP root URL (e.g. `https://your-erp.example.com`), **not** the inventory plugin path. So if Settings has “API base URL” = `https://your-erp.example.com/plugin/inventory_control`, then `erpBase` = `https://your-erp.example.com`.
+- The response already includes `user`, `site_settings`, etc. It now also includes **`token`** (a JWT string). Store this token in memory or in a secure way (e.g. React state or a small auth context). Do not put the token in localStorage if the app may be used on shared devices; in-memory is fine for a session.
+
+**2. All requests to the Inventory plugin**
+- For every request to `{base}/api/*` (e.g. dashboard, items, categories, invoices), send the token in the header:
+  - **`Authorization: Bearer <token>`**
+  - Use the token stored from the login response.
+- You can still send `credentials: 'include'` if the backend is same-origin and you want cookies, but for cross-origin the **token is sufficient** and preferred. The backend accepts either session (cookie) or Bearer token for these endpoints.
+
+**3. Settings**
+- **API base URL** should remain the inventory plugin base, e.g. `https://your-erp.example.com/plugin/inventory_control` (no trailing slash).
+- Add an optional **ERP base URL** (or derive it from API base) for login: e.g. `https://your-erp.example.com`. Login is always `POST {erpBase}/api/login`; all other calls use the existing API base URL with the Bearer token.
+
+**4. Logout**
+- Call `POST {erpBase}/api/logout` if you want to invalidate the server session (optional). Clear the stored token and redirect to the login screen.
+
+**5. 401 handling**
+- If any Inventory API call returns 401, clear the stored token and redirect the user to the login screen (or show “Session expired, please log in again”).
+
+Implement the above so that after login the app sends `Authorization: Bearer <token>` on all requests to `{base}/api/*`. Keep the rest of the app behaviour and UI unchanged.
+
+---
+
 ## Update prompt (copy from here)
 
 **Inventory Control app — backend alignment update**
 
-Our Sparrow ERP backend has been updated. Please update the Lovable Inventory Control app so it matches the API and flows below. Keep the existing calm, professional ERP style (soft shadows, 8px radius, scannable tables). Use the configured API base URL from Settings for all requests; send cookies and `X-CSRFToken` for non-GET; redirect to `/login` on 401/403.
+Our Sparrow ERP backend has been updated. Please update the Lovable Inventory Control app so it matches the API and flows below. Keep the existing calm, professional ERP style (soft shadows, 8px radius, scannable tables). Use the configured API base URL from Settings for all requests. **If the app uses token auth:** send `Authorization: Bearer <token>` on every request to the inventory API (token from login response). Otherwise send cookies and `X-CSRFToken` for non-GET. Redirect to login on 401/403.
 
 **1. Invoice upload**
 

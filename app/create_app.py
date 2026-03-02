@@ -231,7 +231,6 @@ def create_app():
             app.config['SESSION_REDIS'] = _redis.from_url(redis_url)
             app.config['SESSION_COOKIE_HTTPONLY'] = True
             app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-            # In production ensure SESSION_COOKIE_SECURE is True (requires TLS)
             app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
                 'SESSION_COOKIE_SECURE', 'false').lower() == 'true'
             FlaskSession(app)
