@@ -126,6 +126,26 @@ def _emit_inventory_event(event_type: str, payload: dict):
         logger.warning("Socket.IO emit failed: %s", e)
 
 
+def _coerce_int_user_id(value):
+    """
+    inventory_audit.user_id is INT in current schema. Core users often have UUID ids.
+    Coerce only numeric ids; otherwise return None (UUID can be stored in details).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if s.isdigit():
+        try:
+            return int(s)
+        except Exception:
+            return None
+    return None
+
+
 def log_audit(
     user,
     action: str,
@@ -152,6 +172,47 @@ def log_audit(
             audit_logger.info(action, extra={"extra": extra})
         else:
             logger.info("AUDIT: %s", json.dumps(extra, default=str))
+
+        # Optional DB-level audit trail. Safe with UUID users: store numeric user_id when possible
+        # and always include the raw id string in details for traceability.
+        if os.environ.get("INVENTORY_AUDIT_TO_DB", "false").lower() == "true":
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                try:
+                    details_payload = extra.get("details")
+                    if isinstance(details_payload, dict):
+                        details_payload = {**details_payload, "user": str(user)}
+                    else:
+                        details_payload = {"details": details_payload, "user": str(user)}
+                    cur.execute(
+                        """
+                        INSERT INTO inventory_audit (user_id, action, item_id, location_id, batch_id, transaction_id, details)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (
+                            _coerce_int_user_id(user),
+                            action,
+                            item_id,
+                            location_id,
+                            batch_id,
+                            transaction_id,
+                            json.dumps(details_payload, default=str),
+                        ),
+                    )
+                    conn.commit()
+                finally:
+                    try:
+                        cur.close()
+                    except Exception:
+                        pass
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception:
+                # Never break the main request due to audit insert failure
+                logger.exception("DB audit insert failed")
     except Exception:
         logger.exception("Audit logging failed")
 
