@@ -14,8 +14,26 @@ from flask import Blueprint, request, jsonify, render_template, current_app, g, 
 from flask_login import login_required, current_user
 
 from app.objects import get_db_connection
-from app import socketio
-from app.auth_jwt import decode_session_token
+try:
+    from app import socketio
+except ImportError:
+    socketio = None  # optional: app may not expose Socket.IO
+
+# JWT session auth: required for tablet/mobile Bearer token login. If app.auth_jwt is missing,
+# decode_session_token is a stub (returns None) and /api/* routes return 401 for Bearer requests.
+_jwt_decode = None
+try:
+    from app.auth_jwt import decode_session_token as _jwt_decode
+except ImportError:
+    pass
+JWT_AUTH_AVAILABLE = _jwt_decode is not None
+
+def decode_session_token(token):
+    """Decode session JWT; returns None if module unavailable or token invalid."""
+    if _jwt_decode is None:
+        return None
+    return _jwt_decode(token)
+
 from app.openapi_utils import register_path
 
 from .objects import get_inventory_service
@@ -120,6 +138,8 @@ def _jsonify_safe(payload, status=200):
 
 
 def _emit_inventory_event(event_type: str, payload: dict):
+    if socketio is None:
+        return
     try:
         socketio.emit("inventory_event", {"type": event_type, **payload}, broadcast=True)
     except Exception as e:
@@ -254,6 +274,18 @@ def admin_required(f):
     return wrapper
 
 
+def _api_401_payload():
+    """Return 401 JSON payload; add hint when Bearer was sent but JWT auth is unavailable (stub)."""
+    payload = {"error": "Authentication required"}
+    auth = request.headers.get("Authorization") if request else None
+    if auth and auth.startswith("Bearer ") and not JWT_AUTH_AVAILABLE:
+        payload["hint"] = (
+            "Bearer token auth is not available on this server (app.auth_jwt missing). "
+            "Update the deployment to include auth_jwt.py, or use session cookies."
+        )
+    return payload
+
+
 def api_authenticated_required(f):
     """Decorator for /api/* routes: allow any valid Bearer token or session. Return 401 JSON when unauthenticated."""
     @wraps(f)
@@ -262,7 +294,7 @@ def api_authenticated_required(f):
             return f(*args, **kwargs)
         if getattr(current_user, "is_authenticated", False):
             return f(*args, **kwargs)
-        return _jsonify_safe({"error": "Authentication required"}, 401)
+        return _jsonify_safe(_api_401_payload(), 401)
     return wrapper
 
 
@@ -275,19 +307,7 @@ def api_admin_required(f):
             return f(*args, **kwargs)
         if getattr(current_user, "is_authenticated", False) and _is_admin():
             return f(*args, **kwargs)
-        return _jsonify_safe({"error": "Authentication required"}, 401)
-    return wrapper
-
-
-def api_authenticated_required(f):
-    """Decorator for /api/* routes: allow any valid Bearer token or session. Return 401 JSON when unauthenticated."""
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if getattr(g, "token_user", None):
-            return f(*args, **kwargs)
-        if getattr(current_user, "is_authenticated", False):
-            return f(*args, **kwargs)
-        return _jsonify_safe({"error": "Authentication required"}, 401)
+        return _jsonify_safe(_api_401_payload(), 401)
     return wrapper
 
 

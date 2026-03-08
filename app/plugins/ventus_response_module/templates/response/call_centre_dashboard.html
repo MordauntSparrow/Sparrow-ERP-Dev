@@ -9,7 +9,7 @@
       <div class="muted">Live queue for call takers and controllers.</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <a class="btn" href="{{ url_for('medical_response_internal.call_centre_wallboard') }}" target="_blank"><i class="bi bi-tv"></i> Wallboard</a>
+      <a class="btn" href="{{ url_for('.call_centre_wallboard') }}" target="_blank"><i class="bi bi-tv"></i> Wallboard</a>
     </div>
   </div>
   <div class="panel-body" style="padding:0;">
@@ -67,6 +67,16 @@ function fmtElapsed(startValue) {
   return `${mins}m ${String(secs).padStart(2, '0')}s`;
 }
 
+function prettyStatus(status) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'Unknown';
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function tickElapsedCells() {
   const nodes = document.querySelectorAll('.elapsed-live[data-start]');
   nodes.forEach((el) => {
@@ -81,7 +91,7 @@ function statusBadge(status) {
     : (s === 'assigned' || s === 'claimed') ? 'primary'
     : (s === 'mobile' || s === 'on_scene' || s === 'leave_scene' || s === 'at_hospital') ? 'warning'
     : (s === 'cleared' ? 'success' : 'danger');
-  return `<span class="badge ${cls}">${esc(status || 'unknown')}</span>`;
+  return `<span class="badge ${cls}">${esc(prettyStatus(status || 'unknown'))}</span>`;
 }
 
 async function refreshStack() {

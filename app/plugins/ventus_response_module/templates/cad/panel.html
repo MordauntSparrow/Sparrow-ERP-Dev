@@ -359,6 +359,16 @@
       return Number.isNaN(d.getTime()) ? null : d;
     }
 
+    function prettyStatus(status) {
+      const raw = String(status || '').trim();
+      if (!raw) return 'Unknown';
+      return raw
+        .replaceAll('_', ' ')
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, c => c.toUpperCase());
+    }
+
     function formatDuration(ms) {
       if (!Number.isFinite(ms) || ms < 0) return '-';
       const totalMinutes = Math.floor(ms / 60000);
@@ -519,8 +529,8 @@
             <div class="meta" style="margin-bottom:8px;">Created: ${escapeHtml(createdAt)}${isPast ? ` • Cleared: ${escapeHtml(updatedAt)}` : ''}</div>
             <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-              <span class="status">${escapeHtml(job.status || 'unknown')}</span>
-              ${isPast ? `<span class="status">Final: ${escapeHtml(finalStatus)}</span>` : ''}
+              <span class="status">${escapeHtml(prettyStatus(job.status || 'unknown'))}</span>
+              ${isPast ? `<span class="status">Final: ${escapeHtml(prettyStatus(finalStatus))}</span>` : ''}
             </div>
             ${isPast ? `<div style="margin-bottom:8px;"><b>Outcome:</b> ${escapeHtml(outcome)}</div>` : ''}
             ${isPast ? `<div style="margin-bottom:8px;"><b>Public Notes:</b><div style="margin-top:5px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);white-space:pre-wrap;">${escapeHtml(publicNotes)}</div></div>` : ''}
@@ -601,33 +611,27 @@
           }
           const forceBtn = document.getElementById('detailForceBtn');
           if (forceBtn) {
-            forceBtn.addEventListener('click', async () => {
-              const allowed = ['received','assigned','mobile','on_scene','leave_scene','at_hospital','cleared','stood_down'];
-              const chosen = (prompt(`Force status to one of:\n${allowed.join(', ')}`) || '').trim().toLowerCase();
-              if (!chosen) return;
-              if (!allowed.includes(chosen)) {
-                setStatus('Invalid status');
-                return;
-              }
-              const reason = (prompt('Reason for override?') || '').trim();
-              if (!reason) {
-                setStatus('Reason required');
-                return;
-              }
-              forceBtn.disabled = true;
-              try {
-                const res = await fetch(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}/force_status`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: chosen, reason })
-                });
-                if (!res.ok) throw new Error(`Force failed (${res.status})`);
-                await renderJobDetail(cad, false);
-              } catch (e) {
-                setStatus(e.message || 'Force failed');
-              } finally {
-                forceBtn.disabled = false;
-              }
+            forceBtn.addEventListener('click', () => {
+              openForceStatusModal({
+                title: `Force Status for CAD #${cad}`,
+                currentStatus: String(job.status || ''),
+                onConfirm: async ({ status, reason }) => {
+                  forceBtn.disabled = true;
+                  try {
+                    const res = await fetch(`/plugin/ventus_response_module/job/${encodeURIComponent(cad)}/force_status`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status, reason })
+                    });
+                    if (!res.ok) throw new Error(`Force failed (${res.status})`);
+                    await renderJobDetail(cad, false);
+                  } catch (e) {
+                    setStatus(e.message || 'Force failed');
+                  } finally {
+                    forceBtn.disabled = false;
+                  }
+                }
+              });
             });
           }
         }
@@ -666,7 +670,7 @@
             <button class="btn full" id="backToUnitsBtn" style="margin-bottom:10px;"><i class="bi bi-arrow-left"></i> Back</button>
             <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(unit.callSign || callsign)}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-              <span class="status">${escapeHtml(unit.status || 'unknown')}</span>
+              <span class="status">${escapeHtml(prettyStatus(unit.status || 'unknown'))}</span>
             </div>
             <div class="meta" style="margin-bottom:6px;">Latitude: ${escapeHtml(lat !== null ? lat.toFixed(6) : 'N/A')}</div>
             <div class="meta" style="margin-bottom:10px;">Longitude: ${escapeHtml(lon !== null ? lon.toFixed(6) : 'N/A')}</div>
@@ -785,7 +789,7 @@
               <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);cursor:pointer;">
                 <input type="checkbox" class="assign-unit-cb" value="${escapeHtml(cs)}" ${checked}>
                 <span style="font-weight:600;">${escapeHtml(cs)}</span>
-                <span class="meta">${escapeHtml(u.status || 'unknown')}</span>
+                <span class="meta">${escapeHtml(prettyStatus(u.status || 'unknown'))}</span>
               </label>
             `;
           }).join('');
@@ -816,6 +820,75 @@
         .catch(() => setStatus('Failed to load units'));
     }
 
+    function openForceStatusModal(options = {}) {
+      const title = options.title || 'Force Status Override';
+      const currentStatus = String(options.currentStatus || '').trim().toLowerCase();
+      const allowed = Array.isArray(options.allowed) && options.allowed.length
+        ? options.allowed
+        : ['received', 'assigned', 'mobile', 'on_scene', 'leave_scene', 'at_hospital', 'cleared', 'stood_down'];
+      const onConfirm = typeof options.onConfirm === 'function' ? options.onConfirm : null;
+
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:9000;';
+      const optionsHtml = allowed.map((status) => {
+        const selected = status === currentStatus ? 'selected' : '';
+        return `<option value="${escapeHtml(status)}" ${selected}>${escapeHtml(prettyStatus(status))}</option>`;
+      }).join('');
+      modal.innerHTML = `
+        <div style="width:min(540px,92vw);max-height:84vh;overflow:auto;background:rgba(15,23,42,0.98);border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+          <div style="font-weight:700;margin-bottom:10px;">${escapeHtml(title)}</div>
+          <div class="meta" style="margin-bottom:8px;">Select target status:</div>
+          <select id="forceStatusSelect" style="margin-bottom:10px;">
+            ${optionsHtml}
+            <option value="__other__">Other (please specify)</option>
+          </select>
+          <input id="forceStatusOther" type="text" placeholder="Custom status, e.g. awaiting_transport" style="display:none;margin-bottom:10px;">
+          <div class="meta" style="margin-bottom:8px;">Reason for override:</div>
+          <textarea id="forceStatusReason" rows="3" placeholder="Required reason"></textarea>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button id="forceStatusCancel" class="btn full" style="background:transparent;border:1px solid var(--border-color);">Cancel</button>
+            <button id="forceStatusConfirm" class="btn full" style="background:linear-gradient(135deg,#f97316,#ea580c);"><i class="bi bi-check2-circle"></i> Apply Override</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const selectEl = modal.querySelector('#forceStatusSelect');
+      const otherEl = modal.querySelector('#forceStatusOther');
+      const reasonEl = modal.querySelector('#forceStatusReason');
+      const close = () => { try { modal.remove(); } catch (e) {} };
+      const updateOtherVisibility = () => {
+        if (!selectEl || !otherEl) return;
+        otherEl.style.display = selectEl.value === '__other__' ? '' : 'none';
+      };
+      updateOtherVisibility();
+
+      selectEl?.addEventListener('change', updateOtherVisibility);
+      modal.querySelector('#forceStatusCancel')?.addEventListener('click', close);
+      modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
+      modal.querySelector('#forceStatusConfirm')?.addEventListener('click', () => {
+        let chosen = String(selectEl?.value || '').trim().toLowerCase();
+        if (chosen === '__other__') {
+          chosen = String(otherEl?.value || '').trim().toLowerCase().replaceAll(' ', '_');
+        }
+        if (!chosen) {
+          setStatus('Status required');
+          return;
+        }
+        if (!/^[a-z0-9_]+$/.test(chosen)) {
+          setStatus('Status must use letters/numbers/underscore');
+          return;
+        }
+        const reason = String(reasonEl?.value || '').trim();
+        if (!reason) {
+          setStatus('Reason required');
+          return;
+        }
+        close();
+        if (onConfirm) onConfirm({ status: chosen, reason });
+      });
+    }
+
     async function renderJobs() {
       contentEl.innerHTML = `
         <div style="margin-bottom:12px;">
@@ -839,10 +912,10 @@
             <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
             <span>
               <div style="font-weight:600;">CAD #${escapeHtml(j.cad)}</div>
-              <div class="meta">${escapeHtml(j.reason_for_call || 'No reason')} • ${escapeHtml(j.status || 'unknown')}</div>
+              <div class="meta">${escapeHtml(j.reason_for_call || 'No reason')} • ${escapeHtml(prettyStatus(j.status || 'unknown'))}</div>
               <div class="meta">Division: ${escapeHtml(j.division || 'general')}${j.is_external ? ' (external)' : ''}</div>
             </span>
-            <span class="status">${escapeHtml(j.status || 'unknown')}</span>
+            <span class="status">${escapeHtml(prettyStatus(j.status || 'unknown'))}</span>
           </li>
         `).join('');
         listEl.querySelectorAll('[data-cad]').forEach(row => {
@@ -859,6 +932,7 @@
         draw(all.filter(j =>
           String(j.cad || '').includes(q) ||
           String(j.status || '').toLowerCase().includes(q) ||
+          prettyStatus(j.status || '').toLowerCase().includes(q) ||
           String(j.reason_for_call || '').toLowerCase().includes(q)
         ));
       });
@@ -888,10 +962,10 @@
             <i class="bi bi-truck-front" style="color:var(--accent);"></i>
             <span>
               <div style="font-weight:600;">${escapeHtml(u.callSign || 'Unknown')}</div>
-              <div class="meta">${escapeHtml(u.station || 'Mobile')} • ${escapeHtml(u.status || 'unknown')}</div>
+              <div class="meta">${escapeHtml(u.station || 'Mobile')} • ${escapeHtml(prettyStatus(u.status || 'unknown'))}</div>
               <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
             </span>
-            <span class="status">${escapeHtml(u.status || 'unknown')}</span>
+            <span class="status">${escapeHtml(prettyStatus(u.status || 'unknown'))}</span>
           </li>
         `).join('');
         listEl.querySelectorAll('[data-callsign]').forEach(row => {
@@ -907,7 +981,8 @@
         const q = filterEl.value.toLowerCase();
         draw(all.filter(u =>
           String(u.callSign || '').toLowerCase().includes(q) ||
-          String(u.status || '').toLowerCase().includes(q)
+          String(u.status || '').toLowerCase().includes(q) ||
+          prettyStatus(u.status || '').toLowerCase().includes(q)
         ));
       });
       setStatus(`${all.length} units`);
@@ -945,7 +1020,7 @@
               <i class="bi bi-check2-circle" style="color:var(--accent-success);"></i>
               <span>
                 <div style="font-weight:600;">CAD #${escapeHtml(j.cad)}</div>
-                <div class="meta">${escapeHtml(j.status || 'cleared')} • ${escapeHtml(ts)}</div>
+                <div class="meta">${escapeHtml(prettyStatus(j.status || 'cleared'))} • ${escapeHtml(ts)}</div>
                 <div class="meta">Division: ${escapeHtml(j.division || 'general')}${j.is_external ? ' (external)' : ''}</div>
               </span>
             </li>
@@ -964,7 +1039,8 @@
         const q = filterEl.value.toLowerCase();
         draw(all.filter(j =>
           String(j.cad || '').includes(q) ||
-          String(j.status || '').toLowerCase().includes(q)
+          String(j.status || '').toLowerCase().includes(q) ||
+          prettyStatus(j.status || '').toLowerCase().includes(q)
         ));
       });
       setStatus(`${all.length} past jobs`);

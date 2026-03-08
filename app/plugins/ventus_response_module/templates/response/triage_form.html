@@ -8,7 +8,7 @@
       <h1 class="panel-title">Create Incident</h1>
       <div class="muted">{{ selected_form.name }} - {{ selected_form.description }}</div>
     </div>
-    <a href="{{ url_for('medical_response_internal.response_dashboard') }}" class="btn"><i class="bi bi-arrow-left"></i> Back to Intake</a>
+    <a href="{{ url_for('.response_dashboard') }}" class="btn"><i class="bi bi-arrow-left"></i> Back to Intake</a>
   </div>
 </div>
 
@@ -24,7 +24,7 @@
   </div>
 </div>
 
-<form id="triageForm" method="POST" action="{{ url_for('medical_response_internal.triage_form') }}">
+<form id="triageForm" method="POST" action="{{ url_for('.triage_form') }}">
   <input type="hidden" name="form_slug" value="{{ selected_form.slug }}">
   <input type="hidden" name="decision" id="decisionInput" value="ACCEPT">
   <input type="hidden" name="risk_flags" id="riskFlagsInput" value="[]">
@@ -54,7 +54,10 @@
             </div>
             <div>
               <label class="muted">Middle Name</label>
-              <input id="middleNameInput" type="text" name="middle_name">
+              <div style="display:flex;gap:6px;">
+                <input id="middleNameInput" type="text" name="middle_name">
+                <button class="btn" type="button" data-unknown-target="middleNameInput" title="Mark unknown">Unknown</button>
+              </div>
             </div>
             <div>
               <label class="muted">Last Name</label>
@@ -64,18 +67,22 @@
               </div>
             </div>
           </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="unknownFullNameBtn"><i class="bi bi-person-x"></i> Unknown Full Name</button>
+            <button class="btn" type="button" id="copyCallerToPatientBtn"><i class="bi bi-arrow-down-circle"></i> Copy Caller Name/Phone to Patient</button>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
-            <div><label class="muted">DOB</label><input type="date" name="patient_dob"></div>
+            <div><label class="muted">DOB</label><input id="patientDobInput" type="date" name="patient_dob"></div>
             <div>
               <label class="muted">Gender</label>
-              <select name="patient_gender">
+              <select id="patientGenderInput" name="patient_gender">
                 <option value="">Unknown</option>
                 <option value="female">Female</option>
                 <option value="male">Male</option>
                 <option value="other">Other</option>
               </select>
             </div>
-            <div><label class="muted">Patient Phone</label><input type="text" name="phone_number"></div>
+            <div><label class="muted">Patient Phone</label><input id="patientPhoneInput" type="text" name="phone_number"></div>
             <div>
               <label class="muted">Patient Alone?</label>
               <select name="patient_alone">
@@ -85,9 +92,12 @@
               </select>
             </div>
           </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="unknownDemographicsBtn"><i class="bi bi-question-circle"></i> Unknown DOB/Gender/Phone</button>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
-            <div><label class="muted">Caller Name</label><input type="text" name="caller_name"></div>
-            <div><label class="muted">Caller Phone</label><input type="text" name="caller_phone"></div>
+            <div><label class="muted">Caller Name</label><input id="callerNameInput" type="text" name="caller_name"></div>
+            <div><label class="muted">Caller Phone</label><input id="callerPhoneInput" type="text" name="caller_phone"></div>
           </div>
           <div class="muted" style="margin-top:8px;" id="selectedPatientMeta">No matched record selected.</div>
         </div>
@@ -101,7 +111,13 @@
             <textarea name="reason_for_call" rows="3" required placeholder="e.g. Unconscious female at gate B, breathing uncertain"></textarea>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;">
-            <div><label class="muted">Onset Date & Time</label><input type="datetime-local" name="onset_datetime"></div>
+            <div>
+              <label class="muted">Onset Date & Time</label>
+              <div style="display:flex;gap:6px;">
+                <input id="onsetDateTimeInput" type="datetime-local" name="onset_datetime">
+                <button class="btn" type="button" data-unknown-target="onsetDateTimeInput">Unknown</button>
+              </div>
+            </div>
             <div>
               <label class="muted">Call Priority</label>
               <select name="call_priority_override">
@@ -236,7 +252,16 @@
   const patientLookupResults = document.getElementById("patientLookupResults");
   const selectedPatientMeta = document.getElementById("selectedPatientMeta");
   const firstNameInput = document.getElementById("firstNameInput");
+  const middleNameInput = document.getElementById("middleNameInput");
   const lastNameInput = document.getElementById("lastNameInput");
+  const patientDobInput = document.getElementById("patientDobInput");
+  const patientGenderInput = document.getElementById("patientGenderInput");
+  const patientPhoneInput = document.getElementById("patientPhoneInput");
+  const callerNameInput = document.getElementById("callerNameInput");
+  const callerPhoneInput = document.getElementById("callerPhoneInput");
+  const unknownFullNameBtn = document.getElementById("unknownFullNameBtn");
+  const unknownDemographicsBtn = document.getElementById("unknownDemographicsBtn");
+  const copyCallerToPatientBtn = document.getElementById("copyCallerToPatientBtn");
   const incidentAddressInput = document.getElementById("incidentAddressInput");
   const incidentPostcodeInput = document.getElementById("incidentPostcodeInput");
   const accessReqInput = document.getElementById("accessReqInput");
@@ -346,12 +371,40 @@
   function markUnknown(targetId) {
     const el = document.getElementById(targetId);
     if (!el) return;
-    if (!el.value || el.value.trim().length === 0) {
-      el.value = "Unknown";
-    } else {
+    if (el.tagName === "SELECT") {
       el.value = "";
+    } else if (el.type === "date" || el.type === "datetime-local") {
+      el.value = "";
+    } else {
+      el.value = "Unknown";
     }
     try { el.focus(); } catch (e) {}
+  }
+
+  function setUnknownNameRow() {
+    if (firstNameInput) firstNameInput.value = "Unknown";
+    if (middleNameInput) middleNameInput.value = "Unknown";
+    if (lastNameInput) lastNameInput.value = "Unknown";
+  }
+
+  function setUnknownDemographics() {
+    if (patientDobInput) patientDobInput.value = "";
+    if (patientGenderInput) patientGenderInput.value = "";
+    if (patientPhoneInput) patientPhoneInput.value = "Unknown";
+  }
+
+  function copyCallerToPatient() {
+    const callerName = normalizeToken(callerNameInput?.value || "");
+    const callerPhone = normalizeToken(callerPhoneInput?.value || "");
+    if (callerName) {
+      const parts = callerName.split(" ");
+      if (firstNameInput) firstNameInput.value = parts[0] || "";
+      if (lastNameInput) lastNameInput.value = parts.length > 1 ? parts.slice(1).join(" ") : "";
+      if (middleNameInput && !middleNameInput.value) middleNameInput.value = "";
+    }
+    if (callerPhone && patientPhoneInput && !normalizeToken(patientPhoneInput.value)) {
+      patientPhoneInput.value = callerPhone;
+    }
   }
 
   function normalizeToken(v) {
@@ -450,6 +503,9 @@
   document.querySelectorAll("[data-unknown-target]").forEach((btn) => {
     btn.addEventListener("click", () => markUnknown(btn.getAttribute("data-unknown-target")));
   });
+  if (unknownFullNameBtn) unknownFullNameBtn.addEventListener("click", setUnknownNameRow);
+  if (unknownDemographicsBtn) unknownDemographicsBtn.addEventListener("click", setUnknownDemographics);
+  if (copyCallerToPatientBtn) copyCallerToPatientBtn.addEventListener("click", copyCallerToPatient);
   if (accessReqAddBtn) {
     accessReqAddBtn.addEventListener("click", () => addAccessRequirement(encodeURIComponent(accessReqInput?.value || "")));
   }
@@ -487,7 +543,7 @@
   if (profileSelect) {
     profileSelect.addEventListener("change", function () {
       const slug = this.value;
-      window.location.href = `{{ url_for('medical_response_internal.triage_form') }}?form=${encodeURIComponent(slug)}`;
+      window.location.href = `{{ url_for('.triage_form') }}?form=${encodeURIComponent(slug)}`;
     });
   }
 

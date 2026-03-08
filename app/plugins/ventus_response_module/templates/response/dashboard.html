@@ -32,7 +32,7 @@
             </div>
           </div>
           <p class="muted" style="margin-top:0;margin-bottom:10px;">{{ form.description }}</p>
-          <a class="btn primary" href="{{ url_for('medical_response_internal.triage_form') }}?form={{ form.slug }}">
+          <a class="btn primary" href="{{ url_for('.triage_form') }}?form={{ form.slug }}">
             <i class="bi bi-clipboard2-plus"></i> Start {{ form.name }}
           </a>
         </div>

@@ -9,7 +9,7 @@
       <div class="muted">CAD #{{ cad }} live incident management.</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <a class="btn" href="{{ url_for('medical_response_internal.call_centre_wallboard') }}" target="_blank"><i class="bi bi-tv"></i> Wallboard</a>
+      <a class="btn" href="{{ url_for('.call_centre_wallboard') }}" target="_blank"><i class="bi bi-tv"></i> Wallboard</a>
     </div>
   </div>
 </div>
@@ -105,7 +105,7 @@
 {% block extra_scripts %}
 <script>
 const CAD = {{ cad|int }};
-const CALL_CENTRE_URL = "{{ url_for('medical_response_internal.call_centre_dashboard') }}";
+const CALL_CENTRE_URL = "{{ url_for('.call_centre_dashboard') }}";
 let latestJob = null;
 const editableFieldIds = [
   'reasonForCall',
@@ -138,13 +138,23 @@ function fmt(v) {
   return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString();
 }
 
+function prettyStatus(status) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'Unknown';
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function statusBadge(status) {
   const s = String(status || '').toLowerCase().trim();
   const cls = (s === 'queued') ? 'secondary'
     : (s === 'assigned' || s === 'claimed') ? 'primary'
     : (s === 'mobile' || s === 'on_scene' || s === 'leave_scene' || s === 'at_hospital') ? 'warning'
     : (s === 'cleared' ? 'success' : 'danger');
-  return `<span class="badge ${cls}">${esc(status || 'unknown')}</span>`;
+  return `<span class="badge ${cls}">${esc(prettyStatus(status || 'unknown'))}</span>`;
 }
 
 function setupDirtyTracking() {
@@ -288,7 +298,7 @@ async function loadJob() {
   let html = units.length
     ? `<div><strong>Assigned:</strong> ${esc(units.join(', '))}</div>`
     : '<div style="color:#ef4444;">No unit assigned yet</div>';
-  html += `<div class="muted" style="margin-top:6px;">Status: ${esc(job.status || '-')}</div>`;
+  html += `<div class="muted" style="margin-top:6px;">Status: ${esc(prettyStatus(job.status || '-'))}</div>`;
   document.getElementById('assignmentInfo').innerHTML = html;
 }
 

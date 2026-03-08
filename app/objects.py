@@ -809,8 +809,14 @@ class UpdateManager:
                 raise Exception(
                     f"Failed to download update from {url}: {r.status_code} - {snippet}")
 
-    def apply_zip(self, zip_path, target_path):
-        """Extract a zip into target_path, handling single-root and flat zips, with basic safety."""
+    def apply_zip(self, zip_path, target_path, strip_leading_app=False):
+        """
+        Extract a zip into target_path, handling single-root and flat zips, with basic safety.
+
+        If strip_leading_app is True (e.g. for core update into app/), any relative path
+        starting with "app/" is stripped so files land in target_path instead of target_path/app/.
+        This ensures zips built as e.g. Core_v1.1.5/app/auth_jwt.py still add new files to app/.
+        """
         if not os.path.exists(zip_path):
             raise Exception(f"Update file not found: {zip_path}")
 
@@ -835,10 +841,16 @@ class UpdateManager:
                     continue
                 rel = member[len(
                     root) + 1:] if (flatten and member.startswith(root + '/')) else member
+                if strip_leading_app and rel.startswith('app/'):
+                    rel = rel[4:].lstrip('/')
+                if not rel:
+                    continue
                 if not is_safe(rel):
                     continue
                 dest = os.path.join(target_path, rel)
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                parent = os.path.dirname(dest)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
                 with zf.open(member) as src, open(dest, 'wb') as out:
                     shutil.copyfileobj(src, out)
                 # optional: preserve Unix perms
@@ -1064,7 +1076,7 @@ class UpdateManager:
                 self.download_update(download_url, zip_path)
 
                 print("Applying core update...")
-                self.apply_zip(zip_path, system_root)
+                self.apply_zip(zip_path, system_root, strip_leading_app=True)
 
                 # Update local core manifest version (app/config/manifest.json)
                 manifest_path = os.path.join(

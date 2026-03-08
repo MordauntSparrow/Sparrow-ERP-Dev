@@ -34,15 +34,35 @@
 <!-- Notification stack (bottom-right) -->
 <div id="notifications" class="notifications-container" aria-live="polite"></div>
 
+<style>
+.leaflet-tooltip.unit-map-label {
+  background: rgba(15, 23, 42, 0.88);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(2, 6, 23, 0.35);
+  pointer-events: none;
+}
+:root[data-theme="light"] .leaflet-tooltip.unit-map-label {
+  background: rgba(248, 250, 252, 0.95);
+  color: #0f172a;
+  border-color: rgba(100, 116, 139, 0.45);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.15);
+}
+</style>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 // ===== GLOBALS =====
-let map, jobsLayer, unitsLayer;
+let map, jobsLayer, unitsLayer, unitLinksLayer;
 let jobsData = [], unitsData = [];
+let jobCoordByCad = new Map();
 let openPanels = {};
 let currentMsgCallsign = null;
-let selectedJobs = new Set();
 let activeJobCad = null;
 let jobSnapshot = new Map();
 let jobSnapshotInitialized = false;
@@ -50,6 +70,7 @@ let seenCommIds = new Set();
 let commSnapshotInitialized = false;
 let unitsSnapshot = new Set();
 let unitsSnapshotInitialized = false;
+let panelZCounter = 560;
 // Optional sounds disabled by default to avoid CDN/autoplay errors in console.
 let soundNewJob = null;
 let soundUrgent = null;
@@ -70,6 +91,16 @@ try { bc = new BroadcastChannel('ventus_cad'); } catch (e) { console.warn('Broad
 
 function normalizeStatus(status) {
   return String(status || '').trim().toLowerCase();
+}
+
+function prettyStatus(status) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'Unknown';
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 function parseTime(value) {
@@ -127,7 +158,7 @@ function renderJobMapQuickPreview(job) {
   return `
     <div style="min-width:260px;max-width:320px;">
       <div style="font-weight:700;margin-bottom:6px;">CAD #${escapeHtml(Number.isFinite(cad) ? cad : '?')}</div>
-      <div class="meta" style="margin-bottom:4px;">Priority: ${escapeHtml(priority)} • Status: ${escapeHtml(status)}</div>
+      <div class="meta" style="margin-bottom:4px;">Priority: ${escapeHtml(priority)} • Status: ${escapeHtml(prettyStatus(status))}</div>
       <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
       <div class="meta" style="margin-bottom:6px;">Elapsed: ${escapeHtml(elapsed)}</div>
       <div style="font-size:12px;margin-bottom:4px;"><b>Reason:</b> ${escapeHtml(reason)}</div>
@@ -569,6 +600,43 @@ function getOrCreatePanel(type, title) {
   return createPanel(type, title);
 }
 
+function clampPanelToViewport(el) {
+  if (!el) return;
+  const host = panelsContainer || el.parentElement;
+  const hostW = (host && host.clientWidth) ? host.clientWidth : window.innerWidth;
+  const hostH = (host && host.clientHeight) ? host.clientHeight : window.innerHeight;
+  const w = el.offsetWidth || 420;
+  const h = el.offsetHeight || 400;
+  const left = parseInt(el.style.left, 10) || 0;
+  const top = parseInt(el.style.top, 10) || 0;
+  const maxX = Math.max(8, hostW - w - 8);
+  const maxY = Math.max(8, hostH - h - 8);
+  const nx = Math.min(maxX, Math.max(8, left));
+  const ny = Math.min(maxY, Math.max(8, top));
+  el.style.left = nx + 'px';
+  el.style.top = ny + 'px';
+}
+
+function raisePanel(panelEl) {
+  if (!panelEl) return;
+  panelZCounter += 1;
+  panelEl.style.zIndex = String(panelZCounter);
+}
+
+function savePanelState(panelEl) {
+  if (!panelEl) return;
+  try {
+    const key = 'cad_panel_state_' + (panelEl.dataset.panelType || 'panel');
+    const state = {
+      left: panelEl.style.left,
+      top: panelEl.style.top,
+      width: panelEl.style.width,
+      height: panelEl.style.height
+    };
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch (e) {}
+}
+
 function createPanel(type, title) {
   const panelId = 'panel-' + type + '-' + Date.now();
   const panelEl = document.createElement('div');
@@ -652,21 +720,7 @@ function createPanel(type, title) {
   loadPanelContent(panelId, type);
 
   // Clamp panel into viewport so it opens on-map
-  try {
-    const clamp = (el) => {
-      if (!el) return;
-      const w = el.offsetWidth || 420;
-      const h = el.offsetHeight || 400;
-      const left = parseInt(el.style.left) || 0;
-      const top = parseInt(el.style.top) || 0;
-      const maxX = Math.max(16, window.innerWidth - w - 16);
-      const maxY = Math.max(80, window.innerHeight - h - 16);
-      const nx = Math.min(maxX, Math.max(8, left));
-      const ny = Math.min(maxY, Math.max(8, top));
-      el.style.left = nx + 'px'; el.style.top = ny + 'px';
-    };
-    clamp(panelEl);
-  } catch (e) {}
+  try { clampPanelToViewport(panelEl); } catch (e) {}
 
   return panelEl;
 }
@@ -678,40 +732,66 @@ function setupDragResize(panelId) {
   const header = panelEl.querySelector('.cad-panel-header');
   if (!header) return;
 
+  panelEl.addEventListener('pointerdown', () => raisePanel(panelEl));
   header.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.cad-panel-controls')) return;
-    panelEl.style.opacity = '0.85';
-    panelEl.style.zIndex = '150';
+    e.preventDefault();
+    raisePanel(panelEl);
+    header.setPointerCapture?.(e.pointerId);
+    panelEl.style.opacity = '0.90';
 
-    const onUp = () => {
-      document.removeEventListener('pointerup', onUp);
-      panelEl.style.opacity = '1';
-      panelEl.style.zIndex = '';
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const baseLeft = parseInt(panelEl.style.left, 10) || 8;
+    const baseTop = parseInt(panelEl.style.top, 10) || 8;
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      panelEl.style.left = (baseLeft + dx) + 'px';
+      panelEl.style.top = (baseTop + dy) + 'px';
+      clampPanelToViewport(panelEl);
     };
 
+    const onUp = (ev) => {
+      try { header.releasePointerCapture?.(e.pointerId); } catch (err) {}
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      panelEl.style.opacity = '1';
+      savePanelState(panelEl);
+    };
+
+    document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   });
 
   // Add resize handle behavior (bottom-right)
   try {
     const resizeHandle = panelEl.querySelector('.resize-handle');
-    const key = 'cad_panel_state_' + panelEl.dataset.panelType;
     if (resizeHandle) {
       resizeHandle.style.touchAction = 'none';
       resizeHandle.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
+        e.preventDefault();
+        raisePanel(panelEl);
         resizeHandle.setPointerCapture?.(e.pointerId);
         const startX = e.clientX, startY = e.clientY;
         const startW = panelEl.offsetWidth, startH = panelEl.offsetHeight;
-        const minW = 260, minH = 120;
-
-        const aspect = startW / startH || 1;
+        const minW = 320, minH = 220;
+        const host = panelsContainer || panelEl.parentElement;
+        const hostW = (host && host.clientWidth) ? host.clientWidth : window.innerWidth;
+        const hostH = (host && host.clientHeight) ? host.clientHeight : window.innerHeight;
+        const startLeft = parseInt(panelEl.style.left, 10) || 8;
+        const startTop = parseInt(panelEl.style.top, 10) || 8;
+        const maxW = Math.max(minW, hostW - startLeft - 8);
+        const maxH = Math.max(minH, hostH - startTop - 8);
         const onMove = (ev) => {
           const dx = ev.clientX - startX, dy = ev.clientY - startY;
-          const nw = Math.max(minW, startW + dx);
-          const nh = Math.max(minH, Math.round(nw / aspect));
+          const nw = Math.min(maxW, Math.max(minW, startW + dx));
+          const nh = Math.min(maxH, Math.max(minH, startH + dy));
           panelEl.style.width = nw + 'px';
           panelEl.style.height = nh + 'px';
+          clampPanelToViewport(panelEl);
           try {
             let sizeOverlay = document.getElementById('panel-size-overlay');
             if (!sizeOverlay) {
@@ -735,7 +815,11 @@ function setupDragResize(panelId) {
           try { resizeHandle.releasePointerCapture?.(e.pointerId); } catch (err) {}
           document.removeEventListener('pointermove', onMove);
           document.removeEventListener('pointerup', onUp);
-          try { const state = { left: panelEl.style.left, top: panelEl.style.top, width: panelEl.style.width, height: panelEl.style.height }; localStorage.setItem(key, JSON.stringify(state)); } catch (err) {}
+          try {
+            const sizeOverlay = document.getElementById('panel-size-overlay');
+            if (sizeOverlay) sizeOverlay.style.display = 'none';
+          } catch (e) {}
+          savePanelState(panelEl);
         };
 
         document.addEventListener('pointermove', onMove);
@@ -882,11 +966,32 @@ const unitIcon = L.icon({
   iconSize: [22, 32], iconAnchor: [11, 32], popupAnchor: [0, -30]
 });
 
+function renderUnitMapQuickPreview(unit) {
+  const cs = String(unit && unit.callSign || '').trim() || '?';
+  const status = String(unit && unit.status || 'unknown').trim() || 'unknown';
+  const assignedCad = Number(unit && unit.assignedIncident);
+  const standbyName = String(unit && unit.standby_name || '').trim();
+  const division = String(unit && unit.division || 'general').trim();
+  const target = Number.isFinite(assignedCad) && assignedCad > 0
+    ? `Assigned CAD #${assignedCad}`
+    : (standbyName ? `Standby: ${standbyName}` : 'No target');
+  return `
+    <div style="min-width:220px;max-width:280px;">
+      <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(cs)}</div>
+      <div class="meta" style="margin-bottom:4px;">Status: ${escapeHtml(prettyStatus(status))}</div>
+      <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
+      <div class="meta" style="margin-bottom:8px;">${escapeHtml(target)}</div>
+      <button class="btn" style="width:100%;padding:6px 8px;font-size:12px;" onclick="loadUnitDetail(${JSON.stringify(cs)})">Open Unit Detail</button>
+    </div>
+  `;
+}
+
 function initMap() {
   let defaultLat = 53.9583, defaultLng = -1.0803, defaultZoom = 9;
   map = L.map('map').setView([defaultLat, defaultLng], defaultZoom);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   jobsLayer = L.layerGroup().addTo(map);
+  unitLinksLayer = L.layerGroup().addTo(map);
   unitsLayer = L.layerGroup().addTo(map);
 
   if (navigator.geolocation) {
@@ -899,10 +1004,8 @@ function initMap() {
 
 let lastJobsCount = 0;
 function refreshMap() {
-  jobsLayer.clearLayers();
-  unitsLayer.clearLayers();
-
   fetch(withDivision('/plugin/ventus_response_module/jobs')).then(r => r.json()).then(jobs => {
+    jobsLayer.clearLayers();
     jobsData = jobs;
     if (jobs.length > lastJobsCount) {
       const newest = jobs[0] || {};
@@ -916,8 +1019,11 @@ function refreshMap() {
       } catch (e) { }
     }
     lastJobsCount = jobs.length;
+    jobCoordByCad = new Map();
     jobs.forEach(job => {
       if (job.lat && job.lng) {
+        const cadInt = parseInt(job.cad, 10);
+        if (Number.isFinite(cadInt)) jobCoordByCad.set(cadInt, [Number(job.lat), Number(job.lng)]);
         const marker = L.marker([job.lat, job.lng], { icon: jobIcon })
           .addTo(jobsLayer);
         if (job.is_external) marker.setOpacity(0.45);
@@ -930,6 +1036,8 @@ function refreshMap() {
   });
 
   fetch(withDivision('/plugin/ventus_response_module/units')).then(r => r.json()).then(units => {
+    if (unitLinksLayer) unitLinksLayer.clearLayers();
+    unitsLayer.clearLayers();
     unitsData = units;
     const nextUnits = new Set((Array.isArray(units) ? units : []).map(u => String(u.callSign || '')).filter(Boolean));
     if (unitsSnapshotInitialized) {
@@ -954,7 +1062,35 @@ function refreshMap() {
           .addTo(unitsLayer);
         if (unit.is_external) marker.setOpacity(0.4);
         marker
-          .bindTooltip(unit.callSign, { direction: "top" });
+          .bindTooltip(`<div style="text-align:center;line-height:1.2;"><div>${escapeHtml(unit.callSign || '')}</div><div style="font-size:10px;opacity:0.9;">${escapeHtml(prettyStatus(unit.status || 'unknown'))}</div></div>`, {
+            direction: "bottom",
+            permanent: true,
+            className: 'unit-map-label',
+            offset: [0, 14]
+          })
+          .bindPopup(renderUnitMapQuickPreview(unit), { closeButton: true, autoPan: true, maxWidth: 300 });
+
+        const assignedCad = parseInt(unit.assignedIncident, 10);
+        let targetPoint = null;
+        let isStandby = false;
+        if (Number.isFinite(assignedCad) && assignedCad > 0 && jobCoordByCad.has(assignedCad)) {
+          targetPoint = jobCoordByCad.get(assignedCad);
+        } else if (unit.standby_lat != null && unit.standby_lng != null) {
+          targetPoint = [Number(unit.standby_lat), Number(unit.standby_lng)];
+          isStandby = true;
+        }
+        if (targetPoint && unitLinksLayer) {
+          const line = L.polyline(
+            [[Number(unit.latitude), Number(unit.longitude)], targetPoint],
+            {
+              color: isStandby ? '#f59e0b' : '#22c55e',
+              weight: isStandby ? 2 : 3,
+              opacity: 0.85,
+              dashArray: isStandby ? '8 8' : null
+            }
+          ).addTo(unitLinksLayer);
+          if (unit.is_external) line.setStyle({ opacity: 0.45 });
+        }
       }
     });
     refreshOpenPanels(['units', 'messages']);
@@ -1262,9 +1398,6 @@ function loadJobsPanel(contentEl) {
   contentEl.innerHTML = `
     <div style="margin-bottom:12px;">
       <input type="search" placeholder="🔍 Search..." class="job-filter" style="margin-bottom:8px;">
-      <div style="display:flex;gap:6px;">
-        <button class="btn" onclick="bulkAssign()" style="width:100%;"><i class="bi bi-person-check"></i> Assign</button>
-      </div>
     </div>
     <ul id="jobsList" style="list-style:none;padding:0;margin:0;"></ul>
   `;
@@ -1313,18 +1446,17 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
       : '';
     html += `
       <li class="panel-list-item" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})">
-        <input type="checkbox" onchange="toggleJobSelect(${job.cad}, event)" ${selectedJobs.has(job.cad) ? 'checked' : ''}>
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
           <div style="font-weight:500;">CAD #${job.cad}</div>
-          <div class="meta">${job.reason_for_call || 'No reason'} • ${job.status}</div>
+          <div class="meta">${job.reason_for_call || 'No reason'} • ${prettyStatus(job.status)}</div>
           <div class="meta">Division: ${escapeHtml(job.division || 'general')}${job.is_external ? ' (external)' : ''}</div>
           ${priority ? `<div class="meta"><span class="status" style="${priorityClass}">${escapeHtml(priority)}</span></div>` : ''}
           ${ongoing ? `<div class="meta" style="font-size:11px;color:#fcd34d;">Ongoing: ${escapeHtml(ongoing)}</div>` : ''}
           ${currentTimer ? `<div class="meta" style="font-size:11px;color:#93c5fd;">Current: ${escapeHtml(currentTimer)}</div>` : ''}
           <div class="meta" style="font-size:11px;color:#a7f3d0;cursor:${suggested ? 'pointer' : 'default'};text-decoration:${suggested ? 'underline' : 'none'};" onclick='event.stopPropagation();${suggested ? `assignJobWithSuggestion(${job.cad}, ${JSON.stringify(suggested)})` : ""}'>${escapeHtml(eligibility)}${suggested ? ' (click to prefill assign)' : ''}</div>
         </span>
-        <span class="status" style="background:rgba(59,130,246,0.2);color:var(--primary-light);">${job.status}</span>
+        <span class="status" style="background:rgba(59,130,246,0.2);color:var(--primary-light);">${prettyStatus(job.status)}</span>
       </li>
     `;
   });
@@ -1385,7 +1517,7 @@ function loadPastJobsPanel(contentEl) {
         <ul class="panel-list">
           ${list.map(j => `
             <li class="panel-list-item" style="cursor:pointer;" onclick="openJobDetailFromMap(${parseInt(j.cad || 0, 10) || 0})">
-              <div class="title">CAD #${escapeHtml(j.cad || '?')} - ${escapeHtml(j.status || 'cleared')}</div>
+              <div class="title">CAD #${escapeHtml(j.cad || '?')} - ${escapeHtml(prettyStatus(j.status || 'cleared'))}</div>
               <div class="meta">${escapeHtml(j.priority || '--')} • ${escapeHtml(j.reason_for_call || 'No reason')}</div>
               <div class="meta">${escapeHtml(j.address || j.postcode || '')}</div>
             </li>
@@ -1419,11 +1551,11 @@ function renderUnitsList(units, contentEl) {
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
           <div style="font-weight:600;">${callsign}</div>
-          <div class="meta">${u.station || 'Mobile'} • ${u.status}</div>
+          <div class="meta">${u.station || 'Mobile'} • ${prettyStatus(u.status)}</div>
           <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
         </span>
         ${externalActions}
-        <span class="status" style="background:rgba(16,185,129,0.2);color:var(--accent-success);">${u.status}</span>
+        <span class="status" style="background:rgba(16,185,129,0.2);color:var(--accent-success);">${prettyStatus(u.status)}</span>
       </li>
     `;
   });
@@ -1436,37 +1568,85 @@ const dispatchMsgState = {
   selectedUnit: '',
   draft: ''
 };
+const dispatchMsgUI = {
+  collapsed: {
+    inbox: false,
+    conversations: false,
+    assist: false,
+    motd: false
+  }
+};
 
 function loadMsgPanel(contentEl) {
   contentEl.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr;gap:10px;">
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="font-weight:700;margin-bottom:8px;">Response Centre / Incident Inbox</div>
-        <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;"></ul>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:700;">Response Centre / Incident Inbox</div>
+          <button class="btn" id="toggleInboxPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+        </div>
+        <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;${dispatchMsgUI.collapsed.inbox ? 'display:none;' : ''}"></ul>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="font-weight:700;margin-bottom:8px;">Conversations</div>
-        <div id="msgRecipientChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-        <div id="msgsList" style="list-style:none;padding:8px;margin:0 0 10px 0;height:220px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.16);"></div>
-        <div id="msgReplyMeta" class="meta" style="margin-bottom:8px;">Select a unit to start messaging.</div>
-        <textarea id="msgTextInput" rows="3" placeholder="Type message to selected unit..." style="margin-bottom:8px;resize:vertical;"></textarea>
-        <div style="display:flex;gap:8px;">
-          <button id="msgAckBtn" class="btn" style="flex:1;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-check2-circle"></i> Acknowledge</button>
-          <button id="msgSendBtn" class="btn" style="flex:1;"><i class="bi bi-send"></i> Send Reply</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:700;">Conversations</div>
+          <button class="btn" id="toggleConversationsPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+        </div>
+        <div id="conversationBlock" style="${dispatchMsgUI.collapsed.conversations ? 'display:none;' : ''}">
+          <div id="msgRecipientChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+          <div id="msgsList" style="list-style:none;padding:8px;margin:0 0 10px 0;height:220px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;background:rgba(0,0,0,0.16);"></div>
+          <div id="msgReplyMeta" class="meta" style="margin-bottom:8px;">Select a unit to start messaging.</div>
+          <textarea id="msgTextInput" rows="3" placeholder="Type message to selected unit..." style="margin-bottom:8px;resize:vertical;"></textarea>
+          <div style="display:flex;gap:8px;">
+            <button id="msgAckBtn" class="btn" style="flex:1;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-check2-circle"></i> Acknowledge</button>
+            <button id="msgSendBtn" class="btn" style="flex:1;"><i class="bi bi-send"></i> Send Reply</button>
+          </div>
         </div>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="font-weight:700;margin-bottom:6px;">Cross-Division Assist Requests</div>
-        <ul id="dispatcherAssistList" style="list-style:none;padding:0;margin:0;max-height:150px;overflow:auto;"></ul>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-weight:700;">Cross-Division Assist Requests</div>
+          <button class="btn" id="toggleAssistPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+        </div>
+        <ul id="dispatcherAssistList" style="list-style:none;padding:0;margin:0;max-height:150px;overflow:auto;${dispatchMsgUI.collapsed.assist ? 'display:none;' : ''}"></ul>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="font-weight:700;margin-bottom:6px;">Dispatch Note / Message of the Day</div>
-        <div id="motdDisplay" style="font-size:12px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);margin-bottom:8px;">Loading note...</div>
-        <button id="motdReloadBtn" class="btn" style="width:100%;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-arrow-clockwise"></i> Refresh Note</button>
-        <div id="motdMeta" class="meta" style="margin-top:6px;">Loading note...</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-weight:700;">Dispatch Note / Message of the Day</div>
+          <button class="btn" id="toggleMotdPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+        </div>
+        <div id="motdBlock" style="${dispatchMsgUI.collapsed.motd ? 'display:none;' : ''}">
+          <div id="motdDisplay" style="font-size:12px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border-color);border-radius:8px;background:rgba(0,0,0,0.2);margin-bottom:8px;">Loading note...</div>
+          <button id="motdReloadBtn" class="btn" style="width:100%;background:transparent;border:1px solid var(--border-color);"><i class="bi bi-arrow-clockwise"></i> Refresh Note</button>
+          <div id="motdMeta" class="meta" style="margin-top:6px;">Loading note...</div>
+        </div>
       </div>
     </div>
   `;
+
+  const toggleLabel = (btn, collapsed) => { if (btn) btn.textContent = collapsed ? 'Expand' : 'Minimise'; };
+  const toggleSection = (key, blockEl, btnEl) => {
+    dispatchMsgUI.collapsed[key] = !dispatchMsgUI.collapsed[key];
+    if (blockEl) blockEl.style.display = dispatchMsgUI.collapsed[key] ? 'none' : '';
+    toggleLabel(btnEl, dispatchMsgUI.collapsed[key]);
+  };
+
+  const inboxListEl = contentEl.querySelector('#dispatcherInboxList');
+  const convoBlockEl = contentEl.querySelector('#conversationBlock');
+  const assistListEl = contentEl.querySelector('#dispatcherAssistList');
+  const motdBlockEl = contentEl.querySelector('#motdBlock');
+  const toggleInboxBtn = contentEl.querySelector('#toggleInboxPanelBtn');
+  const toggleConvoBtn = contentEl.querySelector('#toggleConversationsPanelBtn');
+  const toggleAssistBtn = contentEl.querySelector('#toggleAssistPanelBtn');
+  const toggleMotdBtn = contentEl.querySelector('#toggleMotdPanelBtn');
+  toggleLabel(toggleInboxBtn, dispatchMsgUI.collapsed.inbox);
+  toggleLabel(toggleConvoBtn, dispatchMsgUI.collapsed.conversations);
+  toggleLabel(toggleAssistBtn, dispatchMsgUI.collapsed.assist);
+  toggleLabel(toggleMotdBtn, dispatchMsgUI.collapsed.motd);
+  toggleInboxBtn?.addEventListener('click', () => toggleSection('inbox', inboxListEl, toggleInboxBtn));
+  toggleConvoBtn?.addEventListener('click', () => toggleSection('conversations', convoBlockEl, toggleConvoBtn));
+  toggleAssistBtn?.addEventListener('click', () => toggleSection('assist', assistListEl, toggleAssistBtn));
+  toggleMotdBtn?.addEventListener('click', () => toggleSection('motd', motdBlockEl, toggleMotdBtn));
 
   const msgsList = contentEl.querySelector('#msgsList');
   const recipientChips = contentEl.querySelector('#msgRecipientChips');
@@ -1707,12 +1887,6 @@ function loadMsgPanel(contentEl) {
 }
 
 // ===== ACTIONS =====
-window.toggleJobSelect = function(cad, ev) {
-  ev.stopPropagation();
-  if (ev.target.checked) selectedJobs.add(cad);
-  else selectedJobs.delete(cad);
-};
-
 window.transferUnitToMyDivision = function(callsign) {
   if (!callsign || !selectedDivision) return;
   fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(callsign)}/transfer-division`, {
@@ -1853,7 +2027,7 @@ window.loadUnitDetail = function(callsign) {
           ${currentJob ? `<div class="meta">${escapeHtml(currentJob.reason_for_call || '')}</div><button id="unitOpenJobBtn" class="btn" style="margin-top:8px;width:100%;"><i class="bi bi-folder2-open"></i> Open Current CAD</button>` : ''}
           <div class="meta" style="margin-top:8px;">Jobs since sign on: <b>${escapeHtml(String(detail.jobs_since_sign_on || 0))}</b></div>
           <div style="max-height:120px;overflow:auto;margin-top:6px;border:1px dashed var(--border-color);border-radius:8px;padding:6px;">
-            ${(recentJobs.length ? recentJobs.map(j => `<div class="meta" style="margin-bottom:4px;">CAD #${escapeHtml(j.cad)} • ${escapeHtml(j.status || '')} • ${escapeHtml(j.last_event || '')}</div>`).join('') : '<div class="meta">No jobs logged yet.</div>')}
+            ${(recentJobs.length ? recentJobs.map(j => `<div class="meta" style="margin-bottom:4px;">CAD #${escapeHtml(j.cad)} • ${escapeHtml(prettyStatus(j.status || ''))} • ${escapeHtml(j.last_event || '')}</div>`).join('') : '<div class="meta">No jobs logged yet.</div>')}
           </div>
         </div>
       </div>
@@ -2066,7 +2240,7 @@ function openAssignUnitsModal(options = {}) {
           <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:${u.is_external ? 'rgba(148,163,184,0.18)' : 'rgba(2,6,23,0.65)'};cursor:pointer;">
             <input type="checkbox" class="assign-unit-cb" value="${escapeHtml(cs)}" ${checked}>
             <span style="font-weight:600;">${escapeHtml(cs)}</span>
-            <span style="font-size:12px;color:var(--text-muted);">${escapeHtml(u.status || 'unknown')}</span>
+            <span style="font-size:12px;color:var(--text-muted);">${escapeHtml(prettyStatus(u.status || 'unknown'))}</span>
             <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${escapeHtml(u.division || 'general')}${u.is_external ? ' external' : ''}</span>
           </label>
         `;
@@ -2116,28 +2290,6 @@ function openAssignUnitsModal(options = {}) {
     });
 }
 
-window.bulkAssign = function() {
-  if (selectedJobs.size === 0) {
-    showNotification('warning', 'Select Jobs');
-    return;
-  }
-  openAssignUnitsModal({
-    title: `Assign Units to ${selectedJobs.size} Job(s)`,
-    onConfirm: ({ callsigns, transferDivision }) => {
-      selectedJobs.forEach(cad => {
-        fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callsigns, division: selectedDivision, transfer_division: transferDivision })
-        }).catch(() => { });
-      });
-      showNotification('success', 'Assigned', `${selectedJobs.size} jobs -> ${callsigns.join(', ')}`);
-      selectedJobs.clear();
-      setTimeout(refreshMap, 1000);
-    }
-  });
-};
-
 window.assignJobWithSuggestion = function(cad, suggestedCallsign = '') {
   const hint = (suggestedCallsign || '').trim();
   openAssignUnitsModal({
@@ -2158,22 +2310,6 @@ window.assignJobWithSuggestion = function(cad, suggestedCallsign = '') {
         .catch(() => showNotification('danger', 'Error'));
     }
   });
-};
-
-window.bulkClose = function() {
-  if (selectedJobs.size === 0) {
-    showNotification('warning', 'Select Jobs');
-    return;
-  }
-  if (!confirm(`Close ${selectedJobs.size} jobs?`)) return;
-
-  selectedJobs.forEach(cad => {
-    fetch(`/plugin/ventus_response_module/job/${cad}/close`, { method: 'POST' }).catch(() => { });
-  });
-
-  showNotification('success', 'Closed', `${selectedJobs.size} jobs`);
-  selectedJobs.clear();
-  setTimeout(refreshMap, 1000);
 };
 
 window.loadJobDetail = function(cad) {
@@ -2223,7 +2359,7 @@ window.loadJobDetail = function(cad) {
 
       contentEl.innerHTML = `
         <div>
-          <div style="font-weight:600;margin-bottom:8px;">Status: ${job.status}</div>
+          <div style="font-weight:600;margin-bottom:8px;">Status: ${prettyStatus(job.status)}</div>
           <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
           <div style="margin-bottom:8px;">
             <div class="meta" style="margin-bottom:4px;">Assigned Units</div>
@@ -2488,6 +2624,12 @@ function togglePanelByType(type, title, btn) {
     if (btn) btn.classList.add('active');
   } catch (e) { }
 }
+
+window.addEventListener('resize', () => {
+  Object.values(openPanels).forEach((p) => {
+    try { clampPanelToViewport(p.element); } catch (e) {}
+  });
+});
 </script>
 
 {% endblock %}

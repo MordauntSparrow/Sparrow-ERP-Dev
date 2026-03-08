@@ -37,6 +37,16 @@ function statusClass(status) {
   return 'danger';
 }
 
+function prettyStatus(status) {
+  const raw = String(status || '').trim();
+  if (!raw) return 'Unknown';
+  return raw
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function priorityClass(p) {
   const s = String(p || '').toLowerCase().replaceAll(' ', '_');
   if (!s) return '';
@@ -94,7 +104,7 @@ async function tick() {
           <div class="panel-body">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
               <div style="font-size:22px;font-weight:700;">CAD #${esc(j.cad)} ${priority}</div>
-              <span class="badge ${statusClass(j.status)}">${esc(j.status || 'unknown')}</span>
+              <span class="badge ${statusClass(j.status)}">${esc(prettyStatus(j.status || 'unknown'))}</span>
             </div>
             <div style="margin-bottom:6px;">${esc(j.reason_for_call || 'No reason provided')}</div>
             <div class="muted">Elapsed: <span class="elapsed-live" data-start="${esc(j.created_at || j.updated_at || '')}">${esc(elapsed)}</span></div>

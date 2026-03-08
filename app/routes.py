@@ -1163,13 +1163,21 @@ def api_login():
         "site_settings": site_settings,
         "core_manifest": core_manifest
     }
-    # Session token for API clients (Lovable, mobile) that use Bearer auth instead of cookies
+    # Session token for API clients (tablet, mobile, Lovable) that use Bearer auth instead of cookies.
+    # Always include "token" in the response so the payload shape is stable; null when JWT cannot be issued.
     token = encode_session_token(
         user_data["id"],
         user_data["username"],
         user_data["role"],
     )
     response_data["token"] = token if token else None
+    if not token:
+        response_data["token_available"] = False
+        response_data["hint"] = (
+            "Session token not available. Install PyJWT (pip install PyJWT) on the server for Bearer auth."
+        )
+    else:
+        response_data["token_available"] = True
 
     return jsonify(response_data), 200
 

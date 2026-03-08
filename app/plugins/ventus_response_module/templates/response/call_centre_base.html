@@ -257,9 +257,9 @@
     <div class="nav-actions">
       {% set nav_section = nav_section|default('') %}
       <a class="btn {% if nav_section == 'router' %}active{% endif %}" href="/plugin/ventus_response_module/"><i class="bi bi-grid-1x2"></i> Router</a>
-      <a class="btn {% if nav_section == 'intake' %}active{% endif %}" href="{{ url_for('medical_response_internal.response_dashboard') }}"><i class="bi bi-clipboard2-plus"></i> Intake</a>
-      <a class="btn {% if nav_section == 'call_centre' %}active{% endif %}" href="{{ url_for('medical_response_internal.call_centre_dashboard') }}"><i class="bi bi-headset"></i> Response Centre</a>
-      <a class="btn primary {% if nav_section == 'dispatch' %}active{% endif %}" href="{{ url_for('medical_response_internal.cad_dashboard') }}"><i class="bi bi-broadcast-pin"></i> Dispatch</a>
+      <a class="btn {% if nav_section == 'intake' %}active{% endif %}" href="{{ url_for('.response_dashboard') }}"><i class="bi bi-clipboard2-plus"></i> Intake</a>
+      <a class="btn {% if nav_section == 'call_centre' %}active{% endif %}" href="{{ url_for('.call_centre_dashboard') }}"><i class="bi bi-headset"></i> Response Centre</a>
+      <a class="btn primary {% if nav_section == 'dispatch' %}active{% endif %}" href="{{ url_for('.cad_dashboard') }}"><i class="bi bi-broadcast-pin"></i> Dispatch</a>
       <a class="btn {% if nav_section == 'admin' %}active{% endif %}" href="/plugin/ventus_response_module/admin"><i class="bi bi-shield-check"></i> Admin</a>
       <a class="btn" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
       <button id="themeToggle" class="theme-btn"><i class="bi bi-circle-half"></i> Auto</button>

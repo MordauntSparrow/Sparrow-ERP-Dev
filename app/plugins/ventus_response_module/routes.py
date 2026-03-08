@@ -1306,6 +1306,7 @@ def units():
     try:
         _ensure_mdts_signed_on_schema(cur)
         _ensure_meal_break_columns(cur)
+        _ensure_standby_tables(cur)
         try:
             cur.execute("""
                 UPDATE mdts_signed_on
@@ -1336,23 +1337,28 @@ def units():
         else:
             seen_expr = "NOW()"
         sql = """
-            SELECT callSign, status, 
+            SELECT m.callSign, m.status,
                    COALESCE(lastLat, NULL) AS latitude, 
                    COALESCE(lastLon, NULL) AS longitude,
+                   m.assignedIncident,
+                   s.name AS standby_name,
+                   s.lat AS standby_lat,
+                   s.lng AS standby_lng,
                    {division_sql}
-            FROM mdts_signed_on
-            WHERE status IS NOT NULL
+            FROM mdts_signed_on m
+            LEFT JOIN standby_locations s ON s.callSign = m.callSign
+            WHERE m.status IS NOT NULL
               AND {seen_expr} >= DATE_SUB(NOW(), INTERVAL 120 MINUTE)
-        """.format(division_sql=division_sql, seen_expr=seen_expr)
+        """.format(division_sql=division_sql, seen_expr=seen_expr.replace("lastSeenAt", "m.lastSeenAt").replace("signOnTime", "m.signOnTime"))
         args = []
         if selected_division and not include_external:
             if has_division:
-                sql += " AND LOWER(TRIM(COALESCE(division, 'general'))) = %s"
+                sql += " AND LOWER(TRIM(COALESCE(m.division, 'general'))) = %s"
                 args.append(selected_division)
             else:
                 if selected_division != 'general':
                     return jsonify([])
-        sql += " ORDER BY callSign ASC"
+        sql += " ORDER BY m.callSign ASC"
         cur.execute(sql, tuple(args))
         units = cur.fetchall() or []
         # Convert lat/lon to float if present
@@ -1362,8 +1368,17 @@ def units():
                     unit['latitude']) if unit['latitude'] is not None else None
                 unit['longitude'] = float(
                     unit['longitude']) if unit['longitude'] is not None else None
+                unit['standby_lat'] = float(
+                    unit['standby_lat']) if unit.get('standby_lat') is not None else None
+                unit['standby_lng'] = float(
+                    unit['standby_lng']) if unit.get('standby_lng') is not None else None
             except Exception:
                 unit['latitude'] = unit['longitude'] = None
+                unit['standby_lat'] = unit['standby_lng'] = None
+            try:
+                unit['assignedIncident'] = int(unit['assignedIncident']) if unit.get('assignedIncident') is not None else None
+            except Exception:
+                unit['assignedIncident'] = None
             unit_division = _normalize_division(unit.get('division'), fallback='general')
             unit['division'] = unit_division
             unit['is_external'] = bool(selected_division and unit_division != selected_division)
@@ -4199,10 +4214,10 @@ def triage_form():
         flash("Triage form submitted successfully!", "success")
         # Intake workflow: always hand off to the dedicated call-taker incident workspace.
         if _can_access_call_centre():
-            return redirect(url_for('medical_response_internal.call_centre_job', cad=new_id))
+            return redirect(url_for('.call_centre_job', cad=new_id))
         if _user_has_role("dispatcher", "admin", "superuser", "clinical_lead", "controller"):
-            return redirect(url_for('medical_response_internal.cad_dashboard', panel='jobs', cad=new_id))
-        return redirect(url_for('medical_response_internal.triage_list'))
+            return redirect(url_for('.cad_dashboard', panel='jobs', cad=new_id))
+        return redirect(url_for('.triage_list'))
 
     return render_template("response/triage_form.html", **triage_template_ctx)
 
@@ -4338,7 +4353,7 @@ def admin_dashboard():
     allowed_roles = ["admin", "superuser", "clinical_lead"]
     if not hasattr(current_user, 'role') or current_user.role.lower() not in allowed_roles:
         flash("Unauthorised access", "danger")
-        return redirect(url_for('medical_response_internal.landing'))
+        return redirect(url_for('.landing'))
 
     return render_template("admin/dashboard.html", config=core_manifest)
 
@@ -4349,7 +4364,7 @@ def admin_dashboard():
 @internal.route('/clinical', methods=['GET', 'POST'])
 @login_required
 def clinical_dashboard():
-    return redirect(url_for('medical_response_internal.landing'))
+    return redirect(url_for('.landing'))
 
 
 # Add CORS headers to all responses
@@ -4642,6 +4657,37 @@ def mdt_sign_on():
     cur = conn.cursor(dictionary=True)
     try:
         _ensure_mdts_signed_on_schema(cur)
+        # Optional directory validation for crew entries.
+        try:
+            cur.execute("SHOW TABLES LIKE 'users'")
+            if cur.fetchone() is not None:
+                cur.execute("SHOW COLUMNS FROM users")
+                user_cols = {str(r.get('Field') or '') for r in (cur.fetchall() or [])}
+                unknown_crew = []
+                for member in crew:
+                    checks = []
+                    args = []
+                    if 'id' in user_cols:
+                        try:
+                            checks.append("id = %s")
+                            args.append(int(member))
+                        except Exception:
+                            pass
+                    if 'username' in user_cols:
+                        checks.append("LOWER(TRIM(username)) = LOWER(TRIM(%s))")
+                        args.append(member)
+                    if 'email' in user_cols:
+                        checks.append("LOWER(TRIM(email)) = LOWER(TRIM(%s))")
+                        args.append(member)
+                    if not checks:
+                        continue
+                    cur.execute(f"SELECT 1 FROM users WHERE {' OR '.join(checks)} LIMIT 1", tuple(args))
+                    if cur.fetchone() is None:
+                        unknown_crew.append(member)
+                if unknown_crew:
+                    return jsonify({'error': 'Unknown crew member(s)', 'unknown_crew': unknown_crew}), 400
+        except Exception:
+            pass
         try:
             cur.execute("""
                 DELETE FROM mdts_signed_on
@@ -5632,6 +5678,7 @@ def mdt_update_crew_legacy(callsign):
         crew = [crew_raw]
     elif isinstance(crew_raw, list):
         crew = crew_raw
+    crew = [str(x).strip() for x in crew if str(x).strip()]
     if not crew:
         return jsonify({'error': 'crew required'}), 400
 
@@ -6002,4 +6049,4 @@ def panel_popup(panel_type):
         query['division'] = division
     if include_external:
         query['include_external'] = include_external
-    return redirect(url_for('medical_response_internal.cad_dashboard', **query))
+    return redirect(url_for('.cad_dashboard', **query))
