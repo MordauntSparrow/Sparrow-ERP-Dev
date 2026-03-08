@@ -1071,6 +1071,29 @@ def _normalize_patient_alone(value):
     return None
 
 
+def _normalize_patient_gender(value):
+    v = str(value or "").strip().lower()
+    if not v:
+        return ""
+    mapping = {
+        "male": "Male",
+        "m": "Male",
+        "female": "Female",
+        "f": "Female",
+        "other": "Other",
+        "non-binary": "Other",
+        "non_binary": "Other",
+        "nonbinary": "Other",
+        "unknown": "Unknown",
+        "not_known": "Unknown",
+        "not_known_yet": "Unknown",
+        "declined": "Unknown",
+    }
+    if v in mapping:
+        return mapping[v]
+    return v[:1].upper() + v[1:]
+
+
 def _role_key(value):
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -1857,6 +1880,8 @@ def update_job_details(cad):
                 val = payload.get(key)
                 if isinstance(val, str):
                     val = val.strip()
+                if key == 'patient_gender':
+                    val = _normalize_patient_gender(val)
                 data[key] = val
                 changed[key] = val
 
@@ -4743,36 +4768,57 @@ def location_search():
     if not q:
         return jsonify({"items": []})
 
-    query = q
+    query_variants = []
+    base_query = q
+    if search_type == "hospital" and "hospital" not in base_query.lower():
+        base_query = f"{base_query} hospital"
+    query_variants.append(base_query)
+
+    # Fallbacks for long phrases that can over-constrain external geocoder matching.
+    parts = [x for x in q.split() if x.strip()]
+    if len(parts) >= 2:
+        short = " ".join(parts[:3])
+        if search_type == "hospital" and "hospital" not in short.lower():
+            short = f"{short} hospital"
+        if short and short not in query_variants:
+            query_variants.append(short)
     if search_type == "hospital" and "hospital" not in q.lower():
-        query = f"{q} hospital"
+        if "hospital" not in query_variants:
+            query_variants.append("hospital")
 
-    params = {
-        "q": query,
-        "format": "jsonv2",
-        "limit": 30,
-        "addressdetails": 1,
-    }
-    if lat is not None and lng is not None:
-        # Bias search around current map focus (~25km square).
-        delta = 0.22
-        left = lng - delta
-        right = lng + delta
-        top = lat + delta
-        bottom = lat - delta
-        params["viewbox"] = f"{left},{top},{right},{bottom}"
-        params["bounded"] = 0
-
-    url = "https://nominatim.openstreetmap.org/search?" + urlencode(params)
-    try:
+    def _nominatim_lookup(query_text):
+        params = {
+            "q": query_text,
+            "format": "jsonv2",
+            "limit": 30,
+            "addressdetails": 1,
+        }
+        if lat is not None and lng is not None:
+            # Bias search around current map focus (~25km square).
+            delta = 0.22
+            left = lng - delta
+            right = lng + delta
+            top = lat + delta
+            bottom = lat - delta
+            params["viewbox"] = f"{left},{top},{right},{bottom}"
+            params["bounded"] = 0
+        url = "https://nominatim.openstreetmap.org/search?" + urlencode(params)
         req = Request(url, headers={
             "User-Agent": "VentusResponse/1.0 (Dispatch Location Search)"
         })
         with urlopen(req, timeout=6) as resp:
-            raw = json.loads(resp.read().decode("utf-8", errors="ignore"))
-    except Exception:
-        logger.exception("location_search request failed")
-        return jsonify({"items": []})
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            return payload if isinstance(payload, list) else []
+
+    raw = []
+    for variant in query_variants[:3]:
+        try:
+            raw = _nominatim_lookup(variant)
+        except Exception:
+            logger.exception("location_search request failed for variant '%s'", variant)
+            raw = []
+        if raw:
+            break
 
     items = []
     for row in (raw if isinstance(raw, list) else []):
@@ -4847,7 +4893,7 @@ def triage_form():
         what3words = request.form.get('what3words', '').strip()
         caller_name = request.form.get('caller_name', '').strip()
         caller_phone = request.form.get('caller_phone', '').strip()
-        patient_gender = request.form.get('patient_gender', '').strip()
+        patient_gender = _normalize_patient_gender(request.form.get('patient_gender', ''))
         additional_details = ''
 
         access_requirements_str = request.form.get('access_requirements', '')
@@ -4966,7 +5012,7 @@ def triage_form():
                 flash(msg, "danger")
             return render_template("response/triage_form.html", **triage_template_ctx)
 
-        # 🌍 **NEW**: Ignore frontend lat/lng & determine location in backend
+        # Ignore frontend lat/lng and determine location in backend.
         best_coordinates = ResponseTriage.get_best_lat_lng(
             address=address,
             postcode=postcode,

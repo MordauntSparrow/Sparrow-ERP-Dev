@@ -2,6 +2,20 @@
 {% block page_title %}Create Incident{% endblock %}
 {% set nav_section = 'intake' %}
 {% block cc_content %}
+<style>
+  .btn-unknown-used {
+    border-color: rgba(245, 158, 11, 0.65) !important;
+    background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(251,191,36,0.18)) !important;
+  }
+  .unknown-marked {
+    border-color: rgba(245, 158, 11, 0.65) !important;
+    background: rgba(245, 158, 11, 0.12) !important;
+  }
+  .quick-action-row .btn {
+    padding: 9px 12px;
+    font-weight: 600;
+  }
+</style>
 <div class="panel">
   <div class="panel-head">
     <div>
@@ -47,32 +61,24 @@
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">
             <div>
               <label class="muted">First Name</label>
-              <div style="display:flex;gap:6px;">
-                <input id="firstNameInput" type="text" name="first_name" placeholder="Unknown if not available">
-                <button class="btn" type="button" data-unknown-target="firstNameInput" title="Mark unknown">Unknown</button>
-              </div>
+              <input id="firstNameInput" type="text" name="first_name" placeholder="Unknown if not available">
             </div>
             <div>
               <label class="muted">Middle Name</label>
-              <div style="display:flex;gap:6px;">
-                <input id="middleNameInput" type="text" name="middle_name">
-                <button class="btn" type="button" data-unknown-target="middleNameInput" title="Mark unknown">Unknown</button>
-              </div>
+              <input id="middleNameInput" type="text" name="middle_name">
             </div>
             <div>
               <label class="muted">Last Name</label>
-              <div style="display:flex;gap:6px;">
-                <input id="lastNameInput" type="text" name="last_name" placeholder="Unknown if not available">
-                <button class="btn" type="button" data-unknown-target="lastNameInput" title="Mark unknown">Unknown</button>
-              </div>
+              <input id="lastNameInput" type="text" name="last_name" placeholder="Unknown if not available">
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            <button class="btn" type="button" id="unknownFullNameBtn"><i class="bi bi-person-x"></i> Unknown Full Name</button>
+          <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="unknownFullNameBtn"><i class="bi bi-person-x"></i> Mark Name Unknown</button>
             <button class="btn" type="button" id="copyCallerToPatientBtn"><i class="bi bi-arrow-down-circle"></i> Copy Caller Name/Phone to Patient</button>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px;">
             <div><label class="muted">DOB</label><input id="patientDobInput" type="date" name="patient_dob"></div>
+            <div><label class="muted">Age</label><input id="patientAgeDisplay" type="text" readonly placeholder="Auto"></div>
             <div>
               <label class="muted">Gender</label>
               <select id="patientGenderInput" name="patient_gender">
@@ -92,7 +98,7 @@
               </select>
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn" type="button" id="unknownDemographicsBtn"><i class="bi bi-question-circle"></i> Unknown DOB/Gender/Phone</button>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
@@ -255,6 +261,7 @@
   const middleNameInput = document.getElementById("middleNameInput");
   const lastNameInput = document.getElementById("lastNameInput");
   const patientDobInput = document.getElementById("patientDobInput");
+  const patientAgeDisplay = document.getElementById("patientAgeDisplay");
   const patientGenderInput = document.getElementById("patientGenderInput");
   const patientPhoneInput = document.getElementById("patientPhoneInput");
   const callerNameInput = document.getElementById("callerNameInput");
@@ -316,6 +323,7 @@
     document.querySelector("input[name='phone_number']").value = p.phone_number || "";
     document.querySelector("textarea[name='address']").value = p.address || "";
     document.querySelector("input[name='postcode']").value = p.postcode || "";
+    updatePatientAge();
     selectedPatientMeta.textContent = `Matched ${p.full_name || "record"} (${p.source || "history"})`;
   }
 
@@ -355,7 +363,7 @@
         btn.style.marginBottom = "6px";
         btn.innerHTML = `
           <div style="font-weight:700;">${(p.full_name || "Unknown").replace(/</g, "&lt;")}</div>
-          <div class="muted">${(p.postcode || "no postcode").replace(/</g, "&lt;")} • ${(p.phone_number || "no phone").replace(/</g, "&lt;")} • score ${p.score ?? 0}</div>
+          <div class="muted">${(p.postcode || "no postcode").replace(/</g, "&lt;")} • ${(p.phone_number || "no phone").replace(/</g, "&lt;")} • ${p.patient_age != null ? `age ${String(p.patient_age).replace(/</g, "&lt;")}` : "age --"} • score ${p.score ?? 0}</div>
         `;
         btn.addEventListener("click", () => {
           fillPatientFromLookup(p);
@@ -368,7 +376,13 @@
     }
   }
 
-  function markUnknown(targetId) {
+  function markActionUsed(btn, usedLabel) {
+    if (!btn) return;
+    btn.classList.add("btn-unknown-used");
+    if (usedLabel) btn.innerHTML = usedLabel;
+  }
+
+  function markUnknown(targetId, btn) {
     const el = document.getElementById(targetId);
     if (!el) return;
     if (el.tagName === "SELECT") {
@@ -378,19 +392,50 @@
     } else {
       el.value = "Unknown";
     }
+    el.classList.add("unknown-marked");
+    if (targetId === "patientDobInput") updatePatientAge();
+    markActionUsed(btn, "Unknown Set");
     try { el.focus(); } catch (e) {}
   }
 
   function setUnknownNameRow() {
     if (firstNameInput) firstNameInput.value = "Unknown";
-    if (middleNameInput) middleNameInput.value = "Unknown";
+    if (middleNameInput) middleNameInput.value = "";
     if (lastNameInput) lastNameInput.value = "Unknown";
+    if (firstNameInput) firstNameInput.classList.add("unknown-marked");
+    if (middleNameInput) middleNameInput.classList.add("unknown-marked");
+    if (lastNameInput) lastNameInput.classList.add("unknown-marked");
+    markActionUsed(unknownFullNameBtn, '<i class="bi bi-check2"></i> Name Marked Unknown');
   }
 
   function setUnknownDemographics() {
     if (patientDobInput) patientDobInput.value = "";
     if (patientGenderInput) patientGenderInput.value = "";
     if (patientPhoneInput) patientPhoneInput.value = "Unknown";
+    if (patientDobInput) patientDobInput.classList.add("unknown-marked");
+    if (patientGenderInput) patientGenderInput.classList.add("unknown-marked");
+    if (patientPhoneInput) patientPhoneInput.classList.add("unknown-marked");
+    updatePatientAge();
+    markActionUsed(unknownDemographicsBtn, '<i class="bi bi-check2"></i> Demographics Marked Unknown');
+  }
+
+  function updatePatientAge() {
+    if (!patientAgeDisplay) return;
+    const dobVal = String(patientDobInput?.value || "").trim();
+    if (!dobVal) {
+      patientAgeDisplay.value = "";
+      return;
+    }
+    const dob = new Date(dobVal + "T00:00:00");
+    if (Number.isNaN(dob.getTime())) {
+      patientAgeDisplay.value = "";
+      return;
+    }
+    const now = new Date();
+    let age = now.getFullYear() - dob.getFullYear();
+    const monthDelta = now.getMonth() - dob.getMonth();
+    if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < dob.getDate())) age -= 1;
+    patientAgeDisplay.value = Number.isFinite(age) && age >= 0 ? String(age) : "";
   }
 
   function copyCallerToPatient() {
@@ -501,10 +546,12 @@
     });
   }
   document.querySelectorAll("[data-unknown-target]").forEach((btn) => {
-    btn.addEventListener("click", () => markUnknown(btn.getAttribute("data-unknown-target")));
+    btn.addEventListener("click", () => markUnknown(btn.getAttribute("data-unknown-target"), btn));
   });
   if (unknownFullNameBtn) unknownFullNameBtn.addEventListener("click", setUnknownNameRow);
   if (unknownDemographicsBtn) unknownDemographicsBtn.addEventListener("click", setUnknownDemographics);
+  if (patientDobInput) patientDobInput.addEventListener("change", updatePatientAge);
+  if (patientDobInput) patientDobInput.addEventListener("input", updatePatientAge);
   if (copyCallerToPatientBtn) copyCallerToPatientBtn.addEventListener("click", copyCallerToPatient);
   if (accessReqAddBtn) {
     accessReqAddBtn.addEventListener("click", () => addAccessRequirement(encodeURIComponent(accessReqInput?.value || "")));
@@ -634,6 +681,7 @@
 
   window.initVentusAddressAutocomplete = initAddressAutocomplete;
   if (window.google && window.google.maps && window.google.maps.places) initAddressAutocomplete();
+  updatePatientAge();
 </script>
 {% if google_maps_api_key %}
 <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initVentusAddressAutocomplete"></script>

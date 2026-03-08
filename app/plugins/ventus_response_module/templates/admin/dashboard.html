@@ -118,7 +118,7 @@
         <div id="adminFormsStatus" class="muted" style="margin-top:6px;">Loading profiles...</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
-        <div><label class="muted">Profile Slug</label><input id="adminFormSlug" type="text" placeholder="security_response"></div>
+        <div><label class="muted">Profile Code</label><input id="adminFormSlug" type="text" placeholder="Auto from name (editable)"></div>
         <div><label class="muted">Display Name</label><input id="adminFormName" type="text" placeholder="Security Response"></div>
         <div>
           <label class="muted">Exclusions Section</label>
@@ -943,7 +943,7 @@
         const res = await fetch("/plugin/ventus_response_module/response/forms", { credentials: "same-origin" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         formsCache = await res.json();
-        formSelectEl.innerHTML = (formsCache || []).map((f) => `<option value="${f.slug}">${f.name} (${f.slug})</option>`).join("");
+        formSelectEl.innerHTML = (formsCache || []).map((f) => `<option value="${f.slug}">${f.name}</option>`).join("");
         if (!formsCache.length) {
           formsStatusEl.textContent = "No profiles found.";
           renderQuestions([]);

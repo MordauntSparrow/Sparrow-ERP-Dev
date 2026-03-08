@@ -230,6 +230,9 @@
     .division-visibility-wrap input {
       accent-color: var(--accent);
     }
+    .division-visibility-wrap .compact-label {
+      display: none;
+    }
 
     /* ====== MAIN LAYOUT ====== */
     .cad-root {
@@ -300,6 +303,25 @@
     .cad-rail-btn.active::before {
       opacity: 1;
     }
+    .cad-rail-btn .rail-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      padding: 0 5px;
+      background: var(--accent-danger);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+      box-shadow: var(--shadow-sm);
+      display: none;
+      pointer-events: none;
+    }
 
     /* ====== MAIN CONTENT AREA ====== */
     .cad-main {
@@ -347,6 +369,28 @@
     #map .leaflet-popup-tip-container {
       pointer-events: auto !important;
       cursor: default;
+    }
+    #map .leaflet-popup-content-wrapper {
+      background: var(--panel-bg);
+      color: var(--text-primary);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      box-shadow: var(--shadow-md);
+    }
+    #map .leaflet-popup-content {
+      color: var(--text-primary);
+      margin: 10px 12px;
+    }
+    #map .leaflet-popup-tip {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      box-shadow: none;
+    }
+    #map .leaflet-popup-close-button {
+      color: var(--text-secondary);
+    }
+    #map .leaflet-popup-close-button:hover {
+      color: var(--text-primary);
     }
 
     /* ====== MULTI-PANEL CONTAINER ====== */
@@ -554,6 +598,13 @@
       overflow: hidden;
       animation: slideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       backdrop-filter: blur(10px);
+    }
+    .notification.clickable {
+      cursor: pointer;
+    }
+    .notification.clickable:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow-xl);
     }
 
     .notification.success {
@@ -839,6 +890,25 @@
     .btn.success:hover {
       background: linear-gradient(135deg, #047857, #065f46);
     }
+    @media (max-width: 1360px) {
+      .cad-topbar-right {
+        gap: 10px;
+      }
+      .dispatch-mode-wrap > span,
+      .division-wrap > span {
+        display: none;
+      }
+      .dispatch-mode-wrap select,
+      .division-wrap select {
+        min-width: 84px;
+      }
+      .division-visibility-wrap .full-label {
+        display: none;
+      }
+      .division-visibility-wrap .compact-label {
+        display: inline;
+      }
+    }
   </style>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -866,7 +936,13 @@
       </span>
       <label class="division-visibility-wrap" title="Show units/jobs outside selected division">
         <input type="checkbox" id="showExternalToggle">
-        <span>Show Other Divisions</span>
+        <span class="full-label">Show Other Divisions</span>
+        <span class="compact-label">Other Divisions</span>
+      </label>
+      <label class="division-visibility-wrap" title="Show unit-to-target guidance lines">
+        <input type="checkbox" id="showUnitLinesToggle" checked>
+        <span class="full-label">Show Unit Lines</span>
+        <span class="compact-label">Unit Lines</span>
       </label>
       <a href="#" id="themeToggle" title="Theme"><i class="bi bi-circle-half"></i> Auto</a>
       <a href="/logout" title="Logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
