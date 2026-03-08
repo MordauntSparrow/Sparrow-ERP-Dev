@@ -27,6 +27,7 @@ admin_pin_store = {}
 _schema_bootstrap_state = {
     "mdts_signed_on": False,
     "response_log": False,
+    "crew_removal_log": False,
 }
 
 
@@ -110,6 +111,198 @@ def _normalize_division(value, fallback='general'):
         return str(fallback or '')
     safe = ''.join(ch for ch in raw if ch.isalnum() or ch in ('_', '-', '.'))
     return safe or str(fallback or '')
+
+
+def _parse_int(value, fallback=None, min_value=None, max_value=None):
+    try:
+        out = int(value)
+    except Exception:
+        return fallback
+    if min_value is not None and out < min_value:
+        out = min_value
+    if max_value is not None and out > max_value:
+        out = max_value
+    return out
+
+
+def _coerce_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            try:
+                return value.astimezone().replace(tzinfo=None)
+            except Exception:
+                return value.replace(tzinfo=None)
+        return value
+    if isinstance(value, date):
+        try:
+            return datetime(value.year, value.month, value.day)
+        except Exception:
+            return None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            if dt.tzinfo is not None:
+                try:
+                    dt = dt.astimezone().replace(tzinfo=None)
+                except Exception:
+                    dt = dt.replace(tzinfo=None)
+            return dt
+        except Exception:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    return datetime.strptime(s, fmt)
+                except Exception:
+                    continue
+    return None
+
+
+def _parse_client_datetime(value):
+    return _coerce_datetime(value)
+
+
+def _extract_job_priority_value(payload):
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("call_priority", "priority", "acuity", "triage_priority"):
+        raw = payload.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            return text
+    return ""
+
+
+def _priority_rank(priority_value):
+    raw = str(priority_value or "").strip().lower()
+    if not raw:
+        return 99
+    compact = raw.replace(" ", "").replace("-", "").replace("_", "")
+    mapping = {
+        "p1": 1,
+        "1": 1,
+        "red": 1,
+        "critical": 1,
+        "immediate": 1,
+        "lifethreatening": 1,
+        "p2": 2,
+        "2": 2,
+        "amber": 2,
+        "urgent": 2,
+        "high": 2,
+        "p3": 3,
+        "3": 3,
+        "yellow": 3,
+        "routine": 3,
+        "normal": 3,
+        "moderate": 3,
+        "p4": 4,
+        "4": 4,
+        "green": 4,
+        "low": 4,
+        "nonurgent": 4,
+        "p5": 5,
+        "5": 5,
+        "deferred": 5,
+    }
+    return mapping.get(compact, 99)
+
+
+def _is_high_priority_value(priority_value):
+    return _priority_rank(priority_value) <= 2
+
+
+def _compute_shift_break_state(row, now=None):
+    now = now or datetime.utcnow()
+    source = row or {}
+    status = str(source.get("status") or "").strip().lower()
+
+    sign_on_time = _coerce_datetime(source.get("signOnTime") or source.get("sign_on_time"))
+    shift_start = _coerce_datetime(source.get("shiftStartAt") or source.get("shift_start_at") or sign_on_time)
+    shift_end = _coerce_datetime(source.get("shiftEndAt") or source.get("shift_end_at"))
+    shift_duration_mins = _parse_int(
+        source.get("shiftDurationMins") or source.get("shift_duration_minutes"),
+        fallback=None,
+        min_value=0,
+        max_value=24 * 60
+    )
+    break_due_after_mins = _parse_int(
+        source.get("breakDueAfterMins") or source.get("break_due_after_minutes"),
+        fallback=240,
+        min_value=60,
+        max_value=12 * 60
+    )
+
+    if shift_start and shift_end and shift_duration_mins is None:
+        try:
+            shift_duration_mins = max(0, int((shift_end - shift_start).total_seconds() // 60))
+        except Exception:
+            shift_duration_mins = None
+    if shift_start and shift_end is None and shift_duration_mins is not None:
+        shift_end = shift_start + timedelta(minutes=int(shift_duration_mins))
+    if shift_start is None and shift_end and shift_duration_mins is not None:
+        shift_start = shift_end - timedelta(minutes=int(shift_duration_mins))
+
+    shift_elapsed_mins = None
+    if shift_start:
+        try:
+            shift_elapsed_mins = max(0, int((now - shift_start).total_seconds() // 60))
+        except Exception:
+            shift_elapsed_mins = None
+
+    shift_remaining_mins = None
+    if shift_end:
+        try:
+            shift_remaining_mins = int((shift_end - now).total_seconds() // 60)
+        except Exception:
+            shift_remaining_mins = None
+
+    meal_break_started = _coerce_datetime(source.get("mealBreakStartedAt") or source.get("meal_break_started_at"))
+    meal_break_until = _coerce_datetime(source.get("mealBreakUntil") or source.get("meal_break_until"))
+    meal_break_taken_at = _coerce_datetime(source.get("mealBreakTakenAt") or source.get("meal_break_taken_at"))
+    meal_break_taken = meal_break_taken_at is not None
+
+    meal_break_remaining_seconds = None
+    meal_break_active = False
+    if meal_break_until:
+        try:
+            meal_break_remaining_seconds = max(0, int((meal_break_until - now).total_seconds()))
+        except Exception:
+            meal_break_remaining_seconds = None
+    if status == "meal_break" and meal_break_remaining_seconds is not None:
+        meal_break_active = meal_break_remaining_seconds > 0
+
+    break_due = False
+    break_due_in_minutes = None
+    if not meal_break_taken and break_due_after_mins is not None and shift_elapsed_mins is not None:
+        break_due_in_minutes = max(0, int(break_due_after_mins - shift_elapsed_mins))
+        break_due = shift_elapsed_mins >= break_due_after_mins
+    near_break = bool(not meal_break_taken and break_due_in_minutes is not None and break_due_in_minutes <= 30)
+    break_blocked_for_new_jobs = bool(break_due and not meal_break_active and not meal_break_taken)
+
+    return {
+        "shift_start_at": shift_start,
+        "shift_end_at": shift_end,
+        "shift_duration_minutes": shift_duration_mins,
+        "shift_elapsed_minutes": shift_elapsed_mins,
+        "shift_remaining_minutes": shift_remaining_mins,
+        "break_due_after_minutes": break_due_after_mins,
+        "break_due_in_minutes": break_due_in_minutes,
+        "break_due": break_due,
+        "near_break": near_break,
+        "meal_break_started_at": meal_break_started,
+        "meal_break_until": meal_break_until,
+        "meal_break_taken_at": meal_break_taken_at,
+        "meal_break_taken": meal_break_taken,
+        "meal_break_active": meal_break_active,
+        "meal_break_remaining_seconds": meal_break_remaining_seconds,
+        "break_blocked_for_new_jobs": break_blocked_for_new_jobs,
+    }
 
 
 def _request_division_scope():
@@ -209,6 +402,26 @@ def _ensure_mdts_signed_on_schema(cur):
         pass
     try:
         cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakUntil DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakTakenAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftStartAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftEndAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftDurationMins INT NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN breakDueAfterMins INT NULL DEFAULT 240")
     except Exception:
         pass
     try:
@@ -334,6 +547,10 @@ def _ensure_standby_tables(cur):
             name VARCHAR(180) NOT NULL,
             lat DECIMAL(10,7) NOT NULL,
             lng DECIMAL(10,7) NOT NULL,
+            source VARCHAR(32) NOT NULL DEFAULT 'manual',
+            what3words VARCHAR(80) NULL,
+            address VARCHAR(255) NULL,
+            instructionId BIGINT NULL,
             updatedBy VARCHAR(120),
             updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY uq_standby_callsign (callSign),
@@ -344,6 +561,26 @@ def _ensure_standby_tables(cur):
     try:
         cur.execute(
             "ALTER TABLE standby_locations ADD COLUMN updatedBy VARCHAR(120)")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'manual'")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN what3words VARCHAR(80) NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN address VARCHAR(255) NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN instructionId BIGINT NULL")
     except Exception:
         pass
     try:
@@ -378,6 +615,20 @@ def _ensure_standby_tables(cur):
             """, (name, lat, lng))
         except Exception:
             pass
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mdt_dispatch_instructions (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            callSign VARCHAR(64) NOT NULL,
+            instruction_type VARCHAR(64) NOT NULL,
+            payload JSON NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            created_by VARCHAR(120) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acked_at DATETIME NULL,
+            INDEX idx_instr_callsign_status (callSign, status, created_at),
+            INDEX idx_instr_type (instruction_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
 
 
 def _ensure_meal_break_columns(cur):
@@ -387,6 +638,26 @@ def _ensure_meal_break_columns(cur):
         pass
     try:
         cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakUntil DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN mealBreakTakenAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftStartAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftEndAt DATETIME NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN shiftDurationMins INT NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdts_signed_on ADD COLUMN breakDueAfterMins INT NULL DEFAULT 240")
     except Exception:
         pass
 
@@ -1070,6 +1341,14 @@ def jobs():
             job['priority'] = priority
             job['lat'] = lat
             job['lng'] = lng
+            break_units = payload.get('break_override_last_units')
+            if not isinstance(break_units, list):
+                break_units = []
+            break_units = [str(x).strip() for x in break_units if str(x).strip()]
+            job['break_override_last_units'] = break_units
+            job['break_override_last_at'] = payload.get('break_override_last_at')
+            job['break_override_last_by'] = payload.get('break_override_last_by')
+            job['break_override_active'] = bool(break_units)
             job_division = _extract_job_division(payload, fallback=job.get('division') or 'general')
             job['division'] = job_division
             job['is_external'] = bool(selected_division and job_division != selected_division)
@@ -1275,6 +1554,15 @@ def job_detail(cad):
             job['triage_data'] = json.loads(job['data']) if job['data'] else {}
         except Exception:
             job['triage_data'] = {}
+        triage_payload = job.get('triage_data') if isinstance(job.get('triage_data'), dict) else {}
+        break_units = triage_payload.get('break_override_last_units')
+        if not isinstance(break_units, list):
+            break_units = []
+        break_units = [str(x).strip() for x in break_units if str(x).strip()]
+        job['break_override_last_units'] = break_units
+        job['break_override_last_at'] = triage_payload.get('break_override_last_at')
+        job['break_override_last_by'] = triage_payload.get('break_override_last_by')
+        job['break_override_active'] = bool(break_units)
         del job['data']
         job['assigned_units'] = []
         try:
@@ -1312,7 +1600,8 @@ def units():
                 UPDATE mdts_signed_on
                    SET status = 'on_standby',
                        mealBreakStartedAt = NULL,
-                       mealBreakUntil = NULL
+                       mealBreakUntil = NULL,
+                       mealBreakTakenAt = COALESCE(mealBreakTakenAt, NOW())
                  WHERE LOWER(TRIM(COALESCE(status, ''))) = 'meal_break'
                    AND mealBreakUntil IS NOT NULL
                    AND mealBreakUntil <= NOW()
@@ -1344,6 +1633,14 @@ def units():
                    s.name AS standby_name,
                    s.lat AS standby_lat,
                    s.lng AS standby_lng,
+                   m.mealBreakStartedAt,
+                   m.mealBreakUntil,
+                   m.mealBreakTakenAt,
+                   m.shiftStartAt,
+                   m.shiftEndAt,
+                   m.shiftDurationMins,
+                   m.breakDueAfterMins,
+                   m.signOnTime,
                    {division_sql}
             FROM mdts_signed_on m
             LEFT JOIN standby_locations s ON s.callSign = m.callSign
@@ -1382,7 +1679,9 @@ def units():
             unit_division = _normalize_division(unit.get('division'), fallback='general')
             unit['division'] = unit_division
             unit['is_external'] = bool(selected_division and unit_division != selected_division)
-        return jsonify(units)
+            shift_state = _compute_shift_break_state(unit)
+            unit.update(shift_state)
+        return _jsonify_safe(units, 200)
     finally:
         cur.close()
         conn.close()
@@ -1909,6 +2208,7 @@ def transfer_unit_division(callsign):
     if not hasattr(current_user, 'role') or current_user.role.lower() not in allowed_roles:
         return jsonify({'error': 'Unauthorised'}), 403
 
+    callsign = str(callsign or '').strip().upper()
     payload = request.get_json() or {}
     target_division = _normalize_division(payload.get('division'), fallback='')
     if not target_division:
@@ -1917,6 +2217,7 @@ def transfer_unit_division(callsign):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        operator = str(getattr(current_user, 'username', '') or '').strip()
         _, _, access = _enforce_dispatch_scope(cur, target_division, False)
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
         has_division = cur.fetchone() is not None
@@ -1932,11 +2233,27 @@ def transfer_unit_division(callsign):
         if not row:
             return jsonify({'error': 'Unit not found'}), 404
         prev = _normalize_division((row or {}).get('division'), fallback='general')
+        if prev == target_division:
+            return jsonify({
+                'message': 'Unit already in requested division',
+                'callsign': callsign,
+                'from_division': prev,
+                'to_division': target_division,
+                'instruction_id': None
+            }), 200
         cur.execute("""
             UPDATE mdts_signed_on
             SET division = %s
             WHERE callSign = %s
         """, (target_division, callsign))
+        instruction_id = _queue_division_transfer_instruction(
+            cur,
+            callsign,
+            prev,
+            target_division,
+            actor=operator or None,
+            reason='manual_transfer'
+        )
         conn.commit()
         try:
             socketio.emit('mdt_event', {
@@ -1945,13 +2262,21 @@ def transfer_unit_division(callsign):
                 'from_division': prev,
                 'to_division': target_division
             }, broadcast=True)
+            if instruction_id:
+                socketio.emit('mdt_event', {
+                    'type': 'dispatch_instruction',
+                    'callsign': callsign,
+                    'instruction_id': instruction_id,
+                    'instruction_type': 'division_transfer'
+                }, broadcast=True)
         except Exception:
             pass
         return jsonify({
             'message': 'Unit division updated',
             'callsign': callsign,
             'from_division': prev,
-            'to_division': target_division
+            'to_division': target_division,
+            'instruction_id': instruction_id
         })
     finally:
         cur.close()
@@ -1979,7 +2304,8 @@ def unit_detail(callsign):
         div_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_division else "'general' AS division"
         cur.execute(f"""
             SELECT callSign, ipAddress, status, assignedIncident, signOnTime,
-                   crew, lastLat, lastLon, lastSeenAt, updatedAt, mealBreakStartedAt, mealBreakUntil, {div_sql}
+                   crew, lastLat, lastLon, lastSeenAt, updatedAt, mealBreakStartedAt, mealBreakUntil,
+                   mealBreakTakenAt, shiftStartAt, shiftEndAt, shiftDurationMins, breakDueAfterMins, {div_sql}
             FROM mdts_signed_on
             WHERE callSign = %s
             LIMIT 1
@@ -2056,6 +2382,48 @@ def unit_detail(callsign):
         except Exception:
             ping_seconds = None
 
+        crew_removals = []
+        try:
+            _ensure_crew_removal_log_table(cur)
+            cur.execute("""
+                SELECT removed_username, removal_reason, removed_by, removed_at
+                FROM mdt_crew_removal_log
+                WHERE callSign = %s
+                  AND removed_at >= COALESCE(%s, DATE_SUB(NOW(), INTERVAL 7 DAY))
+                ORDER BY removed_at DESC
+                LIMIT 40
+            """, (callsign, row.get('signOnTime')))
+            crew_removals = cur.fetchall() or []
+        except Exception:
+            crew_removals = []
+
+        standby = None
+        try:
+            _ensure_standby_tables(cur)
+            cur.execute("""
+                SELECT name, lat, lng, source, what3words, address, instructionId, updatedAt
+                FROM standby_locations
+                WHERE callSign = %s
+                ORDER BY updatedAt DESC, id DESC
+                LIMIT 1
+            """, (callsign,))
+            s = cur.fetchone() or None
+            if s:
+                standby = {
+                    'name': s.get('name'),
+                    'lat': float(s.get('lat')) if s.get('lat') is not None else None,
+                    'lng': float(s.get('lng')) if s.get('lng') is not None else None,
+                    'source': s.get('source'),
+                    'what3words': s.get('what3words'),
+                    'address': s.get('address'),
+                    'instruction_id': s.get('instructionId'),
+                    'updated_at': s.get('updatedAt')
+                }
+        except Exception:
+            standby = None
+
+        shift_state = _compute_shift_break_state(row)
+
         return _jsonify_safe({
             'callsign': callsign,
             'status': row.get('status'),
@@ -2070,6 +2438,21 @@ def unit_detail(callsign):
             'crew': crew,
             'meal_break_started_at': row.get('mealBreakStartedAt'),
             'meal_break_until': row.get('mealBreakUntil'),
+            'meal_break_taken_at': row.get('mealBreakTakenAt'),
+            'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
+            'meal_break_active': shift_state.get('meal_break_active'),
+            'shift_start_at': shift_state.get('shift_start_at'),
+            'shift_end_at': shift_state.get('shift_end_at'),
+            'shift_duration_minutes': shift_state.get('shift_duration_minutes'),
+            'shift_elapsed_minutes': shift_state.get('shift_elapsed_minutes'),
+            'shift_remaining_minutes': shift_state.get('shift_remaining_minutes'),
+            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
+            'break_due_in_minutes': shift_state.get('break_due_in_minutes'),
+            'break_due': shift_state.get('break_due'),
+            'near_break': shift_state.get('near_break'),
+            'break_blocked_for_new_jobs': shift_state.get('break_blocked_for_new_jobs'),
+            'crew_removals': crew_removals,
+            'standby': standby,
             'current_job': current_job,
             'jobs_since_sign_on': jobs_since_sign_on,
             'recent_jobs': recent_jobs
@@ -2104,6 +2487,7 @@ def standby_locations_list():
 
 
 @internal.route('/unit/<callsign>/standby', methods=['POST'])
+@internal.route('/unit/<callsign>/destination', methods=['POST'])
 @login_required
 def unit_set_standby(callsign):
     allowed_roles = ["dispatcher", "admin", "superuser", "clinical_lead", "controller"]
@@ -2112,16 +2496,42 @@ def unit_set_standby(callsign):
 
     callsign = str(callsign or '').strip().upper()
     payload = request.get_json() or {}
+    source = str(payload.get('source') or 'manual').strip().lower()
+    if source not in {'manual', 'map_click', 'preset', 'what3words', 'address'}:
+        source = 'manual'
     name = str(payload.get('name') or payload.get('location_name') or '').strip()
     lat = payload.get('lat', payload.get('latitude'))
     lng = payload.get('lng', payload.get('longitude'))
+    what3words = str(payload.get('what3words') or payload.get('w3w') or '').strip()
+    address = str(payload.get('address') or payload.get('location_text') or '').strip()
+    postcode = str(payload.get('postcode') or '').strip()
     if not name:
         name = 'Standby'
     try:
         lat = float(lat)
         lng = float(lng)
     except Exception:
-        return jsonify({'error': 'lat/lng required'}), 400
+        lat = None
+        lng = None
+    if lat is None or lng is None:
+        resolved = ResponseTriage.get_best_lat_lng(
+            address=address or None,
+            postcode=postcode or None,
+            what3words=what3words or None
+        )
+        if isinstance(resolved, dict) and resolved.get("lat") is not None and resolved.get("lng") is not None:
+            try:
+                lat = float(resolved.get("lat"))
+                lng = float(resolved.get("lng"))
+                if what3words and source == 'manual':
+                    source = 'what3words'
+                elif address and source == 'manual':
+                    source = 'address'
+            except Exception:
+                lat = None
+                lng = None
+    if lat is None or lng is None:
+        return jsonify({'error': 'lat/lng required (or resolvable what3words/address/postcode)'}), 400
 
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
@@ -2130,23 +2540,85 @@ def unit_set_standby(callsign):
         cur.execute("SELECT callSign FROM mdts_signed_on WHERE callSign = %s LIMIT 1", (callsign,))
         if cur.fetchone() is None:
             return jsonify({'error': 'Unit not found'}), 404
+        operator = str(getattr(current_user, 'username', '') or '').strip()
+        sender_name = f"Dispatcher ({operator})" if operator else "Dispatcher"
+        instruction_payload = {
+            'name': name,
+            'lat': lat,
+            'lng': lng,
+            'source': source,
+            'what3words': what3words or None,
+            'address': address or None,
+            'postcode': postcode or None
+        }
         cur.execute("""
-            INSERT INTO standby_locations (callSign, name, lat, lng, updatedBy)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO mdt_dispatch_instructions (callSign, instruction_type, payload, status, created_by)
+            VALUES (%s, %s, %s, 'pending', %s)
+        """, (callsign, 'standby_location', json.dumps(instruction_payload), operator or None))
+        instruction_id = cur.lastrowid
+        cur.execute("""
+            INSERT INTO standby_locations (callSign, name, lat, lng, source, what3words, address, instructionId, updatedBy)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 name = VALUES(name),
                 lat = VALUES(lat),
                 lng = VALUES(lng),
+                source = VALUES(source),
+                what3words = VALUES(what3words),
+                address = VALUES(address),
+                instructionId = VALUES(instructionId),
                 updatedBy = VALUES(updatedBy),
                 updatedAt = CURRENT_TIMESTAMP
-        """, (callsign, name, lat, lng, getattr(current_user, 'username', 'unknown')))
+        """, (callsign, name, lat, lng, source, what3words or None, address or None, instruction_id, operator or 'unknown'))
+        cur.execute("SHOW TABLES LIKE 'messages'")
+        has_messages = cur.fetchone() is not None
+        if has_messages:
+            detail_bits = [name, f"{lat:.6f},{lng:.6f}"]
+            if what3words:
+                detail_bits.append(f"w3w:{what3words}")
+            if address:
+                detail_bits.append(address)
+            msg_text = f"Standby instruction: {' | '.join(detail_bits)}"
+            cur.execute("""
+                INSERT INTO messages (`from`, recipient, text, timestamp, `read`)
+                VALUES (%s, %s, %s, NOW(), 0)
+            """, (sender_name, callsign, msg_text))
         conn.commit()
         try:
-            socketio.emit('mdt_event', {'type': 'unit_standby_updated', 'callsign': callsign, 'name': name, 'lat': lat, 'lng': lng}, broadcast=True)
+            socketio.emit('mdt_event', {
+                'type': 'unit_standby_updated',
+                'callsign': callsign,
+                'name': name,
+                'lat': lat,
+                'lng': lng,
+                'source': source,
+                'what3words': what3words or None,
+                'address': address or None,
+                'instruction_id': instruction_id
+            }, broadcast=True)
+            socketio.emit('mdt_event', {
+                'type': 'dispatch_instruction',
+                'callsign': callsign,
+                'instruction_id': instruction_id,
+                'instruction_type': 'standby_location'
+            }, broadcast=True)
             socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': callsign}, broadcast=True)
         except Exception:
             pass
-        return jsonify({'message': 'Standby location set', 'callsign': callsign, 'name': name, 'lat': lat, 'lng': lng}), 200
+        return jsonify({
+            'message': 'Standby location instruction sent',
+            'callsign': callsign,
+            'instruction_id': instruction_id,
+            'instruction_type': 'standby_location',
+            'standby': {
+                'name': name,
+                'lat': lat,
+                'lng': lng,
+                'source': source,
+                'what3words': what3words or None,
+                'address': address or None
+            }
+        }), 200
     finally:
         cur.close()
         conn.close()
@@ -2183,7 +2655,8 @@ def unit_meal_break(callsign):
                 UPDATE mdts_signed_on
                    SET status = 'on_standby',
                        mealBreakStartedAt = NULL,
-                       mealBreakUntil = NULL
+                       mealBreakUntil = NULL,
+                       mealBreakTakenAt = COALESCE(mealBreakTakenAt, NOW())
                  WHERE callSign = %s
             """, (callsign,))
             cur.execute("""
@@ -2196,7 +2669,8 @@ def unit_meal_break(callsign):
                 UPDATE mdts_signed_on
                    SET status = 'meal_break',
                        mealBreakStartedAt = NOW(),
-                       mealBreakUntil = DATE_ADD(NOW(), INTERVAL %s MINUTE)
+                       mealBreakUntil = DATE_ADD(NOW(), INTERVAL %s MINUTE),
+                       mealBreakTakenAt = COALESCE(mealBreakTakenAt, NOW())
                  WHERE callSign = %s
             """, (minutes, callsign))
             cur.execute("""
@@ -2204,15 +2678,48 @@ def unit_meal_break(callsign):
                 VALUES (%s, %s, %s, NOW(), 0)
             """, (sender_name, callsign, f'Meal break started for {minutes} minute(s). Status set to meal_break.'))
             msg = 'Meal break started'
+        cur.execute("""
+            SELECT callSign, status, signOnTime, mealBreakStartedAt, mealBreakUntil, mealBreakTakenAt,
+                   shiftStartAt, shiftEndAt, shiftDurationMins, breakDueAfterMins
+            FROM mdts_signed_on
+            WHERE callSign = %s
+            LIMIT 1
+        """, (callsign,))
+        state_row = cur.fetchone() or {}
+        shift_state = _compute_shift_break_state(state_row)
         conn.commit()
         try:
             socketio.emit('mdt_event', {'type': 'unit_meal_break', 'callsign': callsign, 'action': action, 'minutes': minutes}, broadcast=True)
             socketio.emit('mdt_event', {'type': 'status_update', 'callsign': callsign, 'status': ('on_standby' if action == 'stop' else 'meal_break')}, broadcast=True)
             socketio.emit('mdt_event', {'type': 'message_posted', 'from': sender_name, 'to': callsign, 'text': ('Meal break ended. Return to job-ready status.' if action == 'stop' else f'Meal break started for {minutes} minute(s). Status set to meal_break.')}, broadcast=True)
+            socketio.emit('mdt_event', {
+                'type': 'meal_break_state',
+                'callsign': callsign,
+                'meal_break_started_at': shift_state.get('meal_break_started_at'),
+                'meal_break_until': shift_state.get('meal_break_until'),
+                'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
+                'meal_break_active': shift_state.get('meal_break_active')
+            }, broadcast=True)
             socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': callsign}, broadcast=True)
         except Exception:
             pass
-        return jsonify({'message': msg, 'callsign': callsign, 'action': action, 'minutes': minutes}), 200
+        return _jsonify_safe({
+            'message': msg,
+            'callsign': callsign,
+            'action': action,
+            'minutes': minutes,
+            'meal_break_started_at': shift_state.get('meal_break_started_at'),
+            'meal_break_until': shift_state.get('meal_break_until'),
+            'meal_break_taken_at': shift_state.get('meal_break_taken_at'),
+            'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
+            'meal_break_active': shift_state.get('meal_break_active'),
+            'shift_start_at': shift_state.get('shift_start_at'),
+            'shift_end_at': shift_state.get('shift_end_at'),
+            'shift_elapsed_minutes': shift_state.get('shift_elapsed_minutes'),
+            'shift_remaining_minutes': shift_state.get('shift_remaining_minutes'),
+            'break_due': shift_state.get('break_due'),
+            'break_due_in_minutes': shift_state.get('break_due_in_minutes')
+        }, 200)
     finally:
         cur.close()
         conn.close()
@@ -2566,6 +3073,8 @@ def dispatch_assist_request_resolve(req_id):
     try:
         _ensure_assist_requests_table(cur)
         _, _, access = _enforce_dispatch_scope(cur, '', False)
+        operator = str(getattr(current_user, 'username', 'unknown') or 'unknown').strip()
+        division_transfer_instruction_id = None
         cur.execute("""
             SELECT id, status, from_division, to_division, callsign, cad
             FROM mdt_dispatch_assist_requests
@@ -2579,6 +3088,7 @@ def dispatch_assist_request_resolve(req_id):
             return jsonify({'error': 'Request already resolved'}), 409
 
         callsign = str(row.get('callsign') or '').strip()
+        from_division = _normalize_division(row.get('from_division'), fallback='general')
         to_division = _normalize_division(row.get('to_division'), fallback='general')
         if access.get('restricted'):
             allowed = set(access.get('divisions') or [])
@@ -2594,7 +3104,22 @@ def dispatch_assist_request_resolve(req_id):
             cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
             has_unit_div = cur.fetchone() is not None
             if has_unit_div and transfer_division:
+                cur.execute(
+                    "SELECT LOWER(TRIM(COALESCE(division, 'general'))) AS division FROM mdts_signed_on WHERE callSign = %s LIMIT 1",
+                    (callsign,)
+                )
+                unit_row = cur.fetchone() or {}
+                current_div = _normalize_division(unit_row.get('division'), fallback=from_division)
                 cur.execute("UPDATE mdts_signed_on SET division = %s WHERE callSign = %s", (to_division, callsign))
+                division_transfer_instruction_id = _queue_division_transfer_instruction(
+                    cur,
+                    callsign,
+                    current_div,
+                    to_division,
+                    actor=operator,
+                    reason='assist_transfer',
+                    cad=cad
+                )
 
             if cad is not None:
                 _ensure_job_units_table(cur)
@@ -2633,7 +3158,7 @@ def dispatch_assist_request_resolve(req_id):
             WHERE id = %s
         """, (
             new_status,
-            getattr(current_user, 'username', 'unknown'),
+            operator,
             note or None,
             req_id
         ))
@@ -2649,9 +3174,21 @@ def dispatch_assist_request_resolve(req_id):
             }, broadcast=True)
             if cad is not None:
                 socketio.emit('mdt_event', {'type': 'jobs_updated', 'cad': cad}, broadcast=True)
+            if division_transfer_instruction_id:
+                socketio.emit('mdt_event', {
+                    'type': 'dispatch_instruction',
+                    'callsign': callsign,
+                    'instruction_id': division_transfer_instruction_id,
+                    'instruction_type': 'division_transfer'
+                }, broadcast=True)
         except Exception:
             pass
-        return jsonify({'message': 'Assist request resolved', 'status': new_status, 'id': req_id})
+        return jsonify({
+            'message': 'Assist request resolved',
+            'status': new_status,
+            'id': req_id,
+            'division_transfer_instruction_id': division_transfer_instruction_id
+        })
     finally:
         cur.close()
         conn.close()
@@ -2677,6 +3214,7 @@ def jobs_eligibility():
     cur = conn.cursor(dictionary=True)
     try:
         selected_division, include_external, _ = _enforce_dispatch_scope(cur, selected_division, include_external)
+        _ensure_meal_break_columns(cur)
         cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'division'")
         has_job_div = cur.fetchone() is not None
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
@@ -2698,6 +3236,14 @@ def jobs_eligibility():
                    lastLat,
                    lastLon,
                    crew,
+                   signOnTime,
+                   mealBreakStartedAt,
+                   mealBreakUntil,
+                   mealBreakTakenAt,
+                   shiftStartAt,
+                   shiftEndAt,
+                   shiftDurationMins,
+                   breakDueAfterMins,
                    {unit_div_sql}
             FROM mdts_signed_on
             WHERE status IS NOT NULL
@@ -2717,6 +3263,9 @@ def jobs_eligibility():
             job_lat, job_lng, payload = _extract_coords_from_job_data(job.get('data'))
             job_division = _normalize_division(job.get('division') or _extract_job_division(payload), fallback='general')
             required_skills = _extract_required_skills(payload)
+            priority_value = _extract_job_priority_value(payload)
+            priority_rank = _priority_rank(priority_value)
+            allow_break_override = _is_high_priority_value(priority_value)
 
             ranked = []
             for unit in units:
@@ -2732,6 +3281,8 @@ def jobs_eligibility():
                 unit_skills = _extract_unit_skills(unit.get('crew'))
                 missing = sorted(list(required_skills - unit_skills))
                 skill_match = (len(missing) == 0)
+                shift_state = _compute_shift_break_state(unit)
+                break_blocked = bool(shift_state.get('break_blocked_for_new_jobs') and not allow_break_override)
 
                 try:
                     ulat = float(unit['lastLat']) if unit.get('lastLat') is not None else None
@@ -2748,6 +3299,7 @@ def jobs_eligibility():
 
                 rank = (
                     1 if is_external else 0,
+                    1 if break_blocked else 0,
                     0 if is_available else 1,
                     0 if skill_match else 1,
                     distance_missing,
@@ -2763,12 +3315,19 @@ def jobs_eligibility():
                     'available': is_available,
                     'skill_match': skill_match,
                     'missing_skills': missing,
-                    'distance_km': round(distance_km, 2) if distance_km is not None else None
+                    'distance_km': round(distance_km, 2) if distance_km is not None else None,
+                    'priority': priority_value or None,
+                    'priority_rank': priority_rank,
+                    'break_due': shift_state.get('break_due'),
+                    'break_due_in_minutes': shift_state.get('break_due_in_minutes'),
+                    'meal_break_taken': shift_state.get('meal_break_taken'),
+                    'break_blocked': break_blocked,
+                    'break_override_allowed': bool(allow_break_override)
                 })
 
             ranked.sort(key=lambda x: x['rank'])
             top = ranked[:3]
-            recommended = top[0] if top else None
+            recommended = next((x for x in ranked if not x.get('break_blocked')), None)
             for item in top:
                 item.pop('rank', None)
             if recommended:
@@ -2776,6 +3335,7 @@ def jobs_eligibility():
             results.append({
                 'cad': cad,
                 'division': job_division,
+                'priority': priority_value or None,
                 'recommended': recommended,
                 'candidates': top
             })
@@ -3251,6 +3811,7 @@ def assign_job(cad):
     callsigns = [str(c).strip() for c in callsigns if str(c).strip()]
     callsigns = list(dict.fromkeys(callsigns))
     transfer_division = str(data.get('transfer_division', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+    break_override = str(data.get('break_override', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
     selected_division = _normalize_division(data.get('division'), fallback='')
     if not callsigns:
         return jsonify({'error': 'callsign(s) required'}), 400
@@ -3264,6 +3825,7 @@ def assign_job(cad):
         selected_division, _, access = _enforce_dispatch_scope(cur, selected_division, False)
         # Ensure assignment mapping table exists for multi-unit incidents.
         _ensure_job_units_table(cur)
+        _ensure_meal_break_columns(cur)
         cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'division'")
         has_job_div = cur.fetchone() is not None
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
@@ -3271,7 +3833,7 @@ def assign_job(cad):
 
         job_div_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_job_div else "'general' AS division"
         cur.execute(
-            f"SELECT status, {job_div_sql} FROM mdt_jobs WHERE cad = %s LIMIT 1", (cad,))
+            f"SELECT status, data, {job_div_sql} FROM mdt_jobs WHERE cad = %s LIMIT 1", (cad,))
         job = cur.fetchone()
         if not job:
             conn.rollback()
@@ -3279,6 +3841,9 @@ def assign_job(cad):
 
         status = str(job.get('status') or '').strip().lower()
         job_division = _normalize_division(job.get('division') or selected_division, fallback='general')
+        _, _, job_payload = _extract_coords_from_job_data(job.get('data'))
+        priority_value = _extract_job_priority_value(job_payload)
+        job_is_high_priority = _is_high_priority_value(priority_value)
         if access.get('restricted'):
             allowed = set(access.get('divisions') or [])
             if job_division not in allowed and not access.get('can_override_all'):
@@ -3299,10 +3864,14 @@ def assign_job(cad):
 
         assigned = []
         missing = []
+        blocked_for_break = []
+        break_override_used = []
         reassigned_from = set()
+        division_transfer_notifications = []
         sender_name = _sender_label_from_portal('dispatch', getattr(current_user, 'username', ''))
         cur.execute("SHOW TABLES LIKE 'messages'")
         has_messages = cur.fetchone() is not None
+        operator = str(getattr(current_user, 'username', '') or '').strip()
         for cs in callsigns:
             unit_div_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_unit_div else "'general' AS division"
             cur.execute(
@@ -3315,6 +3884,26 @@ def assign_job(cad):
             unit_state = cur.fetchone() or {}
             old_cad = unit_state.get('assignedIncident')
             crew_json = unit_state.get('crew') or '[]'
+            cur.execute("""
+                SELECT status, signOnTime, mealBreakStartedAt, mealBreakUntil, mealBreakTakenAt,
+                       shiftStartAt, shiftEndAt, shiftDurationMins, breakDueAfterMins
+                FROM mdts_signed_on
+                WHERE callSign = %s
+                LIMIT 1
+            """, (cs,))
+            shift_row = cur.fetchone() or {}
+            shift_state = _compute_shift_break_state(shift_row)
+            if shift_state.get('break_blocked_for_new_jobs') and not job_is_high_priority:
+                if not break_override:
+                    blocked_for_break.append({
+                        'callsign': cs,
+                        'break_due_in_minutes': shift_state.get('break_due_in_minutes')
+                    })
+                    continue
+                break_override_used.append({
+                    'callsign': cs,
+                    'break_due_in_minutes': shift_state.get('break_due_in_minutes')
+                })
             if old_cad is not None:
                 try:
                     old_cad = int(old_cad)
@@ -3372,6 +3961,21 @@ def assign_job(cad):
             """.format(division_set=", division = %s" if should_transfer else ""), tuple(
                 [cad] + ([job_division] if should_transfer else []) + [cs]
             ))
+            if should_transfer:
+                instruction_id = _queue_division_transfer_instruction(
+                    cur,
+                    cs,
+                    unit_division,
+                    job_division,
+                    actor=operator or None,
+                    reason='job_assignment_transfer',
+                    cad=cad
+                )
+                if instruction_id:
+                    division_transfer_notifications.append({
+                        'callsign': cs,
+                        'instruction_id': instruction_id
+                    })
             cur.execute("""
                 INSERT INTO mdt_job_units (job_cad, callsign, assigned_by)
                 VALUES (%s, %s, %s)
@@ -3390,9 +3994,34 @@ def assign_job(cad):
 
         if not assigned:
             conn.rollback()
-            return jsonify({'error': 'No valid units selected', 'missing': missing}), 409
+            return jsonify({
+                'error': 'No valid units selected',
+                'missing': missing,
+                'blocked_for_break': blocked_for_break,
+                'requires_break_override': bool(blocked_for_break and not break_override)
+            }), 409
 
         _sync_claimed_by_from_job_units(cur, cad)
+
+        if break_override_used:
+            override_entry = {
+                'at': datetime.utcnow().isoformat(),
+                'by': str(getattr(current_user, 'username', '') or '').strip() or 'unknown',
+                'units': [str(x.get('callsign') or '').strip() for x in break_override_used if str(x.get('callsign') or '').strip()]
+            }
+            history = job_payload.get('break_override_history')
+            if not isinstance(history, list):
+                history = []
+            history.append(override_entry)
+            history = history[-20:]
+            job_payload['break_override_history'] = history
+            job_payload['break_override_last_at'] = override_entry['at']
+            job_payload['break_override_last_by'] = override_entry['by']
+            job_payload['break_override_last_units'] = override_entry['units']
+            cur.execute(
+                "UPDATE mdt_jobs SET data = %s WHERE cad = %s",
+                (json.dumps(job_payload, default=str), cad)
+            )
 
         conn.commit()
         # Notify connected realtime clients to refresh job lists/maps
@@ -3403,6 +4032,13 @@ def assign_job(cad):
                 socketio.emit('mdt_event', {'type': 'jobs_updated', 'cad': old_cad}, broadcast=True)
             for cs in assigned:
                 socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': cs}, broadcast=True)
+            for notif in division_transfer_notifications:
+                socketio.emit('mdt_event', {
+                    'type': 'dispatch_instruction',
+                    'callsign': notif.get('callsign'),
+                    'instruction_id': notif.get('instruction_id'),
+                    'instruction_type': 'division_transfer'
+                }, broadcast=True)
         except Exception:
             pass
         try:
@@ -3415,7 +4051,18 @@ def assign_job(cad):
                 pass
         except Exception:
             pass
-        return jsonify({'message': 'Job assigned', 'cad': cad, 'assigned': assigned, 'missing': missing, 'division': job_division})
+        return jsonify({
+            'message': 'Job assigned',
+            'cad': cad,
+            'assigned': assigned,
+            'missing': missing,
+            'division': job_division,
+            'division_transfer_instructions': division_transfer_notifications,
+            'job_priority': priority_value or None,
+            'break_override': break_override,
+            'break_override_used': break_override_used,
+            'blocked_for_break': blocked_for_break
+        })
     finally:
         cur.close()
         conn.close()
@@ -4506,6 +5153,41 @@ def _ensure_response_log_table(cur):
     _schema_bootstrap_state["response_log"] = True
 
 
+def _ensure_crew_removal_log_table(cur):
+    global _schema_bootstrap_state
+    if _schema_bootstrap_state.get("crew_removal_log"):
+        return
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mdt_crew_removal_log (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            callSign VARCHAR(64) NOT NULL,
+            removed_username VARCHAR(120) NOT NULL,
+            removal_reason VARCHAR(64) NOT NULL,
+            removed_by VARCHAR(64) NOT NULL,
+            removed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_crew_remove_callsign_time (callSign, removed_at),
+            INDEX idx_crew_remove_user_time (removed_username, removed_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+    try:
+        cur.execute("ALTER TABLE mdt_crew_removal_log ADD COLUMN removed_by VARCHAR(64) NOT NULL DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE mdt_crew_removal_log ADD COLUMN removed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        cur.execute("CREATE INDEX idx_crew_remove_callsign_time ON mdt_crew_removal_log (callSign, removed_at)")
+    except Exception:
+        pass
+    try:
+        cur.execute("CREATE INDEX idx_crew_remove_user_time ON mdt_crew_removal_log (removed_username, removed_at)")
+    except Exception:
+        pass
+    _schema_bootstrap_state["crew_removal_log"] = True
+
+
 def _ensure_job_comms_table(cur):
     cur.execute("""
         CREATE TABLE IF NOT EXISTS mdt_job_comms (
@@ -4520,6 +5202,49 @@ def _ensure_job_comms_table(cur):
             INDEX idx_job_comms_created_at (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+
+
+def _queue_division_transfer_instruction(cur, callsign, from_division, to_division, actor=None, reason=None, cad=None):
+    """Queue a division/operating-area transfer instruction for MDT clients."""
+    cs = str(callsign or '').strip().upper()
+    src = _normalize_division(from_division, fallback='general')
+    dst = _normalize_division(to_division, fallback='general')
+    if not cs or src == dst:
+        return None
+
+    _ensure_standby_tables(cur)
+
+    actor_name = str(actor or '').strip()
+    payload = {
+        'from_division': src,
+        'to_division': dst,
+        'operating_area': dst,
+        'reason': str(reason or 'division_transfer'),
+        'transferred_by': actor_name or None,
+        'cad': int(cad) if cad not in (None, '') else None,
+    }
+    cur.execute("""
+        INSERT INTO mdt_dispatch_instructions (callSign, instruction_type, payload, status, created_by)
+        VALUES (%s, %s, %s, 'pending', %s)
+    """, (cs, 'division_transfer', json.dumps(payload), actor_name or None))
+    instruction_id = cur.lastrowid
+
+    try:
+        cur.execute("SHOW TABLES LIKE 'messages'")
+        has_messages = cur.fetchone() is not None
+        if has_messages:
+            sender_name = _sender_label_from_portal('dispatch', actor_name)
+            text = f"Operating area transfer: {src} -> {dst}."
+            if payload.get('cad') is not None:
+                text += f" CAD #{payload.get('cad')}."
+            cur.execute("""
+                INSERT INTO messages (`from`, recipient, text, timestamp, `read`)
+                VALUES (%s, %s, %s, NOW(), 0)
+            """, (sender_name, cs, text))
+    except Exception:
+        pass
+
+    return instruction_id
 
 
 def _get_job_unit_callsigns(cur, cad):
@@ -4642,6 +5367,15 @@ def mdt_sign_on():
     if status == 'available':
         status = 'on_standby'
     division = _normalize_division(payload.get('division'), fallback='general')
+    shift_start_raw = payload.get('shift_start') or payload.get('shiftStartAt') or payload.get('shift_start_at')
+    shift_end_raw = payload.get('shift_end') or payload.get('shiftEndAt') or payload.get('shift_end_at')
+    shift_hours_raw = payload.get('shift_hours') or payload.get('shiftHours') or payload.get('shift_duration_hours')
+    shift_duration_raw = payload.get('shift_duration_minutes') or payload.get('shiftDurationMins')
+    break_due_raw = (
+        payload.get('break_due_after_minutes')
+        or payload.get('breakDueAfterMins')
+        or payload.get('meal_break_due_after_minutes')
+    )
 
     # normalize crew into a list
     crew = []
@@ -4652,6 +5386,23 @@ def mdt_sign_on():
 
     if not callsign or not crew:
         return jsonify({'error': 'callSign (or callsign) and crew required'}), 400
+
+    now = datetime.utcnow()
+    shift_start_at = _parse_client_datetime(shift_start_raw) or now
+    shift_end_at = _parse_client_datetime(shift_end_raw)
+    shift_duration_mins = _parse_int(shift_duration_raw, fallback=None, min_value=0, max_value=24 * 60)
+    if shift_duration_mins is None:
+        shift_hours = _parse_int(shift_hours_raw, fallback=None, min_value=0, max_value=24)
+        if shift_hours is not None:
+            shift_duration_mins = int(shift_hours) * 60
+    if shift_duration_mins is None and shift_end_at is not None:
+        try:
+            shift_duration_mins = max(0, int((shift_end_at - shift_start_at).total_seconds() // 60))
+        except Exception:
+            shift_duration_mins = None
+    if shift_end_at is None and shift_duration_mins is not None:
+        shift_end_at = shift_start_at + timedelta(minutes=int(shift_duration_mins))
+    break_due_after_mins = _parse_int(break_due_raw, fallback=240, min_value=60, max_value=12 * 60)
 
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
@@ -4698,6 +5449,20 @@ def mdt_sign_on():
             pass
         cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
         has_division = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'shiftStartAt'")
+        has_shift_start = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'shiftEndAt'")
+        has_shift_end = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'shiftDurationMins'")
+        has_shift_duration = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'breakDueAfterMins'")
+        has_break_due = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'mealBreakTakenAt'")
+        has_meal_break_taken = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'mealBreakStartedAt'")
+        has_meal_break_started = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'mealBreakUntil'")
+        has_meal_break_until = cur.fetchone() is not None
         if has_division:
             cur.execute(
                 """
@@ -4744,6 +5509,32 @@ def mdt_sign_on():
                     json.dumps(crew)
                 )
             )
+        post_set = []
+        post_args = []
+        if has_shift_start:
+            post_set.append("shiftStartAt = %s")
+            post_args.append(shift_start_at)
+        if has_shift_end:
+            post_set.append("shiftEndAt = %s")
+            post_args.append(shift_end_at)
+        if has_shift_duration:
+            post_set.append("shiftDurationMins = %s")
+            post_args.append(shift_duration_mins)
+        if has_break_due:
+            post_set.append("breakDueAfterMins = %s")
+            post_args.append(break_due_after_mins)
+        if has_meal_break_taken:
+            post_set.append("mealBreakTakenAt = NULL")
+        if has_meal_break_started:
+            post_set.append("mealBreakStartedAt = NULL")
+        if has_meal_break_until:
+            post_set.append("mealBreakUntil = NULL")
+        if post_set:
+            post_args.append(callsign)
+            cur.execute(
+                f"UPDATE mdts_signed_on SET {', '.join(post_set)} WHERE callSign = %s",
+                tuple(post_args)
+            )
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -4753,17 +5544,39 @@ def mdt_sign_on():
         conn.close()
 
     try:
+        shift_preview = _compute_shift_break_state({
+            'status': status,
+            'shiftStartAt': shift_start_at,
+            'shiftEndAt': shift_end_at,
+            'shiftDurationMins': shift_duration_mins,
+            'breakDueAfterMins': break_due_after_mins,
+            'mealBreakTakenAt': None,
+            'mealBreakStartedAt': None,
+            'mealBreakUntil': None
+        }, now=datetime.utcnow())
         socketio.emit('mdt_event', {
             'type': 'unit_signon',
             'callsign': callsign,
             'status': status,
-            'division': division
+            'division': division,
+            'shift_start_at': shift_preview.get('shift_start_at'),
+            'shift_end_at': shift_preview.get('shift_end_at'),
+            'break_due_after_minutes': shift_preview.get('break_due_after_minutes')
         }, broadcast=True)
         socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': callsign}, broadcast=True)
     except Exception:
         pass
 
-    return jsonify({'message': 'Signed on'}), 200
+    return _jsonify_safe({
+        'message': 'Signed on',
+        'callsign': callsign,
+        'division': division,
+        'status': status,
+        'shift_start_at': shift_start_at,
+        'shift_end_at': shift_end_at,
+        'shift_duration_minutes': shift_duration_mins,
+        'break_due_after_minutes': break_due_after_mins
+    }, 200)
 
 # 2) Sign-Off
 
@@ -4781,10 +5594,13 @@ def mdt_sign_off():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     affected_cads = set()
+    sign_on_time = None
+    crew_removals_summary = []
     try:
         _ensure_job_units_table(cur)
+        _ensure_crew_removal_log_table(cur)
         # Capture affected CADs before removing unit row.
-        cur.execute("SELECT assignedIncident FROM mdts_signed_on WHERE callSign = %s", (callsign,))
+        cur.execute("SELECT assignedIncident, signOnTime FROM mdts_signed_on WHERE callSign = %s", (callsign,))
         for row in (cur.fetchall() or []):
             cad = row.get('assignedIncident')
             try:
@@ -4792,6 +5608,8 @@ def mdt_sign_off():
                     affected_cads.add(int(cad))
             except Exception:
                 pass
+            if sign_on_time is None and row.get('signOnTime') is not None:
+                sign_on_time = row.get('signOnTime')
 
         cur.execute("SELECT job_cad FROM mdt_job_units WHERE callsign = %s", (callsign,))
         for row in (cur.fetchall() or []):
@@ -4818,6 +5636,18 @@ def mdt_sign_off():
             if st != 'cleared' and len(remaining) == 0:
                 cur.execute("UPDATE mdt_jobs SET status = 'queued' WHERE cad = %s AND LOWER(TRIM(COALESCE(status, ''))) <> 'cleared'", (cad,))
 
+        try:
+            cur.execute("""
+                SELECT removed_username, removal_reason, removed_by, removed_at
+                FROM mdt_crew_removal_log
+                WHERE callSign = %s
+                  AND removed_at >= COALESCE(%s, DATE_SUB(NOW(), INTERVAL 7 DAY))
+                ORDER BY removed_at ASC
+            """, (callsign, sign_on_time))
+            crew_removals_summary = cur.fetchall() or []
+        except Exception:
+            crew_removals_summary = []
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -4834,7 +5664,7 @@ def mdt_sign_off():
     except Exception:
         pass
 
-    return jsonify({'message': 'Signed off'}), 200
+    return _jsonify_safe({'message': 'Signed off', 'crew_changes': crew_removals_summary}), 200
 
 # 3) Next job
 
@@ -4852,6 +5682,7 @@ def mdt_next():
     cur = conn.cursor(dictionary=True)
     try:
         mode = _get_dispatch_mode(cur)
+        _ensure_meal_break_columns(cur)
 
         # Return existing assignment if present, but self-heal stale pointers.
         cur.execute(
@@ -4935,6 +5766,14 @@ def mdt_next():
                    lastLat,
                    lastLon,
                    crew,
+                   signOnTime,
+                   mealBreakStartedAt,
+                   mealBreakUntil,
+                   mealBreakTakenAt,
+                   shiftStartAt,
+                   shiftEndAt,
+                   shiftDurationMins,
+                   breakDueAfterMins,
                    {unit_div_sql}
             FROM mdts_signed_on
             WHERE callSign = %s
@@ -4958,6 +5797,8 @@ def mdt_next():
             unit_lat = unit_lon = None
         unit_skills = _extract_unit_skills(unit.get('crew'))
         unit_division = _normalize_division(unit.get('division'), fallback='general')
+        shift_state = _compute_shift_break_state(unit)
+        break_blocked = bool(shift_state.get('break_blocked_for_new_jobs'))
 
         cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'division'")
         has_job_div = cur.fetchone() is not None
@@ -4979,6 +5820,11 @@ def mdt_next():
             if unit_division and job_division != unit_division:
                 continue
             lat, lng, payload = _extract_coords_from_job_data(job.get('data'))
+            priority_value = _extract_job_priority_value(payload)
+            priority_rank = _priority_rank(priority_value)
+            allow_break_override = _is_high_priority_value(priority_value)
+            if break_blocked and not allow_break_override:
+                continue
             required_skills = _extract_required_skills(payload)
             if required_skills and not required_skills.issubset(unit_skills):
                 continue
@@ -4989,13 +5835,13 @@ def mdt_next():
                 dist_km = 10**9
                 has_dist = 1
             candidates.append(
-                (has_dist, dist_km, job.get('created_at') or datetime.utcnow(), int(job['cad'])))
+                (priority_rank, has_dist, dist_km, job.get('created_at') or datetime.utcnow(), int(job['cad'])))
 
         if not candidates:
             return '', 204
 
-        candidates.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
-        return jsonify({'cad': candidates[0][3]}), 200
+        candidates.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
+        return jsonify({'cad': candidates[0][4]}), 200
     finally:
         cur.close()
         conn.close()
@@ -5666,33 +6512,81 @@ def mdt_update_location_legacy(callsign):
     return jsonify(body), code
 
 
-@internal.route('/api/mdt/<callsign>/crew', methods=['POST', 'OPTIONS'])
+@internal.route('/api/mdt/<callsign>/crew', methods=['GET', 'POST', 'OPTIONS'])
 def mdt_update_crew_legacy(callsign):
-    """Legacy alias: update signed-on unit crew list."""
+    """Legacy alias: get/update signed-on unit crew list."""
     if request.method == 'OPTIONS':
         return '', 200
-    payload = request.get_json(silent=True) or {}
-    crew_raw = payload.get('crew')
-    crew = []
-    if isinstance(crew_raw, str):
-        crew = [crew_raw]
-    elif isinstance(crew_raw, list):
-        crew = crew_raw
-    crew = [str(x).strip() for x in crew if str(x).strip()]
-    if not crew:
-        return jsonify({'error': 'crew required'}), 400
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return jsonify({'error': 'callsign required'}), 400
 
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(dictionary=True)
     try:
+        if request.method == 'GET':
+            cur.execute(
+                "SELECT crew FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
+                (cs,)
+            )
+            row = cur.fetchone()
+            if not row:
+                return jsonify({'error': 'callsign not signed on'}), 404
+            crew_raw = row.get('crew')
+            crew = []
+            try:
+                if isinstance(crew_raw, (bytes, bytearray)):
+                    crew_raw = crew_raw.decode('utf-8', errors='ignore')
+                if isinstance(crew_raw, str):
+                    crew = json.loads(crew_raw) if crew_raw else []
+                elif isinstance(crew_raw, list):
+                    crew = crew_raw
+            except Exception:
+                crew = []
+            if not isinstance(crew, list):
+                crew = []
+            crew = [str(x).strip() for x in crew if str(x).strip()]
+            return _jsonify_safe({'crew': crew}, 200)
+
+        payload = request.get_json(silent=True) or {}
+        if 'crew' not in payload:
+            return jsonify({'error': 'crew required'}), 400
+        crew_raw = payload.get('crew')
+        crew = []
+        if isinstance(crew_raw, str):
+            crew = [crew_raw]
+        elif isinstance(crew_raw, list):
+            crew = crew_raw
+        crew = [str(x).strip() for x in crew if str(x).strip()]
+
+        cur.execute(
+            "SELECT callSign FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
+            (cs,)
+        )
+        exists = cur.fetchone()
+        if not exists:
+            return jsonify({'error': 'callsign not signed on'}), 404
+
+        removed = str(payload.get('removed') or '').strip()
+        removal_reason = str(payload.get('removal_reason') or '').strip()
+        if removed and removal_reason:
+            allowed_reasons = {'illness', 'early finish', 'reassigned', 'personal', 'other'}
+            normalized_reason = removal_reason.strip()
+            if normalized_reason.lower() not in allowed_reasons:
+                normalized_reason = 'Other'
+            _ensure_crew_removal_log_table(cur)
+            cur.execute("""
+                INSERT INTO mdt_crew_removal_log
+                    (callSign, removed_username, removal_reason, removed_by, removed_at)
+                VALUES (%s, %s, %s, %s, NOW())
+            """, (cs, removed, normalized_reason, cs))
+
         cur.execute(
             "UPDATE mdts_signed_on SET crew = %s WHERE callSign = %s",
-            (json.dumps(crew), callsign)
+            (json.dumps(crew), cs)
         )
-        if cur.rowcount == 0:
-            return jsonify({'error': 'callsign not signed on'}), 404
         conn.commit()
-        return jsonify({'message': 'Crew updated', 'callSign': callsign, 'crew_count': len(crew)}), 200
+        return _jsonify_safe({'crew': crew}, 200)
     except Exception as e:
         conn.rollback()
         return jsonify({'error': str(e)}), 500
@@ -5709,11 +6603,13 @@ def mdt_standby_legacy(callsign):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
+        _ensure_standby_tables(cur)
+        conn.commit()
         cur.execute("SHOW TABLES LIKE 'standby_locations'")
         if cur.fetchone() is None:
             return _jsonify_safe({'callsign': callsign, 'standby': None}, 200)
         cur.execute("""
-            SELECT id, name, lat, lng, updatedAt
+            SELECT id, name, lat, lng, source, what3words, address, instructionId, updatedAt
             FROM standby_locations
             WHERE callSign = %s
             ORDER BY updatedAt DESC, id DESC
@@ -5729,9 +6625,124 @@ def mdt_standby_legacy(callsign):
                 'name': row.get('name'),
                 'lat': row.get('lat'),
                 'lng': row.get('lng'),
+                'source': row.get('source'),
+                'what3words': row.get('what3words'),
+                'address': row.get('address'),
+                'instruction_id': row.get('instructionId'),
                 'updated_at': row.get('updatedAt')
             }
         }, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/instructions', methods=['GET', 'OPTIONS'])
+def mdt_instructions_legacy(callsign):
+    """Fetch pending dispatch instructions for MDT clients."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return _jsonify_safe({'error': 'callsign required'}, 400)
+    limit_raw = request.args.get('limit', 20)
+    try:
+        limit = max(1, min(100, int(limit_raw)))
+    except Exception:
+        limit = 20
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        _ensure_standby_tables(cur)
+        cur.execute("""
+            SELECT id, callSign, instruction_type, payload, status, created_by, created_at, acked_at
+            FROM mdt_dispatch_instructions
+            WHERE callSign = %s
+              AND status IN ('pending', 'sent')
+            ORDER BY created_at ASC, id ASC
+            LIMIT %s
+        """, (cs, limit))
+        rows = cur.fetchall() or []
+        out = []
+        for row in rows:
+            payload = row.get('payload')
+            try:
+                if isinstance(payload, (bytes, bytearray)):
+                    payload = payload.decode('utf-8', errors='ignore')
+                if isinstance(payload, str):
+                    payload = json.loads(payload) if payload else {}
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            out.append({
+                'id': row.get('id'),
+                'callSign': row.get('callSign'),
+                'instruction_type': row.get('instruction_type'),
+                'payload': payload,
+                'status': row.get('status'),
+                'created_by': row.get('created_by'),
+                'created_at': row.get('created_at'),
+                'acked_at': row.get('acked_at')
+            })
+        # Mark pending as sent once surfaced to client poll.
+        pending_ids = [r.get('id') for r in rows if str(r.get('status') or '').lower() == 'pending']
+        if pending_ids:
+            placeholders = ','.join(['%s'] * len(pending_ids))
+            cur.execute(
+                f"UPDATE mdt_dispatch_instructions SET status = 'sent' WHERE id IN ({placeholders})",
+                tuple(pending_ids)
+            )
+            conn.commit()
+        return _jsonify_safe({'callsign': cs, 'instructions': out}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/instructions/ack', methods=['POST', 'OPTIONS'])
+def mdt_instructions_ack_legacy(callsign):
+    """Acknowledge one or more dispatch instructions by id."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return _jsonify_safe({'error': 'callsign required'}, 400)
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get('ids')
+    if ids is None:
+        single_id = payload.get('id')
+        ids = [single_id] if single_id is not None else []
+    if not isinstance(ids, list):
+        ids = [ids]
+    clean_ids = []
+    for i in ids:
+        try:
+            clean_ids.append(int(i))
+        except Exception:
+            continue
+    clean_ids = list(dict.fromkeys([i for i in clean_ids if i > 0]))
+    if not clean_ids:
+        return _jsonify_safe({'error': 'instruction id(s) required'}, 400)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        _ensure_standby_tables(cur)
+        placeholders = ','.join(['%s'] * len(clean_ids))
+        params = [cs] + clean_ids
+        cur.execute(
+            f"""
+            UPDATE mdt_dispatch_instructions
+            SET status = 'acked',
+                acked_at = NOW()
+            WHERE callSign = %s
+              AND id IN ({placeholders})
+            """,
+            tuple(params)
+        )
+        updated = cur.rowcount or 0
+        conn.commit()
+        return _jsonify_safe({'callsign': cs, 'acked': int(updated), 'ids': clean_ids}, 200)
     finally:
         cur.close()
         conn.close()
@@ -5753,7 +6764,9 @@ def mdt_unit_status_legacy(callsign):
         has_division = cur.fetchone() is not None
         div_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_division else "'general' AS division"
         cur.execute(f"""
-            SELECT callSign, status, assignedIncident, lastSeenAt, mealBreakUntil, {div_sql}
+            SELECT callSign, status, assignedIncident, signOnTime, lastSeenAt,
+                   mealBreakStartedAt, mealBreakUntil, mealBreakTakenAt,
+                   shiftStartAt, shiftEndAt, shiftDurationMins, breakDueAfterMins, {div_sql}
             FROM mdts_signed_on
             WHERE callSign = %s
             LIMIT 1
@@ -5761,12 +6774,27 @@ def mdt_unit_status_legacy(callsign):
         row = cur.fetchone()
         if not row:
             return jsonify({'error': 'not signed on', 'callsign': cs}), 404
+        shift_state = _compute_shift_break_state(row)
         return _jsonify_safe({
             'callsign': cs,
             'status': str(row.get('status') or ''),
             'assigned_incident': row.get('assignedIncident'),
             'last_seen_at': row.get('lastSeenAt'),
+            'meal_break_started_at': row.get('mealBreakStartedAt'),
             'meal_break_until': row.get('mealBreakUntil'),
+            'meal_break_taken_at': row.get('mealBreakTakenAt'),
+            'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
+            'meal_break_active': shift_state.get('meal_break_active'),
+            'shift_start_at': shift_state.get('shift_start_at'),
+            'shift_end_at': shift_state.get('shift_end_at'),
+            'shift_duration_minutes': shift_state.get('shift_duration_minutes'),
+            'shift_elapsed_minutes': shift_state.get('shift_elapsed_minutes'),
+            'shift_remaining_minutes': shift_state.get('shift_remaining_minutes'),
+            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
+            'break_due_in_minutes': shift_state.get('break_due_in_minutes'),
+            'break_due': shift_state.get('break_due'),
+            'near_break': shift_state.get('near_break'),
+            'break_blocked_for_new_jobs': shift_state.get('break_blocked_for_new_jobs'),
             'division': _normalize_division(row.get('division'), fallback='general')
         }, 200)
     finally:
@@ -5942,7 +6970,7 @@ def mdt_update_location_root_compat(callsign):
     return mdt_update_location_legacy(callsign)
 
 
-@api_compat.route('/api/mdt/<callsign>/crew', methods=['POST', 'OPTIONS'])
+@api_compat.route('/api/mdt/<callsign>/crew', methods=['GET', 'POST', 'OPTIONS'])
 def mdt_update_crew_root_compat(callsign):
     return mdt_update_crew_legacy(callsign)
 
@@ -5950,6 +6978,16 @@ def mdt_update_crew_root_compat(callsign):
 @api_compat.route('/api/mdt/<callsign>/standby', methods=['GET', 'OPTIONS'])
 def mdt_standby_root_compat(callsign):
     return mdt_standby_legacy(callsign)
+
+
+@api_compat.route('/api/mdt/<callsign>/instructions', methods=['GET', 'OPTIONS'])
+def mdt_instructions_root_compat(callsign):
+    return mdt_instructions_legacy(callsign)
+
+
+@api_compat.route('/api/mdt/<callsign>/instructions/ack', methods=['POST', 'OPTIONS'])
+def mdt_instructions_ack_root_compat(callsign):
+    return mdt_instructions_ack_legacy(callsign)
 
 
 @api_compat.route('/api/mdt/<callsign>/status', methods=['GET', 'OPTIONS'])

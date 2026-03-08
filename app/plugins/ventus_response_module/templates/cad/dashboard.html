@@ -75,6 +75,8 @@ let panelZCounter = 560;
 let soundNewJob = null;
 let soundUrgent = null;
 let audioCtx = null;
+let mapPickSession = null;
+let mapPickMarker = null;
 let selectedDivision = 'general';
 let showExternalDivisions = true;
 let divisionMeta = new Map();
@@ -356,9 +358,12 @@ function formatEligibilityText(eligibilityRow) {
   return `Best units: ${top.map(c => {
     const dist = (c.distance_km !== null && c.distance_km !== undefined) ? `${c.distance_km}km` : 'n/a';
     const skill = c.skill_match ? 'skills ok' : `missing ${((c.missing_skills || []).join(', ') || 'skills')}`;
+    const breakState = c.break_blocked
+      ? `break due${(c.break_due_in_minutes !== null && c.break_due_in_minutes !== undefined) ? ` (${c.break_due_in_minutes}m overdue/remaining)` : ''}`
+      : (c.break_due ? `break due soon${(c.break_due_in_minutes !== null && c.break_due_in_minutes !== undefined) ? ` (${c.break_due_in_minutes}m)` : ''}` : 'break ok');
     const div = c.division ? `, ${c.division}` : '';
     const ext = c.external ? ', external' : '';
-    return `${c.callsign} (${dist}, ${skill}${div}${ext})`;
+    return `${c.callsign} (${dist}, ${skill}, ${breakState}${div}${ext})`;
   }).join(' | ')}`;
 }
 
@@ -378,7 +383,7 @@ function handleRemoteAction(msg) {
     fetch(`/plugin/ventus_response_module/job/${p.cad}/assign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callsign: p.callsign })
+      body: JSON.stringify({ callsign: p.callsign, break_override: true })
     })
       .then(r => r.json())
       .then(data => {
@@ -588,6 +593,44 @@ if (kpiCloseBtn) {
     try{ localStorage.setItem('cad_kpi_hidden','1'); }catch(e){}
     try { if (btnKPI) btnKPI.classList.remove('active'); } catch (e2) {}
   });
+}
+
+function cancelMapPick(reason = 'cancelled') {
+  const session = mapPickSession;
+  mapPickSession = null;
+  try {
+    if (session && session._escHandler) {
+      document.removeEventListener('keydown', session._escHandler);
+    }
+  } catch (e) {}
+  try {
+    if (map && map.getContainer) map.getContainer().style.cursor = '';
+  } catch (e) {}
+  if (reason !== 'picked') {
+    try { if (session && typeof session.onCancel === 'function') session.onCancel(); } catch (e) {}
+  }
+}
+
+function beginMapPick(options = {}) {
+  if (!map) {
+    showNotification('warning', 'Map Pick', 'Map is not ready yet');
+    return false;
+  }
+  cancelMapPick('replaced');
+  mapPickSession = options || {};
+  try {
+    if (map.getContainer) map.getContainer().style.cursor = 'crosshair';
+  } catch (e) {}
+  const escHandler = (ev) => {
+    if (ev.key === 'Escape') {
+      cancelMapPick('escape');
+      showNotification('warning', 'Map Pick', 'Cancelled');
+    }
+  };
+  mapPickSession._escHandler = escHandler;
+  document.addEventListener('keydown', escHandler);
+  showNotification('info', 'Map Pick', 'Click map to choose destination (Esc to cancel)');
+  return true;
 }
 
 // ===== PANEL CREATION =====
@@ -972,6 +1015,10 @@ function renderUnitMapQuickPreview(unit) {
   const assignedCad = Number(unit && unit.assignedIncident);
   const standbyName = String(unit && unit.standby_name || '').trim();
   const division = String(unit && unit.division || 'general').trim();
+  const breakBlocked = !!(unit && unit.break_blocked_for_new_jobs);
+  const breakDue = !!(unit && unit.break_due);
+  const breakDueIn = (unit && unit.break_due_in_minutes !== undefined && unit.break_due_in_minutes !== null) ? Number(unit.break_due_in_minutes) : null;
+  const shiftRemaining = (unit && unit.shift_remaining_minutes !== undefined && unit.shift_remaining_minutes !== null) ? Number(unit.shift_remaining_minutes) : null;
   const target = Number.isFinite(assignedCad) && assignedCad > 0
     ? `Assigned CAD #${assignedCad}`
     : (standbyName ? `Standby: ${standbyName}` : 'No target');
@@ -980,6 +1027,9 @@ function renderUnitMapQuickPreview(unit) {
       <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(cs)}</div>
       <div class="meta" style="margin-bottom:4px;">Status: ${escapeHtml(prettyStatus(status))}</div>
       <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
+      ${breakBlocked ? `<div class="meta" style="margin-bottom:4px;color:#fca5a5;">Break due: not job-ready</div>` : ''}
+      ${(!breakBlocked && breakDue) ? `<div class="meta" style="margin-bottom:4px;color:#fde68a;">Break due soon${breakDueIn !== null ? ` (${escapeHtml(String(breakDueIn))}m)` : ''}</div>` : ''}
+      ${(shiftRemaining !== null) ? `<div class="meta" style="margin-bottom:4px;">Shift remaining: ${escapeHtml(String(shiftRemaining))}m</div>` : ''}
       <div class="meta" style="margin-bottom:8px;">${escapeHtml(target)}</div>
       <button class="btn" style="width:100%;padding:6px 8px;font-size:12px;" onclick="loadUnitDetail(${JSON.stringify(cs)})">Open Unit Detail</button>
     </div>
@@ -999,6 +1049,26 @@ function initMap() {
       map.setView([pos.coords.latitude, pos.coords.longitude], 12);
     });
   }
+  map.on('click', (ev) => {
+    if (!mapPickSession) return;
+    const session = mapPickSession;
+    cancelMapPick('picked');
+    try {
+      const ll = ev && ev.latlng ? ev.latlng : null;
+      if (!ll) return;
+      try {
+        if (mapPickMarker) map.removeLayer(mapPickMarker);
+        mapPickMarker = L.circleMarker([ll.lat, ll.lng], {
+          radius: 8,
+          color: '#22d3ee',
+          fillColor: '#22d3ee',
+          fillOpacity: 0.35,
+          weight: 2
+        }).addTo(map);
+      } catch (e) {}
+      if (typeof session.onPick === 'function') session.onPick(ll);
+    } catch (e) {}
+  });
   refreshMap();
 }
 
@@ -1449,8 +1519,10 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
           <div style="font-weight:500;">CAD #${job.cad}</div>
-          <div class="meta">${job.reason_for_call || 'No reason'} • ${prettyStatus(job.status)}</div>
+          <div class="meta">${job.reason_for_call || 'No reason'} - ${prettyStatus(job.status)}</div>
           <div class="meta">Division: ${escapeHtml(job.division || 'general')}${job.is_external ? ' (external)' : ''}</div>
+          ${job.break_override_active ? `<div class="meta"><span class="status" style="background:rgba(239,68,68,0.22);color:#fecaca;">Break Override Used</span></div>` : ''}
+          ${job.break_override_active ? `<div class="meta" style="font-size:11px;color:#fca5a5;">${escapeHtml((job.break_override_last_units || []).join(', '))}${job.break_override_last_at ? ` - ${escapeHtml(new Date(job.break_override_last_at).toLocaleString())}` : ''}</div>` : ''}
           ${priority ? `<div class="meta"><span class="status" style="${priorityClass}">${escapeHtml(priority)}</span></div>` : ''}
           ${ongoing ? `<div class="meta" style="font-size:11px;color:#fcd34d;">Ongoing: ${escapeHtml(ongoing)}</div>` : ''}
           ${currentTimer ? `<div class="meta" style="font-size:11px;color:#93c5fd;">Current: ${escapeHtml(currentTimer)}</div>` : ''}
@@ -1463,7 +1535,6 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
   const jobsList = contentEl.querySelector('#jobsList');
   if (jobsList) jobsList.innerHTML = html;
 }
-
 function loadUnitsPanel(contentEl) {
   contentEl.innerHTML = `
     <div style="margin-bottom:12px;">
@@ -1535,6 +1606,10 @@ function renderUnitsList(units, contentEl) {
   units.forEach(u => {
     const callsign = String(u.callSign || '').trim();
     const st = String(u.status || '').toLowerCase();
+    const breakBlocked = !!u.break_blocked_for_new_jobs;
+    const breakDue = !!u.break_due;
+    const breakDueIn = (u.break_due_in_minutes !== undefined && u.break_due_in_minutes !== null) ? Number(u.break_due_in_minutes) : null;
+    const shiftRemaining = (u.shift_remaining_minutes !== undefined && u.shift_remaining_minutes !== null) ? Number(u.shift_remaining_minutes) : null;
     const statusColor = (st === 'on_standby' || st === 'on_station' || st === 'at_station' || st === 'available')
       ? 'var(--accent-success)'
       : 'var(--accent-warning)';
@@ -1551,18 +1626,20 @@ function renderUnitsList(units, contentEl) {
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
           <div style="font-weight:600;">${callsign}</div>
-          <div class="meta">${u.station || 'Mobile'} • ${prettyStatus(u.status)}</div>
+          <div class="meta">${u.station || 'Mobile'} - ${prettyStatus(u.status)}</div>
           <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
+          ${breakBlocked ? `<div class="meta" style="color:#fca5a5;">Break due: hold from new low-priority jobs</div>` : ''}
+          ${(!breakBlocked && breakDue) ? `<div class="meta" style="color:#fde68a;">Break due soon${breakDueIn !== null ? ` (${escapeHtml(String(breakDueIn))}m)` : ''}</div>` : ''}
+          ${shiftRemaining !== null ? `<div class="meta">Shift remaining: ${escapeHtml(String(shiftRemaining))}m</div>` : ''}
         </span>
         ${externalActions}
-        <span class="status" style="background:rgba(16,185,129,0.2);color:var(--accent-success);">${prettyStatus(u.status)}</span>
+        <span class="status" style="background:${breakBlocked ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'};color:${breakBlocked ? '#fca5a5' : 'var(--accent-success)'};">${breakBlocked ? 'BREAK DUE' : prettyStatus(u.status)}</span>
       </li>
     `;
   });
   const unitsList = contentEl.querySelector('#unitsList');
   if (unitsList) unitsList.innerHTML = html;
 }
-
 
 const dispatchMsgState = {
   selectedUnit: '',
@@ -1959,7 +2036,7 @@ window.loadUnitDetail = function(callsign) {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:7200;';
   modal.innerHTML = `
-    <div style="width:min(820px,96vw);max-height:90vh;overflow:auto;background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+    <div id="unitDetailShell" style="width:min(820px,96vw);max-height:90vh;overflow:auto;background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <div style="font-weight:700;">Unit Detail • ${escapeHtml(cs)}</div>
         <button id="unitDetailCloseBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);padding:4px 10px;">Close</button>
@@ -1971,6 +2048,11 @@ window.loadUnitDetail = function(callsign) {
   let unitDetailPoll = null;
   const close = () => {
     try { if (unitDetailPoll) clearInterval(unitDetailPoll); } catch (e) {}
+    try {
+      if (mapPickSession && String(mapPickSession.callsign || '').toUpperCase() === cs.toUpperCase()) {
+        cancelMapPick('modal_close');
+      }
+    } catch (e) {}
     try { modal.remove(); } catch (e) {}
   };
   modal.querySelector('#unitDetailCloseBtn')?.addEventListener('click', close);
@@ -2005,6 +2087,7 @@ window.loadUnitDetail = function(callsign) {
   const render = (detail, presets, messages) => {
     const currentJob = detail.current_job || null;
     const recentJobs = Array.isArray(detail.recent_jobs) ? detail.recent_jobs : [];
+    const crewRemovals = Array.isArray(detail.crew_removals) ? detail.crew_removals : [];
     const conversation = Array.isArray(messages) ? messages.slice(-40) : [];
     const presetOptions = (Array.isArray(presets) ? presets : []).map(p =>
       `<option value="${escapeHtml(JSON.stringify({ name: p.name, lat: p.lat, lng: p.lng }))}">${escapeHtml(p.name)} (${escapeHtml(p.lat)}, ${escapeHtml(p.lng)})</option>`
@@ -2013,17 +2096,35 @@ window.loadUnitDetail = function(callsign) {
       <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
           <div style="font-weight:700;margin-bottom:8px;">Live Status</div>
-          <div class="meta">Status: <b>${escapeHtml(detail.status || '--')}</b></div>
+          <div class="meta">Status: <b>${escapeHtml(prettyStatus(detail.status || '--'))}</b></div>
           <div class="meta">Division: <b>${escapeHtml(detail.division || 'general')}</b></div>
           <div class="meta">Last Ping: <b>${escapeHtml(formatAgo(detail.last_ping_seconds))}</b></div>
           <div class="meta">Last Seen: ${escapeHtml(detail.last_seen_at || '--')}</div>
           <div class="meta">Coordinates: ${detail.last_lat != null ? escapeHtml(String(detail.last_lat)) : '--'}, ${detail.last_lng != null ? escapeHtml(String(detail.last_lng)) : '--'}</div>
           <div class="meta">Crew: ${escapeHtml((Array.isArray(detail.crew) ? detail.crew.join(', ') : '') || '--')}</div>
+          <div class="meta">Shift Elapsed: ${detail.shift_elapsed_minutes != null ? `${escapeHtml(String(detail.shift_elapsed_minutes))}m` : '--'}</div>
+          <div class="meta">Shift Remaining: ${detail.shift_remaining_minutes != null ? `${escapeHtml(String(detail.shift_remaining_minutes))}m` : '--'}</div>
+          <div class="meta">Break Policy: ${detail.break_due ? '<span style="color:#fca5a5;">Break due</span>' : (detail.near_break ? '<span style="color:#fde68a;">Break due soon</span>' : 'OK')}</div>
+          <div class="meta">Break Due In: ${detail.break_due_in_minutes != null ? `${escapeHtml(String(detail.break_due_in_minutes))}m` : '--'}</div>
+          ${detail.meal_break_active ? `<div class="meta" style="color:#fbbf24;">Meal break remaining: ${escapeHtml(formatAgo(detail.meal_break_remaining_seconds || 0))}</div>` : ''}
+          <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-color);">
+            <div style="font-size:12px;font-weight:700;opacity:0.95;margin-bottom:6px;">Crew Changes</div>
+            ${crewRemovals.length ? `
+              <div style="max-height:108px;overflow:auto;padding-right:4px;">
+                ${crewRemovals.map((entry) => {
+                  const removedUser = String((entry && entry.removed_username) || '').trim() || 'unknown';
+                  const reason = String((entry && entry.removal_reason) || '').trim() || 'Other';
+                  const removedAt = (entry && entry.removed_at) ? new Date(entry.removed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                  return `<div class="meta" style="margin-bottom:4px;">${escapeHtml(removedUser)} removed - ${escapeHtml(reason)} (${escapeHtml(removedAt)})</div>`;
+                }).join('')}
+              </div>
+            ` : '<div class="meta">No crew removal events this shift.</div>'}
+          </div>
           ${detail.meal_break_until ? `<div class="meta" style="color:#fbbf24;">Meal break until ${escapeHtml(detail.meal_break_until)}</div>` : ''}
         </div>
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
           <div style="font-weight:700;margin-bottom:8px;">Workload</div>
-          <div class="meta">Current Job: ${currentJob ? `<b>CAD #${escapeHtml(currentJob.cad)}</b> (${escapeHtml(currentJob.status || '--')})` : '--'}</div>
+          <div class="meta">Current Job: ${currentJob ? `<b>CAD #${escapeHtml(currentJob.cad)}</b> (${escapeHtml(prettyStatus(currentJob.status || '--'))})` : '--'}</div>
           ${currentJob ? `<div class="meta">${escapeHtml(currentJob.reason_for_call || '')}</div><button id="unitOpenJobBtn" class="btn" style="margin-top:8px;width:100%;"><i class="bi bi-folder2-open"></i> Open Current CAD</button>` : ''}
           <div class="meta" style="margin-top:8px;">Jobs since sign on: <b>${escapeHtml(String(detail.jobs_since_sign_on || 0))}</b></div>
           <div style="max-height:120px;overflow:auto;margin-top:6px;border:1px dashed var(--border-color);border-radius:8px;padding:6px;">
@@ -2032,17 +2133,24 @@ window.loadUnitDetail = function(callsign) {
         </div>
       </div>
       <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-        <div style="font-weight:700;margin-bottom:8px;">Send to Standby / Location</div>
+        <div style="font-weight:700;margin-bottom:8px;">Dispatch Destination / Standby Instruction</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
           <input id="unitStandbyName" placeholder="Location name" value="Standby ${escapeHtml(cs)}">
           <input id="unitStandbyLat" placeholder="Latitude">
           <input id="unitStandbyLng" placeholder="Longitude">
         </div>
-        <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:8px;">
-          <select id="unitStandbyPreset"><option value="">Preset standby locations...</option>${presetOptions}</select>
-          <button id="unitUseMapCenterBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">Use Map Center</button>
-          <button id="unitSetStandbyBtn" class="btn"><i class="bi bi-send"></i> Send</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+          <input id="unitStandbyW3W" placeholder="what3words (optional)">
+          <input id="unitStandbyAddress" placeholder="Address / location text (optional)">
         </div>
+        <input type="hidden" id="unitStandbySource" value="manual">
+        <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;margin-top:8px;">
+          <select id="unitStandbyPreset"><option value="">Preset standby locations...</option>${presetOptions}</select>
+          <button id="unitPickOnMapBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">Pick on Map</button>
+          <button id="unitUseMapCenterBtn" class="btn" style="background:transparent;border:1px solid var(--border-color);">Use Map Center</button>
+          <button id="unitSetStandbyBtn" class="btn"><i class="bi bi-send"></i> Send Instruction</button>
+        </div>
+        <div class="meta" style="margin-top:6px;">Instructions are delivered to MDT via dedicated dispatch-instruction endpoint and retained as standby destination.</div>
       </div>
       <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
         <div style="font-weight:700;margin-bottom:8px;">Unit Messaging</div>
@@ -2083,7 +2191,33 @@ window.loadUnitDetail = function(callsign) {
       bodyEl.querySelector('#unitStandbyLat').value = (lat != null ? String(lat) : '');
       bodyEl.querySelector('#unitStandbyLng').value = (lng != null ? String(lng) : '');
     };
-    if (detail.last_lat != null && detail.last_lng != null) setLatLng(detail.last_lat, detail.last_lng);
+    const setSource = (source) => {
+      const sourceEl = bodyEl.querySelector('#unitStandbySource');
+      if (sourceEl) sourceEl.value = String(source || 'manual');
+    };
+    const setModalPickState = (active) => {
+      const shell = modal.querySelector('#unitDetailShell');
+      if (!shell) return;
+      if (active) {
+        modal.style.background = 'transparent';
+        shell.style.opacity = '0.35';
+        shell.style.pointerEvents = 'none';
+      } else {
+        modal.style.background = 'rgba(0,0,0,0.55)';
+        shell.style.opacity = '1';
+        shell.style.pointerEvents = '';
+      }
+    };
+    const standby = (detail && typeof detail.standby === 'object' && detail.standby) ? detail.standby : null;
+    if (standby) {
+      if (standby.name) bodyEl.querySelector('#unitStandbyName').value = standby.name;
+      if (standby.lat != null && standby.lng != null) setLatLng(standby.lat, standby.lng);
+      if (standby.what3words) bodyEl.querySelector('#unitStandbyW3W').value = standby.what3words;
+      if (standby.address) bodyEl.querySelector('#unitStandbyAddress').value = standby.address;
+      setSource(standby.source || 'manual');
+    } else if (detail.last_lat != null && detail.last_lng != null) {
+      setLatLng(detail.last_lat, detail.last_lng);
+    }
 
     bodyEl.querySelector('#unitOpenJobBtn')?.addEventListener('click', () => {
       if (currentJob && currentJob.cad) {
@@ -2098,32 +2232,71 @@ window.loadUnitDetail = function(callsign) {
         const p = JSON.parse(raw);
         bodyEl.querySelector('#unitStandbyName').value = p.name || '';
         setLatLng(p.lat, p.lng);
+        setSource('preset');
       } catch (e) {}
+    });
+    bodyEl.querySelector('#unitPickOnMapBtn')?.addEventListener('click', () => {
+      setModalPickState(true);
+      const started = beginMapPick({
+        callsign: cs,
+        onPick: (ll) => {
+          try {
+            setLatLng(Number(ll.lat).toFixed(6), Number(ll.lng).toFixed(6));
+            setSource('map_click');
+            showNotification('success', 'Map Pick', `${cs} destination selected`);
+          } finally {
+            setModalPickState(false);
+          }
+        },
+        onCancel: () => {
+          setModalPickState(false);
+        }
+      });
+      if (!started) setModalPickState(false);
     });
     bodyEl.querySelector('#unitUseMapCenterBtn')?.addEventListener('click', () => {
       try {
         const c = map && map.getCenter ? map.getCenter() : null;
         if (!c) return;
-        setLatLng(c.lat, c.lng);
-        showNotification('info', 'Standby', `Using map center for ${cs}`);
+        setLatLng(Number(c.lat).toFixed(6), Number(c.lng).toFixed(6));
+        setSource('map_click');
+        showNotification('info', 'Destination', `Using map center for ${cs}`);
       } catch (e) {}
+    });
+    bodyEl.querySelector('#unitStandbyW3W')?.addEventListener('input', () => {
+      const hasW3W = String(bodyEl.querySelector('#unitStandbyW3W').value || '').trim().length > 0;
+      if (hasW3W) setSource('what3words');
+    });
+    bodyEl.querySelector('#unitStandbyAddress')?.addEventListener('input', () => {
+      const hasAddress = String(bodyEl.querySelector('#unitStandbyAddress').value || '').trim().length > 0;
+      const hasW3W = String(bodyEl.querySelector('#unitStandbyW3W')?.value || '').trim().length > 0;
+      if (!hasW3W && hasAddress) setSource('address');
     });
     bodyEl.querySelector('#unitSetStandbyBtn')?.addEventListener('click', () => {
       const name = (bodyEl.querySelector('#unitStandbyName').value || '').trim() || `Standby ${cs}`;
-      const lat = parseFloat(bodyEl.querySelector('#unitStandbyLat').value || '');
-      const lng = parseFloat(bodyEl.querySelector('#unitStandbyLng').value || '');
-      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/standby`, {
+      const rawLat = parseFloat(bodyEl.querySelector('#unitStandbyLat').value || '');
+      const rawLng = parseFloat(bodyEl.querySelector('#unitStandbyLng').value || '');
+      const what3words = String(bodyEl.querySelector('#unitStandbyW3W').value || '').trim();
+      const address = String(bodyEl.querySelector('#unitStandbyAddress').value || '').trim();
+      const lat = Number.isFinite(rawLat) ? rawLat : null;
+      const lng = Number.isFinite(rawLng) ? rawLng : null;
+      let source = String(bodyEl.querySelector('#unitStandbySource').value || 'manual').trim().toLowerCase();
+      if (lat == null || lng == null) {
+        if (what3words) source = 'what3words';
+        else if (address) source = 'address';
+      }
+      fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/destination`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, lat, lng })
+        body: JSON.stringify({ name, lat, lng, what3words, address, source })
       }).then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
           if (!ok) throw new Error((d && d.error) || 'Failed to send');
-          showNotification('success', 'Standby Sent', `${cs} -> ${name}`);
+          showNotification('success', 'Instruction Sent', `${cs} -> ${name}`);
           refreshMap();
           refreshOpenPanels(['units']);
         })
-        .catch((e) => showNotification('danger', 'Standby', e.message || 'Failed'));
+        .catch((e) => showNotification('danger', 'Destination', e.message || 'Failed'));
     });
     bodyEl.querySelector('#unitAckBtn')?.addEventListener('click', () => {
       sendUnitMessage('Acknowledged. Please continue as planned.')
@@ -2199,6 +2372,7 @@ window.loadUnitDetail = function(callsign) {
 
   unitDetailPoll = setInterval(() => {
     if (!document.body.contains(modal)) { try { clearInterval(unitDetailPoll); } catch (e) {} return; }
+    if (mapPickSession && String(mapPickSession.callsign || '').toUpperCase() === cs.toUpperCase()) return;
     const active = document.activeElement;
     const editing = !!(active && modal.contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName || ''));
     if (editing) return;
@@ -2236,11 +2410,15 @@ function openAssignUnitsModal(options = {}) {
         const cs = String(u.callSign || '').trim();
         if (!cs) return '';
         const checked = suggestedSet.has(cs) ? 'checked' : '';
+        const breakText = u.break_blocked_for_new_jobs
+          ? '<span style="font-size:11px;color:#fca5a5;">Break due</span>'
+          : ((u.break_due && u.break_due_in_minutes != null) ? `<span style="font-size:11px;color:#fde68a;">Break soon (${escapeHtml(String(u.break_due_in_minutes))}m)</span>` : '');
         return `
           <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:${u.is_external ? 'rgba(148,163,184,0.18)' : 'rgba(2,6,23,0.65)'};cursor:pointer;">
             <input type="checkbox" class="assign-unit-cb" value="${escapeHtml(cs)}" ${checked}>
             <span style="font-weight:600;">${escapeHtml(cs)}</span>
             <span style="font-size:12px;color:var(--text-muted);">${escapeHtml(prettyStatus(u.status || 'unknown'))}</span>
+            ${breakText}
             <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${escapeHtml(u.division || 'general')}${u.is_external ? ' external' : ''}</span>
           </label>
         `;
@@ -2253,6 +2431,10 @@ function openAssignUnitsModal(options = {}) {
           <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
             <input type="checkbox" id="assignTransferDivision" checked>
             Transfer selected units into <b>${escapeHtml(selectedDivision || 'general')}</b>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#fde68a;margin-bottom:10px;">
+            <input type="checkbox" id="assignBreakOverride">
+            Override meal-break lockout for selected units (dispatcher override)
           </label>
           <div style="display:flex;flex-direction:column;gap:8px;">${rows || '<div style="color:var(--text-muted);">No units available</div>'}</div>
           <div style="display:flex;gap:8px;margin-top:14px;">
@@ -2279,8 +2461,9 @@ function openAssignUnitsModal(options = {}) {
           confirmBtn.textContent = 'Assigning...';
         }
         const transferDivision = !!modal.querySelector('#assignTransferDivision')?.checked;
+        const breakOverride = !!modal.querySelector('#assignBreakOverride')?.checked;
         close();
-        if (onConfirm) onConfirm({ callsigns: selected, transferDivision });
+        if (onConfirm) onConfirm({ callsigns: selected, transferDivision, breakOverride });
       });
       assignModalLoading = false;
     })
@@ -2295,19 +2478,35 @@ window.assignJobWithSuggestion = function(cad, suggestedCallsign = '') {
   openAssignUnitsModal({
     title: `Assign Units to CAD #${cad}`,
     suggested: hint ? [hint] : [],
-    onConfirm: ({ callsigns, transferDivision }) => {
+    onConfirm: ({ callsigns, transferDivision, breakOverride }) => {
       fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callsigns, division: selectedDivision, transfer_division: transferDivision })
+        body: JSON.stringify({ callsigns, division: selectedDivision, transfer_division: transferDivision, break_override: breakOverride })
       })
-        .then(r => r.json())
-        .then(() => {
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok) {
+            const blocked = Array.isArray(d && d.blocked_for_break) ? d.blocked_for_break : [];
+            if (blocked.length) {
+              const msg = blocked.map(x => `${x.callsign}${x.break_due_in_minutes != null ? ` (${x.break_due_in_minutes}m)` : ''}`).join(', ');
+              throw new Error(`Meal-break lockout: ${msg}. Tick override to continue.`);
+            }
+            throw new Error((d && d.error) || 'Assign failed');
+          }
           showNotification('success', 'Assigned', `CAD #${cad} -> ${callsigns.join(', ')}`);
           setTimeout(refreshMap, 400);
           try { loadJobDetail(cad); } catch (e) { }
+          if (Array.isArray(d.blocked_for_break) && d.blocked_for_break.length) {
+            const blockedText = d.blocked_for_break.map(x => x.callsign).join(', ');
+            showNotification('warning', 'Break Hold', `Not assigned due break policy: ${blockedText}`);
+          }
+          if (Array.isArray(d.break_override_used) && d.break_override_used.length) {
+            const ovText = d.break_override_used.map(x => x.callsign).join(', ');
+            showNotification('warning', 'Break Override', `Override used: ${ovText}`);
+          }
         })
-        .catch(() => showNotification('danger', 'Error'));
+        .catch((e) => showNotification('danger', 'Assign', (e && e.message) ? e.message : 'Failed to assign'));
     }
   });
 };
@@ -2361,6 +2560,7 @@ window.loadJobDetail = function(cad) {
         <div>
           <div style="font-weight:600;margin-bottom:8px;">Status: ${prettyStatus(job.status)}</div>
           <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
+          ${job.break_override_active ? `<div class="meta" style="margin-bottom:8px;"><span class="status" style="background:rgba(239,68,68,0.22);color:#fecaca;">Break Override Used</span> ${escapeHtml((job.break_override_last_units || []).join(', '))}${job.break_override_last_at ? ` â€¢ ${escapeHtml(new Date(job.break_override_last_at).toLocaleString())}` : ''}${job.break_override_last_by ? ` â€¢ by ${escapeHtml(job.break_override_last_by)}` : ''}</div>` : ''}
           <div style="margin-bottom:8px;">
             <div class="meta" style="margin-bottom:4px;">Assigned Units</div>
             ${assignedUnitsHtml}
