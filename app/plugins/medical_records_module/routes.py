@@ -1705,16 +1705,21 @@ public_bp = Blueprint(
 @public_bp.route('/login', methods=['GET', 'POST'])
 def care_company_login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = CareCompanyUser.get_user_by_username(username)
-        if not user or not user.check_password(password):
-            flash("Invalid username or password", "error")
+        try:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            user = CareCompanyUser.get_user_by_username(username)
+            if not user or not user.check_password(password):
+                flash("Invalid username or password. Please check your credentials and try again.", "error")
+                return render_template("care_company_login.html", config=core_manifest)
+            remember = request.form.get('remember') == 'on'
+            login_user(user, remember=remember)
+            flash("Logged in successfully", "success")
+            log_audit(user.id, "Care company user logged in")
+            return redirect(url_for('care_company.dashboard'))
+        except Exception:
+            flash("An unexpected error occurred. Please try again later.", "error")
             return render_template("care_company_login.html", config=core_manifest)
-        login_user(user)
-        flash("Logged in successfully", "success")
-        log_audit(user.id, "Care company user logged in")
-        return redirect(url_for('care_company.dashboard'))
     return render_template("care_company_login.html", config=core_manifest)
 
 @public_bp.route('/logout')

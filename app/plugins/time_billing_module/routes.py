@@ -87,46 +87,53 @@ def login_submit():
     password = request.form.get('password') or ''
 
     if not email or not password:
-        flash('Email and password are required.', 'error')
+        flash('Please enter your email and password.', 'error')
         return redirect(url_for('public_time_billing.login_page'))
 
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("""
-            SELECT id, email, name, status, password_hash
-            FROM tb_contractors
-            WHERE email=%s
-            LIMIT 1
-        """, (email,))
-        u = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                SELECT id, email, name, status, password_hash
+                FROM tb_contractors
+                WHERE email=%s
+                LIMIT 1
+            """, (email,))
+            u = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
 
-    if not u or not u.get('password_hash') or not AuthManager.verify_password(u['password_hash'], password):
-        flash('Invalid credentials.', 'error')
+        if not u or not u.get('password_hash') or not AuthManager.verify_password(u['password_hash'], password):
+            flash('Invalid email or password. Please check your credentials and try again.', 'error')
+            return redirect(url_for('public_time_billing.login_page'))
+
+        if str(u.get('status')).lower() not in ('active', '1', 'true', 'yes'):
+            flash('Your account is inactive. Please contact an administrator.', 'error')
+            return redirect(url_for('public_time_billing.login_page'))
+
+        if request.form.get('remember') == 'on':
+            session.permanent = True
+
+        display = (u.get('name') or '').strip() or u['email']
+        session['tb_user'] = {
+            "id": int(u['id']),
+            "email": u['email'],
+            "name": display,
+            "role": "staff"  # harmless default so staff_required_tb passes
+        }
+
+        ss = session.get('site_settings', {})
+        ss['user_name'] = display
+        session['site_settings'] = ss
+
+        next_url = request.args.get('next') or url_for(
+            'public_time_billing.public_dashboard_page')
+        return redirect(next_url)
+    except Exception:
+        flash('An unexpected error occurred. Please try again later.', 'error')
         return redirect(url_for('public_time_billing.login_page'))
-
-    if str(u.get('status')).lower() not in ('active', '1', 'true', 'yes'):
-        flash('Account inactive. Contact admin.', 'error')
-        return redirect(url_for('public_time_billing.login_page'))
-
-    display = (u.get('name') or '').strip() or u['email']
-    session['tb_user'] = {
-        "id": int(u['id']),
-        "email": u['email'],
-        "name": display,
-        "role": "staff"  # harmless default so staff_required_tb passes
-    }
-
-    ss = session.get('site_settings', {})
-    ss['user_name'] = display
-    session['site_settings'] = ss
-
-    next_url = request.args.get('next') or url_for(
-        'public_time_billing.public_dashboard_page')
-    return redirect(next_url)
 
 
 @public_bp.get("/logout")

@@ -4,6 +4,8 @@ import string
 import uuid
 import json
 import math
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, date
 from flask import (
     Blueprint, request, jsonify, render_template, current_app,
@@ -123,6 +125,13 @@ def _parse_int(value, fallback=None, min_value=None, max_value=None):
     if max_value is not None and out > max_value:
         out = max_value
     return out
+
+
+def _safe_float(value, fallback=None):
+    try:
+        return float(value)
+    except Exception:
+        return fallback
 
 
 def _coerce_datetime(value):
@@ -1579,6 +1588,128 @@ def job_detail(cad):
         if selected_division and job['division'] != selected_division and not include_external:
             return jsonify({'error': 'Job not in selected division'}), 404
         return jsonify(job)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/job/<int:cad>/system-log', methods=['GET'])
+@login_required
+def job_system_log(cad):
+    """Timeline feed combining system and user events for auditing a CAD."""
+    selected_division, include_external = _request_division_scope()
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        selected_division, include_external, access = _enforce_dispatch_scope(cur, selected_division, include_external)
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'division'")
+        has_division = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'created_at'")
+        has_created_at = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM mdt_jobs LIKE 'data'")
+        has_data = cur.fetchone() is not None
+        division_sql = "LOWER(TRIM(COALESCE(division, 'general'))) AS division" if has_division else "'general' AS division"
+        created_sql = "created_at" if has_created_at else "NOW() AS created_at"
+        data_sql = "data" if has_data else "NULL AS data"
+        cur.execute(f"""
+            SELECT cad, TRIM(COALESCE(status, '')) AS status, {created_sql}, {division_sql}, {data_sql}
+            FROM mdt_jobs
+            WHERE cad = %s
+        """, (cad,))
+        job = cur.fetchone()
+        if not job:
+            return jsonify({"error": "Not found"}), 404
+
+        job_division = _normalize_division(job.get("division"), fallback="general")
+        if access.get('restricted'):
+            allowed = set(access.get('divisions') or [])
+            if job_division not in allowed and not access.get('can_override_all'):
+                return jsonify({'error': 'Not permitted for this division'}), 403
+        if selected_division and job_division != selected_division and not include_external:
+            return jsonify({"error": "Job not in selected division"}), 404
+
+        events = []
+        created_by = None
+        payload = job.get("data")
+        if payload:
+            try:
+                if isinstance(payload, (bytes, bytearray)):
+                    payload = payload.decode("utf-8", errors="ignore")
+                pdata = json.loads(payload) if isinstance(payload, str) else payload
+                if isinstance(pdata, dict):
+                    created_by = str(pdata.get("created_by") or "").strip() or None
+            except Exception:
+                created_by = None
+        events.append({
+            "source": "system",
+            "type": "incident_created",
+            "time": job.get("created_at"),
+            "actor": created_by or "system",
+            "message": f"CAD #{cad} created"
+        })
+
+        _ensure_job_units_table(cur)
+        cur.execute("""
+            SELECT callsign, assigned_by, assigned_at
+            FROM mdt_job_units
+            WHERE job_cad = %s
+            ORDER BY assigned_at ASC
+        """, (cad,))
+        for row in (cur.fetchall() or []):
+            cs = str(row.get("callsign") or "").strip() or "unknown"
+            by = str(row.get("assigned_by") or "").strip() or "system"
+            events.append({
+                "source": "dispatch",
+                "type": "unit_assigned",
+                "time": row.get("assigned_at"),
+                "actor": by,
+                "message": f"{cs} assigned to CAD #{cad}"
+            })
+
+        _ensure_response_log_table(cur)
+        cur.execute("""
+            SELECT callSign, status, event_time
+            FROM mdt_response_log
+            WHERE cad = %s
+            ORDER BY event_time ASC
+        """, (cad,))
+        for row in (cur.fetchall() or []):
+            cs = str(row.get("callSign") or "").strip() or "unknown"
+            st = str(row.get("status") or "").strip().lower().replace("_", " ")
+            label = " ".join([x.capitalize() for x in st.split()])
+            events.append({
+                "source": "mdt",
+                "type": "status_update",
+                "time": row.get("event_time"),
+                "actor": cs,
+                "message": f"{cs} status {label}"
+            })
+
+        _ensure_job_comms_table(cur)
+        cur.execute("""
+            SELECT message_type, sender_role, sender_user, message_text, created_at
+            FROM mdt_job_comms
+            WHERE cad = %s
+            ORDER BY created_at ASC
+        """, (cad,))
+        for row in (cur.fetchall() or []):
+            msg_type = str(row.get("message_type") or "message").strip().lower()
+            actor = str(row.get("sender_user") or row.get("sender_role") or "unknown").strip() or "unknown"
+            text = str(row.get("message_text") or "").strip()
+            suffix = f": {text}" if text else ""
+            events.append({
+                "source": "comms",
+                "type": msg_type,
+                "time": row.get("created_at"),
+                "actor": actor,
+                "message": f"{msg_type.capitalize()} by {actor}{suffix}"
+            })
+
+        events.sort(key=lambda x: x.get("time") or datetime.min)
+        return _jsonify_safe({"cad": cad, "events": events})
+    except Exception:
+        logger.exception("job_system_log failed")
+        return jsonify({"error": "Unable to load system log"}), 500
     finally:
         cur.close()
         conn.close()
@@ -4482,24 +4613,39 @@ def response_patient_lookup():
         return jsonify({"error": "Unauthorised access"}), 403
 
     q = str(request.args.get("q") or "").strip()
+    raw_tokens = [x.strip() for x in q.replace(",", " ").split(" ") if x.strip()]
+    tokens = raw_tokens[:8]
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
         if q:
-            like = f"%{q}%"
-            cur.execute("""
+            searchable = (
+                "first_name",
+                "middle_name",
+                "last_name",
+                "phone_number",
+                "postcode",
+                "address",
+                "vita_record_id",
+            )
+            params = []
+            token_clauses = []
+            for tok in (tokens or [q]):
+                like = f"%{tok}%"
+                token_clauses.append(
+                    "(" + " OR ".join([f"{col} LIKE %s" for col in searchable]) + ")"
+                )
+                params.extend([like] * len(searchable))
+            where_sql = " AND ".join(token_clauses)
+            sql = f"""
                 SELECT id, vita_record_id, first_name, middle_name, last_name, patient_dob,
                        phone_number, address, postcode, created_at
                 FROM response_triage
-                WHERE first_name LIKE %s
-                   OR middle_name LIKE %s
-                   OR last_name LIKE %s
-                   OR phone_number LIKE %s
-                   OR postcode LIKE %s
-                   OR address LIKE %s
+                WHERE {where_sql}
                 ORDER BY created_at DESC
-                LIMIT 100
-            """, (like, like, like, like, like, like))
+                LIMIT 200
+            """
+            cur.execute(sql, tuple(params))
         else:
             cur.execute("""
                 SELECT id, vita_record_id, first_name, middle_name, last_name, patient_dob,
@@ -4515,6 +4661,7 @@ def response_patient_lookup():
         for r in rows:
             score = 0
             if q:
+                all_terms = tokens or [q]
                 for key, weight in (
                     ("postcode", 5),
                     ("phone_number", 4),
@@ -4522,14 +4669,23 @@ def response_patient_lookup():
                     ("last_name", 3),
                     ("first_name", 2),
                     ("middle_name", 1),
+                    ("vita_record_id", 2),
                 ):
                     val = str(r.get(key) or "").lower()
                     if not val:
                         continue
                     if ql == val:
                         score += weight * 2
-                    elif ql in val:
+                    if ql and ql in val:
                         score += weight
+                    for term in all_terms:
+                        tl = str(term or "").strip().lower()
+                        if not tl:
+                            continue
+                        if tl == val:
+                            score += weight * 2
+                        elif tl in val:
+                            score += weight
             scored.append((score, r))
 
         scored.sort(key=lambda x: (x[0], x[1].get("created_at") or datetime.min), reverse=True)
@@ -4552,6 +4708,16 @@ def response_patient_lookup():
                     "score": score,
                     "source": "response_triage"
                 }
+                try:
+                    dob = r.get("patient_dob")
+                    if isinstance(dob, datetime):
+                        dedup[key]["patient_age"] = calculate_age(dob.date())
+                    elif isinstance(dob, date):
+                        dedup[key]["patient_age"] = calculate_age(dob)
+                    else:
+                        dedup[key]["patient_age"] = None
+                except Exception:
+                    dedup[key]["patient_age"] = None
             if len(dedup) >= 25:
                 break
         return jsonify({"patients": list(dedup.values())})
@@ -4561,6 +4727,85 @@ def response_patient_lookup():
     finally:
         cur.close()
         conn.close()
+
+
+@internal.route('/location-search', methods=['GET'])
+@login_required
+def location_search():
+    """Lightweight location lookup (e.g. hospital destinations) for dispatch workflows."""
+    if not _user_has_role("crew", "dispatcher", "admin", "superuser", "clinical_lead", "call_taker", "calltaker", "controller"):
+        return jsonify({"error": "Unauthorised access"}), 403
+
+    q = str(request.args.get("q") or "").strip()
+    search_type = str(request.args.get("type") or "general").strip().lower()
+    lat = _safe_float(request.args.get("lat"), None)
+    lng = _safe_float(request.args.get("lng"), None)
+    if not q:
+        return jsonify({"items": []})
+
+    query = q
+    if search_type == "hospital" and "hospital" not in q.lower():
+        query = f"{q} hospital"
+
+    params = {
+        "q": query,
+        "format": "jsonv2",
+        "limit": 30,
+        "addressdetails": 1,
+    }
+    if lat is not None and lng is not None:
+        # Bias search around current map focus (~25km square).
+        delta = 0.22
+        left = lng - delta
+        right = lng + delta
+        top = lat + delta
+        bottom = lat - delta
+        params["viewbox"] = f"{left},{top},{right},{bottom}"
+        params["bounded"] = 0
+
+    url = "https://nominatim.openstreetmap.org/search?" + urlencode(params)
+    try:
+        req = Request(url, headers={
+            "User-Agent": "VentusResponse/1.0 (Dispatch Location Search)"
+        })
+        with urlopen(req, timeout=6) as resp:
+            raw = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception:
+        logger.exception("location_search request failed")
+        return jsonify({"items": []})
+
+    items = []
+    for row in (raw if isinstance(raw, list) else []):
+        name = str(row.get("display_name") or "").strip()
+        if not name:
+            continue
+        item_type = str(row.get("type") or "").strip().lower()
+        item_class = str(row.get("class") or "").strip().lower()
+        item_category = str(row.get("category") or "").strip().lower()
+        if search_type == "hospital":
+            hay = " ".join([name.lower(), item_type, item_class, item_category])
+            if "hospital" not in hay:
+                continue
+        rlat = _safe_float(row.get("lat"), None)
+        rlng = _safe_float(row.get("lon"), None)
+        distance_m = None
+        if lat is not None and lng is not None and rlat is not None and rlng is not None:
+            try:
+                distance_m = int(round(_haversine_km(lat, lng, rlat, rlng) * 1000))
+            except Exception:
+                distance_m = None
+        items.append({
+            "name": name,
+            "lat": rlat,
+            "lng": rlng,
+            "type": item_type or item_category or "location",
+            "distance_m": distance_m,
+        })
+
+    if lat is not None and lng is not None:
+        items.sort(key=lambda x: (x.get("distance_m") is None, x.get("distance_m") or 10**12))
+
+    return jsonify({"items": items[:15]})
 
 
 @internal.route('/response/triage', methods=['GET', 'POST'])

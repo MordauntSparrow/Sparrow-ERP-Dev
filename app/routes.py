@@ -228,55 +228,59 @@ def login():
     session['core_manifest'] = core_manifest
 
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
+        try:
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
 
-        user_data = User.get_user_by_username_raw(username)
-        if user_data and AuthManager.verify_password(user_data["password_hash"], password):
-            permissions = []
-            if user_data.get('permissions'):
-                try:
-                    permissions = json.loads(user_data['permissions'])
-                except Exception:
-                    permissions = []
+            user_data = User.get_user_by_username_raw(username)
+            if user_data and AuthManager.verify_password(user_data["password_hash"], password):
+                permissions = []
+                if user_data.get('permissions'):
+                    try:
+                        permissions = json.loads(user_data['permissions'])
+                    except Exception:
+                        permissions = []
 
-            user = User(
-                user_data['id'],
-                user_data['username'],
-                user_data['email'],
-                user_data['role'],
-                permissions
-            )
-            login_user(user)
+                user = User(
+                    user_data['id'],
+                    user_data['username'],
+                    user_data['email'],
+                    user_data['role'],
+                    permissions
+                )
+                remember = request.form.get('remember') == 'on'
+                login_user(user, remember=remember)
 
-            session['first_name'] = user_data.get('first_name', '')
-            session['last_name'] = user_data.get('last_name', '')
-            session['role'] = user_data.get('role', '')
-            session['theme'] = user_data.get('theme', 'default')
+                session['first_name'] = user_data.get('first_name', '')
+                session['last_name'] = user_data.get('last_name', '')
+                session['role'] = user_data.get('role', '')
+                session['theme'] = user_data.get('theme', 'default')
 
-            # Update last_login timestamp
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET last_login = %s WHERE id = %s",
-                (datetime.now(), user_data['id'])
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
+                # Update last_login timestamp
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE users SET last_login = %s WHERE id = %s",
+                    (datetime.now(), user_data['id'])
+                )
+                conn.commit()
+                cursor.close()
+                conn.close()
 
-            if user_data.get('first_name') and user_data.get('last_name'):
-                site_settings['user_name'] = f"{user_data['first_name']} {user_data['last_name']}"
+                if user_data.get('first_name') and user_data.get('last_name'):
+                    site_settings['user_name'] = f"{user_data['first_name']} {user_data['last_name']}"
 
-            flash(
-                f"Welcome back, {user_data.get('first_name', user_data['username'])}!", 'success')
+                flash(
+                    f"Welcome back, {user_data.get('first_name', user_data['username'])}!", 'success')
 
-            if user_data['role'] == "crew":
-                return redirect('/plugin/ventus_response_module/response')
+                if user_data['role'] == "crew":
+                    return redirect('/plugin/ventus_response_module/response')
 
-            return redirect(url_for('routes.dashboard'))
+                return redirect(url_for('routes.dashboard'))
 
-        flash('Invalid credentials.', 'error')
+            flash('Invalid username or password. Please check your credentials and try again.', 'error')
+        except Exception:
+            flash('An unexpected error occurred. Please try again later.', 'error')
 
     return render_template('login.html', site_settings=site_settings, config=core_manifest)
 
