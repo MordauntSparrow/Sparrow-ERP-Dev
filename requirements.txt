@@ -48,7 +48,6 @@ h11==0.14.0
 html5lib==1.1
 httplib2==0.31.2
 idna==3.6
-importlib==1.0.4
 importlib_resources==6.5.2
 isodate==0.7.2
 itsdangerous==2.1.2
