@@ -1466,8 +1466,8 @@ class RunsheetService:
             cur.execute("""
                 SELECT r.*, c.name AS client_name, s.name AS site_name, jt.name AS job_type_name
                 FROM runsheets r
-                JOIN clients c ON c.id=r.client_name
-                LEFT JOIN sites s ON s.id=r.site_name
+                JOIN clients c ON c.id=r.client_id
+                LEFT JOIN sites s ON s.id=r.site_id
                 JOIN job_types jt ON jt.id=r.job_type_id
                 WHERE r.id=%s
             """, (rs_id,))
@@ -1697,6 +1697,62 @@ class RunsheetService:
         """
         iso_year, iso_week, _ = d.isocalendar()
         return f"{iso_year}{iso_week:02d}"
+
+    @staticmethod
+    def create_and_publish_runsheet_for_shift(shift_id: int) -> Optional[Dict[str, Any]]:
+        """
+        For a scheduler-only shift (no runsheet yet), create a runsheet + one assignment,
+        publish it to create timesheet entry and pay, then link the shift to the runsheet.
+        Returns {"runsheet_id": _, "runsheet_assignment_id": _} or None on failure.
+        """
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                SELECT id, contractor_id, client_id, site_id, job_type_id, work_date,
+                       scheduled_start, scheduled_end, actual_start, actual_end, notes
+                FROM schedule_shifts WHERE id = %s
+            """, (shift_id,))
+            shift = cur.fetchone()
+            if not shift or shift.get("runsheet_id"):
+                return None
+            cid = shift["client_id"]
+            sid = shift.get("site_id")
+            jid = shift["job_type_id"]
+            wd = shift["work_date"]
+            ss = shift.get("scheduled_start")
+            se = shift.get("scheduled_end")
+            uid = shift["contractor_id"]
+            cur.execute("""
+                INSERT INTO runsheets (client_id, site_id, job_type_id, work_date, window_start, window_end, status, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s)
+            """, (cid, sid, jid, wd, ss, se, "From Work/Scheduling"))
+            rs_id = cur.lastrowid
+            cur.execute("""
+                INSERT INTO runsheet_assignments (runsheet_id, user_id, scheduled_start, scheduled_end, actual_start, actual_end, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (rs_id, uid, ss, se, shift.get("actual_start"), shift.get("actual_end"), shift.get("notes")))
+            ra_id = cur.lastrowid
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+        result = RunsheetService.publish_runsheet(rs_id, None)
+        if not result.get("ok"):
+            return None
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE schedule_shifts SET runsheet_id = %s, runsheet_assignment_id = %s WHERE id = %s",
+                (rs_id, ra_id, shift_id),
+            )
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+        return {"runsheet_id": rs_id, "runsheet_assignment_id": ra_id}
 
 
 class TemplateService:

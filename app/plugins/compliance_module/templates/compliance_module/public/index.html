@@ -1,0 +1,34 @@
+{% extends "compliance_module/base_public.html" %}
+{% block title %}{{ module_name }}{% endblock %}
+{% block content %}
+<h1 class="h5 mb-1">{{ module_name }}</h1>
+<p class="text-secondary small mb-4">{{ module_description }}</p>
+{% if policies %}
+  <div class="d-flex flex-column gap-3">
+    {% for p in policies %}
+    <div class="card-policy p-3">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <a href="{{ url_for('public_compliance.view_policy', slug=p.slug) }}">{{ p.title }}</a>
+          {% if p.summary %}<p class="small text-secondary mb-0 mt-1">{{ p.summary[:120] }}{% if p.summary|length > 120 %}…{% endif %}</p>{% endif %}
+        </div>
+        <div>
+          {% if p.required_acknowledgement %}
+            {% if p.acknowledged %}
+            <span class="badge bg-success">Signed</span>
+            {% else %}
+            <span class="badge bg-warning text-dark">To sign</span>
+            {% endif %}
+          {% else %}
+          <span class="badge bg-secondary">Info</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-secondary">No policies to view right now.</p>
+{% endif %}
+<a href="/employee-portal/" class="btn btn-outline-light btn-sm mt-3">Back to Portal</a>
+{% endblock %}

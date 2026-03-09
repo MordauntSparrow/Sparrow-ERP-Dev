@@ -7,6 +7,7 @@
     <!-- Schedule Update Button -->
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleUpdateModal">Schedule an Update</button>
     <form method="POST" action="{{ url_for('routes.run_version_upgrades') }}" class="d-inline ms-2">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-outline-warning">Run DB Upgrades</button>
     </form>
     <br/><br/>
@@ -92,6 +93,7 @@
           </div>
           <div class="modal-footer">
             <form method="POST" action="{{ url_for('routes.version') }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="update_type" value="core">
               <button type="submit" class="btn btn-warning">Update Now</button>
             </form>
@@ -205,6 +207,7 @@
         </div>
         <div class="modal-footer">
           <form method="POST" action="{{ url_for('routes.version') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="update_type" value="plugin">
             <input type="hidden" name="plugin_name" value="{{ plugin.plugin_name }}">
             <button type="submit" class="btn btn-warning">Update Now</button>
@@ -227,6 +230,7 @@
       </div>
       <div class="modal-body">
         <form method="POST" action="{{ url_for('routes.version') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label for="update_type" class="form-label">Select Update Type</label>
             <select name="update_type" id="update_type" class="form-select">

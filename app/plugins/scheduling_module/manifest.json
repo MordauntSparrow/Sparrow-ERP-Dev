@@ -1,0 +1,14 @@
+{
+  "system_name": "scheduling_module",
+  "name": "Scheduling & Shifts",
+  "description": "View your shifts and schedule.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": true,
+  "dependencies": ["website_module", "employee_portal_module", "time_billing_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Sling-level scheduling: shifts, locations, availability, swap requests, labour visibility.",
+  "repository_token": ""
+}

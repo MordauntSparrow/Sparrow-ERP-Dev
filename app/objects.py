@@ -910,7 +910,7 @@ class UpdateManager:
                 "message": "No core install.py found."
             }
 
-        # Installed plugin upgrade scripts
+        # Installed plugin upgrade scripts (only plugins with manifest.json — tables shouldn't exist if not installed)
         installed = []
         try:
             for p in (self.plugin_manager.get_all_plugins() or []):

@@ -1,0 +1,14 @@
+{
+  "system_name": "employee_portal_module",
+  "name": "Employee Portal",
+  "description": "Central hub for staff: profile, time billing, HR, compliance, training, scheduling, messages and todos.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": true,
+  "dependencies": ["website_module", "time_billing_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Initial release.",
+  "repository_token": ""
+}

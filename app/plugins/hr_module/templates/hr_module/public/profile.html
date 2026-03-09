@@ -1,0 +1,42 @@
+{% extends "hr_module/base_public.html" %}
+{% block content %}
+<h1 class="h5 mb-3">My details</h1>
+<p class="text-secondary small">Keep your contact and emergency details up to date.</p>
+<form method="post" action="{{ url_for('public_hr.profile_save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+  <div class="mb-2">
+    <label class="form-label small">Name</label>
+    <input type="text" class="form-control bg-dark text-light" value="{{ profile.name or '' }}" disabled>
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Email</label>
+    <input type="email" class="form-control bg-dark text-light" value="{{ profile.email or '' }}" disabled>
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Phone</label>
+    <input type="text" name="phone" class="form-control bg-dark text-light" value="{{ profile.phone or '' }}" placeholder="Your phone number">
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Address line 1</label>
+    <input type="text" name="address_line1" class="form-control bg-dark text-light" value="{{ profile.address_line1 or '' }}">
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Address line 2</label>
+    <input type="text" name="address_line2" class="form-control bg-dark text-light" value="{{ profile.address_line2 or '' }}">
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Postcode</label>
+    <input type="text" name="postcode" class="form-control bg-dark text-light" value="{{ profile.postcode or '' }}">
+  </div>
+  <div class="mb-2">
+    <label class="form-label small">Emergency contact name</label>
+    <input type="text" name="emergency_contact_name" class="form-control bg-dark text-light" value="{{ profile.emergency_contact_name or '' }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label small">Emergency contact phone</label>
+    <input type="text" name="emergency_contact_phone" class="form-control bg-dark text-light" value="{{ profile.emergency_contact_phone or '' }}">
+  </div>
+  <button type="submit" class="btn btn-primary">Save</button>
+</form>
+<a href="/hr/" class="btn btn-outline-light btn-sm mt-3">Back to HR</a>
+{% endblock %}

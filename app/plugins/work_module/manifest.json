@@ -1,0 +1,14 @@
+{
+  "system_name": "work_module",
+  "name": "Work",
+  "description": "My day: record arrival, leaving, notes and photos per stop; syncs to timesheets.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": true,
+  "dependencies": ["website_module", "employee_portal_module", "time_billing_module", "scheduling_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Initial release: my day from scheduling, record times/notes/photos, sync to time billing.",
+  "repository_token": ""
+}

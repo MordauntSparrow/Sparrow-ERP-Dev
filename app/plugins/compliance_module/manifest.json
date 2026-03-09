@@ -1,0 +1,14 @@
+{
+  "system_name": "compliance_module",
+  "name": "Compliance & Policies",
+  "description": "View and sign company policies.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": true,
+  "dependencies": ["website_module", "employee_portal_module", "time_billing_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Initial stub.",
+  "repository_token": ""
+}

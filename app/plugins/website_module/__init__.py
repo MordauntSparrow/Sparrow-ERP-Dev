@@ -44,7 +44,10 @@ def create_website_app(plugins_dir=None):
     app.jinja_env.filters['regex_replace'] = regex_replace
 
     # Set your secret key for sessions and token generation
-    app.secret_key = 'your_secret_key_here'
+    app.secret_key = os.environ.get('WEB_SECRET_KEY') or 'your_secret_key_here'
+    # Ensure session cookie is sent for all paths (e.g. /employee-portal and /time-billing share auth)
+    app.config.setdefault('SESSION_COOKIE_PATH', '/')
+    app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
 
     # Initialize Flask-Login and configure the user loader.
     login_manager = LoginManager()

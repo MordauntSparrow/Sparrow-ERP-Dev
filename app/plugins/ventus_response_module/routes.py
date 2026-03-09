@@ -557,9 +557,14 @@ def _ensure_standby_tables(cur):
             lat DECIMAL(10,7) NOT NULL,
             lng DECIMAL(10,7) NOT NULL,
             source VARCHAR(32) NOT NULL DEFAULT 'manual',
+            destinationType VARCHAR(32) NOT NULL DEFAULT 'standby',
+            activationMode VARCHAR(32) NOT NULL DEFAULT 'immediate',
+            state VARCHAR(32) NOT NULL DEFAULT 'active',
+            cad INT NULL,
             what3words VARCHAR(80) NULL,
             address VARCHAR(255) NULL,
             instructionId BIGINT NULL,
+            activatedAt DATETIME NULL,
             updatedBy VARCHAR(120),
             updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY uq_standby_callsign (callSign),
@@ -579,6 +584,26 @@ def _ensure_standby_tables(cur):
         pass
     try:
         cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN destinationType VARCHAR(32) NOT NULL DEFAULT 'standby'")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN activationMode VARCHAR(32) NOT NULL DEFAULT 'immediate'")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN state VARCHAR(32) NOT NULL DEFAULT 'active'")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN cad INT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute(
             "ALTER TABLE standby_locations ADD COLUMN what3words VARCHAR(80) NULL")
     except Exception:
         pass
@@ -590,6 +615,11 @@ def _ensure_standby_tables(cur):
     try:
         cur.execute(
             "ALTER TABLE standby_locations ADD COLUMN instructionId BIGINT NULL")
+    except Exception:
+        pass
+    try:
+        cur.execute(
+            "ALTER TABLE standby_locations ADD COLUMN activatedAt DATETIME NULL")
     except Exception:
         pass
     try:
@@ -2557,7 +2587,8 @@ def unit_detail(callsign):
         try:
             _ensure_standby_tables(cur)
             cur.execute("""
-                SELECT name, lat, lng, source, what3words, address, instructionId, updatedAt
+                SELECT name, lat, lng, source, destinationType, activationMode, state, cad,
+                       what3words, address, instructionId, activatedAt, updatedAt
                 FROM standby_locations
                 WHERE callSign = %s
                 ORDER BY updatedAt DESC, id DESC
@@ -2570,9 +2601,14 @@ def unit_detail(callsign):
                     'lat': float(s.get('lat')) if s.get('lat') is not None else None,
                     'lng': float(s.get('lng')) if s.get('lng') is not None else None,
                     'source': s.get('source'),
+                    'destination_type': s.get('destinationType') or 'standby',
+                    'activation_mode': s.get('activationMode') or 'immediate',
+                    'state': s.get('state') or 'active',
+                    'cad': s.get('cad'),
                     'what3words': s.get('what3words'),
                     'address': s.get('address'),
                     'instruction_id': s.get('instructionId'),
+                    'activated_at': s.get('activatedAt'),
                     'updated_at': s.get('updatedAt')
                 }
         except Exception:
@@ -2652,8 +2688,21 @@ def unit_set_standby(callsign):
 
     callsign = str(callsign or '').strip().upper()
     payload = request.get_json() or {}
+    instruction_type = str(payload.get('instruction_type') or payload.get('type') or 'standby_location').strip().lower()
+    if instruction_type not in {'standby_location', 'transport_destination'}:
+        instruction_type = 'standby_location'
+    destination_type = 'transport' if instruction_type == 'transport_destination' else 'standby'
+    activation_mode = str(payload.get('activation_mode') or payload.get('activate_on') or '').strip().lower()
+    if activation_mode not in {'immediate', 'on_leave_scene'}:
+        activation_mode = 'on_leave_scene' if destination_type == 'transport' else 'immediate'
+    destination_state = 'pending' if activation_mode == 'on_leave_scene' else 'active'
+    cad = payload.get('cad')
+    try:
+        cad = int(cad) if cad not in (None, '', 'null') else None
+    except Exception:
+        cad = None
     source = str(payload.get('source') or 'manual').strip().lower()
-    if source not in {'manual', 'map_click', 'preset', 'what3words', 'address'}:
+    if source not in {'manual', 'map_click', 'preset', 'what3words', 'address', 'crew_override', 'location_search'}:
         source = 'manual'
     name = str(payload.get('name') or payload.get('location_name') or '').strip()
     lat = payload.get('lat', payload.get('latitude'))
@@ -2662,7 +2711,7 @@ def unit_set_standby(callsign):
     address = str(payload.get('address') or payload.get('location_text') or '').strip()
     postcode = str(payload.get('postcode') or '').strip()
     if not name:
-        name = 'Standby'
+        name = 'Transport Destination' if destination_type == 'transport' else 'Standby'
     try:
         lat = float(lat)
         lng = float(lng)
@@ -2703,6 +2752,10 @@ def unit_set_standby(callsign):
             'lat': lat,
             'lng': lng,
             'source': source,
+            'destination_type': destination_type,
+            'activation_mode': activation_mode,
+            'state': destination_state,
+            'cad': cad,
             'what3words': what3words or None,
             'address': address or None,
             'postcode': postcode or None
@@ -2710,22 +2763,34 @@ def unit_set_standby(callsign):
         cur.execute("""
             INSERT INTO mdt_dispatch_instructions (callSign, instruction_type, payload, status, created_by)
             VALUES (%s, %s, %s, 'pending', %s)
-        """, (callsign, 'standby_location', json.dumps(instruction_payload), operator or None))
+        """, (callsign, instruction_type, json.dumps(instruction_payload), operator or None))
         instruction_id = cur.lastrowid
         cur.execute("""
-            INSERT INTO standby_locations (callSign, name, lat, lng, source, what3words, address, instructionId, updatedBy)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO standby_locations
+              (callSign, name, lat, lng, source, destinationType, activationMode, state, cad,
+               what3words, address, instructionId, activatedAt, updatedBy)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 name = VALUES(name),
                 lat = VALUES(lat),
                 lng = VALUES(lng),
                 source = VALUES(source),
+                destinationType = VALUES(destinationType),
+                activationMode = VALUES(activationMode),
+                state = VALUES(state),
+                cad = VALUES(cad),
                 what3words = VALUES(what3words),
                 address = VALUES(address),
                 instructionId = VALUES(instructionId),
+                activatedAt = VALUES(activatedAt),
                 updatedBy = VALUES(updatedBy),
                 updatedAt = CURRENT_TIMESTAMP
-        """, (callsign, name, lat, lng, source, what3words or None, address or None, instruction_id, operator or 'unknown'))
+        """, (
+            callsign, name, lat, lng, source, destination_type, activation_mode, destination_state, cad,
+            what3words or None, address or None, instruction_id,
+            datetime.utcnow() if destination_state == 'active' else None,
+            operator or 'unknown'
+        ))
         cur.execute("SHOW TABLES LIKE 'messages'")
         has_messages = cur.fetchone() is not None
         if has_messages:
@@ -2734,7 +2799,10 @@ def unit_set_standby(callsign):
                 detail_bits.append(f"w3w:{what3words}")
             if address:
                 detail_bits.append(address)
-            msg_text = f"Standby instruction: {' | '.join(detail_bits)}"
+            if instruction_type == 'transport_destination':
+                msg_text = f"Transport destination ({activation_mode}): {' | '.join(detail_bits)}"
+            else:
+                msg_text = f"Standby instruction: {' | '.join(detail_bits)}"
             cur.execute("""
                 INSERT INTO messages (`from`, recipient, text, timestamp, `read`)
                 VALUES (%s, %s, %s, NOW(), 0)
@@ -2748,6 +2816,10 @@ def unit_set_standby(callsign):
                 'lat': lat,
                 'lng': lng,
                 'source': source,
+                'destination_type': destination_type,
+                'activation_mode': activation_mode,
+                'state': destination_state,
+                'cad': cad,
                 'what3words': what3words or None,
                 'address': address or None,
                 'instruction_id': instruction_id
@@ -2756,21 +2828,25 @@ def unit_set_standby(callsign):
                 'type': 'dispatch_instruction',
                 'callsign': callsign,
                 'instruction_id': instruction_id,
-                'instruction_type': 'standby_location'
+                'instruction_type': instruction_type
             }, broadcast=True)
             socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': callsign}, broadcast=True)
         except Exception:
             pass
         return jsonify({
-            'message': 'Standby location instruction sent',
+            'message': ('Transport destination instruction sent' if instruction_type == 'transport_destination' else 'Standby location instruction sent'),
             'callsign': callsign,
             'instruction_id': instruction_id,
-            'instruction_type': 'standby_location',
+            'instruction_type': instruction_type,
             'standby': {
                 'name': name,
                 'lat': lat,
                 'lng': lng,
                 'source': source,
+                'destination_type': destination_type,
+                'activation_mode': activation_mode,
+                'state': destination_state,
+                'cad': cad,
                 'what3words': what3words or None,
                 'address': address or None
             }
@@ -2894,9 +2970,14 @@ def unit_force_signoff(callsign):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
+        _ensure_standby_tables(cur)
         cur.execute("DELETE FROM mdts_signed_on WHERE callSign = %s", (callsign,))
         if cur.rowcount == 0:
             return jsonify({'error': 'Unit not found'}), 404
+        try:
+            cur.execute("DELETE FROM standby_locations WHERE callSign = %s", (callsign,))
+        except Exception:
+            pass
         conn.commit()
         try:
             socketio.emit('mdt_event', {'type': 'unit_signoff', 'callsign': callsign}, broadcast=True)
@@ -5835,6 +5916,18 @@ def mdt_sign_on():
         conn.close()
 
     try:
+        from app.plugins.time_billing_module.ventus_integration import on_ventus_sign_on
+        on_ventus_sign_on(
+            callsign=callsign,
+            crew=crew,
+            shift_start_at=shift_start_at,
+            shift_end_at=shift_end_at,
+            sign_on_time=now,
+        )
+    except Exception:
+        pass
+
+    try:
         shift_preview = _compute_shift_break_state({
             'status': status,
             'shiftStartAt': shift_start_at,
@@ -5917,6 +6010,11 @@ def mdt_sign_off():
         cur.execute(
             "DELETE FROM mdts_signed_on WHERE callSign = %s", (callsign,)
         )
+        try:
+            _ensure_standby_tables(cur)
+            cur.execute("DELETE FROM standby_locations WHERE callSign = %s", (callsign,))
+        except Exception:
+            pass
 
         # Recompute per-CAD assignment state after sign-off cleanup.
         for cad in sorted(affected_cads):
@@ -5946,6 +6044,12 @@ def mdt_sign_off():
     finally:
         cur.close()
         conn.close()
+
+    try:
+        from app.plugins.time_billing_module.ventus_integration import on_ventus_sign_off
+        on_ventus_sign_off(callsign=callsign)
+    except Exception:
+        pass
 
     try:
         socketio.emit('mdt_event', {'type': 'unit_signoff', 'callsign': callsign}, broadcast=True)
@@ -6503,8 +6607,10 @@ def mdt_status(cad):
         return jsonify({'error': 'Invalid status'}), 400
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
+    destination_to_activate = None
     try:
         _ensure_response_log_table(cur)
+        _ensure_standby_tables(cur)
         if not callsign:
             # Fallback for MDT clients that omit callsign in status payload:
             # prefer explicit job-unit links, then signed-on assigned incident.
@@ -6632,6 +6738,43 @@ def mdt_status(cad):
             (status, cad, status, status, cad, callsign)
         )
 
+        if status == 'leave_scene':
+            latest_destination = _load_latest_destination(cur, callsign)
+            if latest_destination:
+                d_type = str(latest_destination.get('destination_type') or '').strip().lower()
+                d_mode = str(latest_destination.get('activation_mode') or '').strip().lower()
+                d_state = str(latest_destination.get('state') or '').strip().lower()
+                if d_type == 'transport' and d_mode == 'on_leave_scene' and d_state in {'pending', 'queued', 'sent'}:
+                    cur.execute("""
+                        UPDATE standby_locations
+                           SET state = 'active',
+                               activatedAt = NOW(),
+                               updatedAt = CURRENT_TIMESTAMP
+                         WHERE callSign = %s
+                           AND LOWER(TRIM(COALESCE(destinationType, 'standby'))) = 'transport'
+                    """, (callsign,))
+                    latest_destination['state'] = 'active'
+                    latest_destination['activated_at'] = datetime.utcnow().isoformat()
+                    destination_to_activate = latest_destination
+        elif status == 'at_hospital':
+            cur.execute("""
+                UPDATE standby_locations
+                   SET state = 'completed',
+                       updatedAt = CURRENT_TIMESTAMP
+                 WHERE callSign = %s
+                   AND LOWER(TRIM(COALESCE(destinationType, 'standby'))) = 'transport'
+                   AND LOWER(TRIM(COALESCE(state, ''))) IN ('active', 'pending', 'queued', 'sent')
+            """, (callsign,))
+        elif status in ('cleared', 'stood_down'):
+            cur.execute("""
+                UPDATE standby_locations
+                   SET state = 'cancelled',
+                       updatedAt = CURRENT_TIMESTAMP
+                 WHERE callSign = %s
+                   AND LOWER(TRIM(COALESCE(destinationType, 'standby'))) = 'transport'
+                   AND LOWER(TRIM(COALESCE(state, ''))) IN ('active', 'pending', 'queued', 'sent')
+            """, (callsign,))
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -6648,10 +6791,21 @@ def mdt_status(cad):
             'callsign': callsign
         }, broadcast=True)
         socketio.emit('mdt_event', {'type': 'jobs_updated', 'cad': cad}, broadcast=True)
+        if destination_to_activate:
+            socketio.emit('mdt_event', {
+                'type': 'destination_activated',
+                'callsign': callsign,
+                'cad': cad,
+                'destination': destination_to_activate
+            }, broadcast=True)
+            socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': callsign}, broadcast=True)
     except Exception:
         pass
 
-    return jsonify({'message': 'Status updated and logged'}), 200
+    return _jsonify_safe({
+        'message': 'Status updated and logged',
+        'destination_to_activate': destination_to_activate
+    }, 200)
 
 # 8) Location update (real-time position reporting)
 
@@ -6886,6 +7040,40 @@ def mdt_update_crew_legacy(callsign):
         conn.close()
 
 
+def _load_latest_destination(cur, callsign):
+    _ensure_standby_tables(cur)
+    cur.execute("SHOW TABLES LIKE 'standby_locations'")
+    if cur.fetchone() is None:
+        return None
+    cur.execute("""
+        SELECT id, name, lat, lng, source, destinationType, activationMode, state, cad,
+               what3words, address, instructionId, activatedAt, updatedAt
+        FROM standby_locations
+        WHERE callSign = %s
+        ORDER BY updatedAt DESC, id DESC
+        LIMIT 1
+    """, (str(callsign or '').strip().upper(),))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        'id': row.get('id'),
+        'name': row.get('name'),
+        'lat': float(row.get('lat')) if row.get('lat') is not None else None,
+        'lng': float(row.get('lng')) if row.get('lng') is not None else None,
+        'source': row.get('source'),
+        'destination_type': row.get('destinationType') or 'standby',
+        'activation_mode': row.get('activationMode') or 'immediate',
+        'state': row.get('state') or 'active',
+        'cad': row.get('cad'),
+        'what3words': row.get('what3words'),
+        'address': row.get('address'),
+        'instruction_id': row.get('instructionId'),
+        'activated_at': row.get('activatedAt'),
+        'updated_at': row.get('updatedAt')
+    }
+
+
 @internal.route('/api/mdt/<callsign>/standby', methods=['GET', 'OPTIONS'])
 def mdt_standby_legacy(callsign):
     """Legacy alias: fetch latest standby assignment for a callsign."""
@@ -6894,38 +7082,207 @@ def mdt_standby_legacy(callsign):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
-        _ensure_standby_tables(cur)
-        conn.commit()
-        cur.execute("SHOW TABLES LIKE 'standby_locations'")
-        if cur.fetchone() is None:
-            return _jsonify_safe({'callsign': callsign, 'standby': None}, 200)
-        cur.execute("""
-            SELECT id, name, lat, lng, source, what3words, address, instructionId, updatedAt
-            FROM standby_locations
-            WHERE callSign = %s
-            ORDER BY updatedAt DESC, id DESC
-            LIMIT 1
-        """, (callsign,))
-        row = cur.fetchone()
-        if not row:
+        row = _load_latest_destination(cur, callsign)
+        if row is None:
             return _jsonify_safe({'callsign': callsign, 'standby': None}, 200)
         return _jsonify_safe({
             'callsign': callsign,
-            'standby': {
-                'id': row.get('id'),
-                'name': row.get('name'),
-                'lat': row.get('lat'),
-                'lng': row.get('lng'),
-                'source': row.get('source'),
-                'what3words': row.get('what3words'),
-                'address': row.get('address'),
-                'instruction_id': row.get('instructionId'),
-                'updated_at': row.get('updatedAt')
-            }
+            'standby': row
         }, 200)
     finally:
         cur.close()
         conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/destination', methods=['GET', 'OPTIONS'])
+def mdt_destination_legacy(callsign):
+    """Fetch latest unit destination (transport/standby) for MDT recovery after restart."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return _jsonify_safe({'error': 'callsign required'}, 400)
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        destination = _load_latest_destination(cur, cs)
+        return _jsonify_safe({'callsign': cs, 'destination': destination}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/destination/override', methods=['POST', 'OPTIONS'])
+def mdt_destination_override_legacy(callsign):
+    """Crew override for destination changes (clinical or operational)."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return _jsonify_safe({'error': 'callsign required'}, 400)
+
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get('name') or payload.get('location_name') or '').strip()
+    source = 'crew_override'
+    reason = str(payload.get('reason') or payload.get('override_reason') or 'clinical_override').strip() or 'clinical_override'
+    notes = str(payload.get('notes') or payload.get('override_notes') or '').strip()
+    address = str(payload.get('address') or payload.get('location_text') or '').strip()
+    what3words = str(payload.get('what3words') or payload.get('w3w') or '').strip()
+    postcode = str(payload.get('postcode') or '').strip()
+    raw_lat = payload.get('lat', payload.get('latitude'))
+    raw_lng = payload.get('lng', payload.get('longitude'))
+    try:
+        lat = float(raw_lat)
+        lng = float(raw_lng)
+    except Exception:
+        lat = None
+        lng = None
+    if lat is None or lng is None:
+        resolved = ResponseTriage.get_best_lat_lng(
+            address=address or None,
+            postcode=postcode or None,
+            what3words=what3words or None
+        )
+        if isinstance(resolved, dict) and resolved.get('lat') is not None and resolved.get('lng') is not None:
+            try:
+                lat = float(resolved.get('lat'))
+                lng = float(resolved.get('lng'))
+            except Exception:
+                lat = None
+                lng = None
+    if lat is None or lng is None:
+        return _jsonify_safe({'error': 'lat/lng required (or resolvable address/what3words/postcode)'}, 400)
+    if not name:
+        name = 'Crew Override Destination'
+
+    cad = payload.get('cad')
+    try:
+        cad = int(cad) if cad not in (None, '', 'null') else None
+    except Exception:
+        cad = None
+
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        _ensure_standby_tables(cur)
+        _ensure_job_comms_table(cur)
+        cur.execute("SELECT assignedIncident FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1", (cs,))
+        live = cur.fetchone() or {}
+        if not live:
+            return _jsonify_safe({'error': 'callsign not signed on'}, 404)
+        if cad is None:
+            try:
+                cad = int(live.get('assignedIncident')) if live.get('assignedIncident') is not None else None
+            except Exception:
+                cad = None
+
+        instruction_payload = {
+            'name': name,
+            'lat': lat,
+            'lng': lng,
+            'source': source,
+            'destination_type': 'transport',
+            'activation_mode': 'immediate',
+            'state': 'active',
+            'cad': cad,
+            'reason': reason,
+            'notes': notes or None,
+            'what3words': what3words or None,
+            'address': address or None,
+            'postcode': postcode or None
+        }
+        cur.execute("""
+            INSERT INTO mdt_dispatch_instructions (callSign, instruction_type, payload, status, created_by, acked_at)
+            VALUES (%s, %s, %s, 'acked', %s, NOW())
+        """, (cs, 'destination_override', json.dumps(instruction_payload), cs))
+        instruction_id = cur.lastrowid
+
+        cur.execute("""
+            INSERT INTO standby_locations
+              (callSign, name, lat, lng, source, destinationType, activationMode, state, cad,
+               what3words, address, instructionId, activatedAt, updatedBy)
+            VALUES (%s, %s, %s, %s, %s, 'transport', 'immediate', 'active', %s, %s, %s, %s, NOW(), %s)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                lat = VALUES(lat),
+                lng = VALUES(lng),
+                source = VALUES(source),
+                destinationType = 'transport',
+                activationMode = 'immediate',
+                state = 'active',
+                cad = VALUES(cad),
+                what3words = VALUES(what3words),
+                address = VALUES(address),
+                instructionId = VALUES(instructionId),
+                activatedAt = NOW(),
+                updatedBy = VALUES(updatedBy),
+                updatedAt = CURRENT_TIMESTAMP
+        """, (cs, name, lat, lng, source, cad, what3words or None, address or None, instruction_id, cs))
+
+        override_text = f"Destination override by {cs}: {name} ({lat:.6f},{lng:.6f}) reason={reason}"
+        if notes:
+            override_text = f"{override_text} | notes={notes}"
+        if cad is not None:
+            cur.execute("""
+                INSERT INTO mdt_job_comms (cad, message_type, sender_role, sender_user, message_text)
+                VALUES (%s, 'update', 'crew', %s, %s)
+            """, (cad, cs, override_text))
+
+        cur.execute("SHOW TABLES LIKE 'messages'")
+        has_messages = cur.fetchone() is not None
+        if has_messages:
+            cur.execute("""
+                INSERT INTO messages (`from`, recipient, text, timestamp, `read`)
+                VALUES (%s, 'dispatcher', %s, NOW(), 0)
+            """, (cs, override_text))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    try:
+        socketio.emit('mdt_event', {
+            'type': 'destination_override',
+            'callsign': cs,
+            'cad': cad,
+            'instruction_id': instruction_id,
+            'reason': reason,
+            'name': name,
+            'lat': lat,
+            'lng': lng
+        }, broadcast=True)
+        socketio.emit('mdt_event', {
+            'type': 'message_posted',
+            'from': cs,
+            'to': 'dispatcher',
+            'text': override_text
+        }, broadcast=True)
+        socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': cs}, broadcast=True)
+        if cad is not None:
+            socketio.emit('mdt_event', {'type': 'job_update', 'cad': cad, 'text': override_text, 'units': [cs]}, broadcast=True)
+            socketio.emit('mdt_event', {'type': 'jobs_updated', 'cad': cad}, broadcast=True)
+    except Exception:
+        pass
+
+    return _jsonify_safe({
+        'message': 'Destination override accepted',
+        'callsign': cs,
+        'cad': cad,
+        'instruction_id': instruction_id,
+        'destination': {
+            'name': name,
+            'lat': lat,
+            'lng': lng,
+            'source': source,
+            'destination_type': 'transport',
+            'activation_mode': 'immediate',
+            'state': 'active',
+            'reason': reason,
+            'notes': notes or None,
+            'what3words': what3words or None,
+            'address': address or None
+        }
+    }, 200)
 
 
 @internal.route('/api/mdt/<callsign>/instructions', methods=['GET', 'OPTIONS'])
@@ -7066,6 +7423,7 @@ def mdt_unit_status_legacy(callsign):
         if not row:
             return jsonify({'error': 'not signed on', 'callsign': cs}), 404
         shift_state = _compute_shift_break_state(row)
+        destination = _load_latest_destination(cur, cs)
         return _jsonify_safe({
             'callsign': cs,
             'status': str(row.get('status') or ''),
@@ -7086,7 +7444,8 @@ def mdt_unit_status_legacy(callsign):
             'break_due': shift_state.get('break_due'),
             'near_break': shift_state.get('near_break'),
             'break_blocked_for_new_jobs': shift_state.get('break_blocked_for_new_jobs'),
-            'division': _normalize_division(row.get('division'), fallback='general')
+            'division': _normalize_division(row.get('division'), fallback='general'),
+            'destination': destination
         }, 200)
     finally:
         cur.close()
@@ -7269,6 +7628,16 @@ def mdt_update_crew_root_compat(callsign):
 @api_compat.route('/api/mdt/<callsign>/standby', methods=['GET', 'OPTIONS'])
 def mdt_standby_root_compat(callsign):
     return mdt_standby_legacy(callsign)
+
+
+@api_compat.route('/api/mdt/<callsign>/destination', methods=['GET', 'OPTIONS'])
+def mdt_destination_root_compat(callsign):
+    return mdt_destination_legacy(callsign)
+
+
+@api_compat.route('/api/mdt/<callsign>/destination/override', methods=['POST', 'OPTIONS'])
+def mdt_destination_override_root_compat(callsign):
+    return mdt_destination_override_legacy(callsign)
 
 
 @api_compat.route('/api/mdt/<callsign>/instructions', methods=['GET', 'OPTIONS'])

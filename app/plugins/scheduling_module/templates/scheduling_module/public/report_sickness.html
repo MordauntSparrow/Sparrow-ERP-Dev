@@ -1,0 +1,21 @@
+{% extends "scheduling_module/base_public.html" %}
+{% block content %}
+<h1 class="h5 mb-3">Report sickness</h1>
+<form method="post" action="{{ url_for('public_scheduling.report_sickness_submit') }}" class="card card-module p-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+  <div class="mb-3">
+    <label class="form-label">Start date</label>
+    <input type="date" name="start_date" class="form-control form-control-dark bg-dark text-light" value="{{ today }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">End date</label>
+    <input type="date" name="end_date" class="form-control form-control-dark bg-dark text-light" value="{{ today }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Notes (optional)</label>
+    <input type="text" name="reason" class="form-control form-control-dark bg-dark text-light" placeholder="Optional details">
+  </div>
+  <button type="submit" class="btn btn-warning text-dark">Report sickness</button>
+  <a href="{{ url_for('public_scheduling.my_requests') }}" class="btn btn-outline-light ms-2">Cancel</a>
+</form>
+{% endblock %}

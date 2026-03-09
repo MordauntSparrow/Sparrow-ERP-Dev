@@ -8,6 +8,7 @@ from flask import (
     Blueprint, request, jsonify, send_file,
     render_template, redirect, url_for, flash, session
 )
+from flask_login import current_user, login_required
 from app.objects import get_db_connection, AuthManager, PluginManager
 from .services import TimesheetService, RunsheetService, TemplateService, ExportService, _dec
 
@@ -33,6 +34,21 @@ plugin_manager = PluginManager(os.path.abspath('app/plugins'))
 core_manifest = plugin_manager.get_core_manifest()
 
 
+def _employee_portal_enabled():
+    """True if employee_portal_module manifest exists and has enabled: true."""
+    try:
+        manifest_path = os.path.join(
+            os.path.dirname(__file__), '..', 'employee_portal_module', 'manifest.json'
+        )
+        if not os.path.isfile(manifest_path):
+            return False
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+        return manifest.get('enabled') is True
+    except Exception:
+        return False
+
+
 # =============================================================================
 # Auth (tb_contractors)
 # =============================================================================
@@ -47,42 +63,138 @@ def current_tb_user_id():
     return int(u['id']) if u and u.get('id') is not None else None
 
 
+def _set_tb_session_from_contractor_id(contractor_id: int) -> bool:
+    """Load contractor by id, set session['tb_user'] if active. Returns True if session was set."""
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT id, email, name, initials, status, profile_picture_path
+            FROM tb_contractors WHERE id = %s LIMIT 1
+        """, (int(contractor_id),))
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    if not row or str(row.get("status") or "").lower() not in ("active", "1", "true", "yes"):
+        return False
+    role = _contractor_effective_role(int(row["id"]))
+    try:
+        from app.plugins.employee_portal_module.services import safe_profile_picture_path
+        safe_avatar = safe_profile_picture_path(row.get("profile_picture_path"))
+    except Exception:
+        safe_avatar = None
+    display = (row.get("name") or "").strip() or row.get("email") or ""
+    session["tb_user"] = {
+        "id": int(row["id"]),
+        "email": row["email"],
+        "name": display,
+        "initials": (row.get("initials") or "").strip(),
+        "profile_picture_path": safe_avatar,
+        "role": role,
+    }
+    session.modified = True
+    return True
+
+
 def staff_required_tb(view):
+    """Require tb_user (contractor). No roles—contractors have one view; staff/admin/superuser are admin app (port 82) only."""
     @wraps(view)
     def wrapped(*args, **kwargs):
         u = current_tb_user()
-        if not u:
-            return redirect('/time-billing/login')
-        role = (u.get('role') or '').lower()
-        if role not in ('staff', 'admin', 'superuser'):
-            flash('Not authorized for staff portal.', 'error')
-            return redirect(url_for('public_time_billing.login_page'))
-        return view(*args, **kwargs)
+        portal = _employee_portal_enabled()
+
+        if u:
+            return view(*args, **kwargs)
+
+        if portal:
+            # No session, portal on: try launch token or tb_cid cookie, else send to portal login
+            launch = request.args.get("launch") if request else None
+            if launch:
+                try:
+                    from flask import current_app
+                    from itsdangerous import URLSafeTimedSerializer
+                    uid = URLSafeTimedSerializer(current_app.secret_key).loads(launch, salt="tb_launch", max_age=60)
+                    if _set_tb_session_from_contractor_id(uid):
+                        return redirect("/time-billing/")
+                except Exception:
+                    pass
+            token = request.cookies.get("tb_cid") if request else None
+            if token:
+                try:
+                    from flask import current_app
+                    from itsdangerous import URLSafeTimedSerializer
+                    cid = URLSafeTimedSerializer(current_app.secret_key).loads(token, salt="tb_cid", max_age=60 * 60 * 24 * 7)
+                    if _set_tb_session_from_contractor_id(cid):
+                        return view(*args, **kwargs)
+                except Exception:
+                    pass
+            return redirect(url_for("public_employee_portal.login_page"))
+
+        # No session, portal off: use time-billing login
+        return redirect("/time-billing/login")
     return wrapped
 
 
+def _contractor_effective_role(contractor_id: int) -> str:
+    """Resolve contractor's role from tb_contractor_roles (many-to-many) and role_id (single)."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT LOWER(TRIM(r.name)) AS name FROM tb_contractor_roles cr
+            JOIN roles r ON r.id = cr.role_id WHERE cr.contractor_id = %s
+        """, (contractor_id,))
+        names = [row[0] for row in (cur.fetchall() or []) if row and row[0]]
+        if 'superuser' in names:
+            return 'superuser'
+        if 'admin' in names:
+            return 'admin'
+        if names:
+            return names[0] or 'staff'
+        cur.execute("""
+            SELECT LOWER(TRIM(r.name)) FROM tb_contractors c
+            LEFT JOIN roles r ON r.id = c.role_id WHERE c.id = %s
+        """, (contractor_id,))
+        row = cur.fetchone()
+        return (row[0] or 'staff') if row else 'staff'
+    finally:
+        cur.close()
+        conn.close()
+
+
 def admin_required_tb(view):
+    """For internal (admin app, port 82): require core user with role admin/superuser (Flask-Login)."""
     @wraps(view)
+    @login_required
     def wrapped(*args, **kwargs):
-        role = session.get('role')
-        # if role != 'admin' and role != 'superuser':
-        #     flash('Admin access required.', 'error')
-        #     return redirect('/')
+        role = (getattr(current_user, 'role', None) or '').lower()
+        if role not in ('admin', 'superuser'):
+            flash('Admin access required.', 'error')
+            return redirect(url_for('routes.dashboard'))
         return view(*args, **kwargs)
     return wrapped
 
 # =============================================================================
 # Public authentication routes (tb_contractors)
+# Portal off: /time-billing/login exists, normal form login + role check.
+# Portal on: GET/POST /login redirect to portal; no form here.
 # =============================================================================
 
 
 @public_bp.get("/login")
 def login_page():
+    if _employee_portal_enabled():
+        return redirect(url_for('public_employee_portal.login_page'))
+    if current_tb_user():
+        return redirect(url_for('public_time_billing.public_dashboard_page'))
     return render_template("public/auth/login.html", config=core_manifest)
 
 
 @public_bp.post("/login")
 def login_submit():
+    if _employee_portal_enabled():
+        return redirect(url_for('public_employee_portal.login_page'))
     email = (request.form.get('email') or '').strip().lower()
     password = request.form.get('password') or ''
 
@@ -117,11 +229,12 @@ def login_submit():
             session.permanent = True
 
         display = (u.get('name') or '').strip() or u['email']
+        role = _contractor_effective_role(int(u['id']))
         session['tb_user'] = {
             "id": int(u['id']),
             "email": u['email'],
             "name": display,
-            "role": "staff"  # harmless default so staff_required_tb passes
+            "role": role
         }
 
         ss = session.get('site_settings', {})
@@ -140,6 +253,11 @@ def login_submit():
 def logout():
     session.pop('tb_user', None)
     flash('You have been logged out.', 'success')
+    if _employee_portal_enabled():
+        resp = redirect(url_for('public_employee_portal.login_page'))
+        resp.delete_cookie('tb_cid', path='/')
+        return resp
+    # Portal off: back to time-billing login
     return redirect(url_for('public_time_billing.login_page'))
 
 # Optional: password set/reset endpoints

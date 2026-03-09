@@ -1,0 +1,14 @@
+{% extends "scheduling_module/base_public.html" %}
+{% block content %}
+<div class="card card-module">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-calendar-week display-4 text-info"></i>
+    <h1 class="h4 mt-3">{{ module_name }}</h1>
+    <p class="text-secondary">{{ module_description }}</p>
+    <p class="text-muted small">View your shifts and manage time off.</p>
+    <a href="/scheduling/my-day" class="btn btn-primary mt-3 me-2">My day</a>
+    <a href="/scheduling/my-requests" class="btn btn-outline-light mt-3 me-2">Time off & sickness</a>
+    <a href="/employee-portal/" class="btn btn-outline-light mt-3">Back to Portal</a>
+  </div>
+</div>
+{% endblock %}

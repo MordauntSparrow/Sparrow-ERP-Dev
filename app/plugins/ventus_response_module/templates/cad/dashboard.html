@@ -2239,6 +2239,11 @@ window.loadUnitDetail = function(callsign) {
     const recentJobs = Array.isArray(detail.recent_jobs) ? detail.recent_jobs : [];
     const crewRemovals = Array.isArray(detail.crew_removals) ? detail.crew_removals : [];
     const conversation = Array.isArray(messages) ? messages.slice(-40) : [];
+    const standby = (detail && typeof detail.standby === 'object' && detail.standby) ? detail.standby : null;
+    const destinationTypeLabel = standby
+      ? (String(standby.destination_type || '').toLowerCase() === 'transport' ? 'Transport' : 'Standby')
+      : '--';
+    const destinationStateLabel = standby ? prettyStatus(standby.state || '--') : '--';
     const presetOptions = (Array.isArray(presets) ? presets : []).map(p =>
       `<option value="${escapeHtml(JSON.stringify({ name: p.name, lat: p.lat, lng: p.lng }))}">${escapeHtml(p.name)} (${escapeHtml(p.lat)}, ${escapeHtml(p.lng)})</option>`
     ).join('');
@@ -2252,6 +2257,9 @@ window.loadUnitDetail = function(callsign) {
           <div class="meta">Last Seen: ${escapeHtml(detail.last_seen_at || '--')}</div>
           <div class="meta">Coordinates: ${detail.last_lat != null ? escapeHtml(String(detail.last_lat)) : '--'}, ${detail.last_lng != null ? escapeHtml(String(detail.last_lng)) : '--'}</div>
           <div class="meta">Crew: ${escapeHtml((Array.isArray(detail.crew) ? detail.crew.join(', ') : '') || '--')}</div>
+          <div class="meta">Destination Type: ${escapeHtml(destinationTypeLabel)}</div>
+          <div class="meta">Destination State: ${escapeHtml(destinationStateLabel)}</div>
+          <div class="meta">Activation Mode: ${escapeHtml(standby ? (standby.activation_mode || '--') : '--')}</div>
           <div class="meta">Shift Elapsed: ${detail.shift_elapsed_minutes != null ? `${escapeHtml(String(detail.shift_elapsed_minutes))}m` : '--'}</div>
           <div class="meta">Shift Remaining: ${detail.shift_remaining_minutes != null ? `${escapeHtml(String(detail.shift_remaining_minutes))}m` : '--'}</div>
           <div class="meta">Break Policy: ${detail.break_due ? '<span style="color:#fca5a5;">Break due</span>' : (detail.near_break ? '<span style="color:#fde68a;">Break due soon</span>' : 'OK')}</div>
@@ -2292,6 +2300,17 @@ window.loadUnitDetail = function(callsign) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
           <input id="unitStandbyW3W" placeholder="what3words (optional)">
           <input id="unitStandbyAddress" placeholder="Address / location text (optional)">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;">
+          <select id="unitDestinationType">
+            <option value="standby_location">Standby Instruction</option>
+            <option value="transport_destination">Transport Destination</option>
+          </select>
+          <select id="unitActivationMode">
+            <option value="immediate">Activate Immediately</option>
+            <option value="on_leave_scene">Activate On Leave Scene</option>
+          </select>
+          <input id="unitDestinationCad" type="number" min="1" step="1" placeholder="CAD (optional)">
         </div>
         <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:8px;">
           <input id="unitLocationSearchQuery" placeholder="Search hospitals / destinations">
@@ -2440,16 +2459,31 @@ window.loadUnitDetail = function(callsign) {
         shell.style.pointerEvents = '';
       }
     };
-    const standby = (detail && typeof detail.standby === 'object' && detail.standby) ? detail.standby : null;
     if (standby) {
       if (standby.name) bodyEl.querySelector('#unitStandbyName').value = standby.name;
       if (standby.lat != null && standby.lng != null) setLatLng(standby.lat, standby.lng);
       if (standby.what3words) bodyEl.querySelector('#unitStandbyW3W').value = standby.what3words;
       if (standby.address) bodyEl.querySelector('#unitStandbyAddress').value = standby.address;
       setSource(standby.source || 'manual');
+      if (standby.destination_type) bodyEl.querySelector('#unitDestinationType').value = String(standby.destination_type).toLowerCase() === 'transport' ? 'transport_destination' : 'standby_location';
+      if (standby.activation_mode) bodyEl.querySelector('#unitActivationMode').value = standby.activation_mode;
+      if (standby.cad != null) bodyEl.querySelector('#unitDestinationCad').value = standby.cad;
     } else if (detail.last_lat != null && detail.last_lng != null) {
       setLatLng(detail.last_lat, detail.last_lng);
+      if (currentJob && currentJob.cad) bodyEl.querySelector('#unitDestinationCad').value = currentJob.cad;
     }
+
+    bodyEl.querySelector('#unitDestinationType')?.addEventListener('change', () => {
+      const t = bodyEl.querySelector('#unitDestinationType').value;
+      const modeEl = bodyEl.querySelector('#unitActivationMode');
+      if (!modeEl) return;
+      if (t === 'transport_destination' && modeEl.value !== 'on_leave_scene') {
+        modeEl.value = 'on_leave_scene';
+      }
+      if (t === 'standby_location' && modeEl.value !== 'immediate') {
+        modeEl.value = 'immediate';
+      }
+    });
 
     bodyEl.querySelector('#unitOpenJobBtn')?.addEventListener('click', () => {
       if (currentJob && currentJob.cad) {
@@ -2524,6 +2558,10 @@ window.loadUnitDetail = function(callsign) {
       const rawLng = parseFloat(bodyEl.querySelector('#unitStandbyLng').value || '');
       const what3words = String(bodyEl.querySelector('#unitStandbyW3W').value || '').trim();
       const address = String(bodyEl.querySelector('#unitStandbyAddress').value || '').trim();
+      const instructionType = String(bodyEl.querySelector('#unitDestinationType')?.value || 'standby_location').trim();
+      const activationMode = String(bodyEl.querySelector('#unitActivationMode')?.value || 'immediate').trim();
+      const cadRaw = parseInt(bodyEl.querySelector('#unitDestinationCad')?.value || '', 10);
+      const cadLink = Number.isInteger(cadRaw) && cadRaw > 0 ? cadRaw : null;
       const lat = Number.isFinite(rawLat) ? rawLat : null;
       const lng = Number.isFinite(rawLng) ? rawLng : null;
       let source = String(bodyEl.querySelector('#unitStandbySource').value || 'manual').trim().toLowerCase();
@@ -2534,7 +2572,12 @@ window.loadUnitDetail = function(callsign) {
       fetch(`/plugin/ventus_response_module/unit/${encodeURIComponent(cs)}/destination`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, lat, lng, what3words, address, source })
+        body: JSON.stringify({
+          name, lat, lng, what3words, address, source,
+          instruction_type: instructionType,
+          activation_mode: activationMode,
+          cad: cadLink
+        })
       }).then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
           if (!ok) throw new Error((d && d.error) || 'Failed to send');

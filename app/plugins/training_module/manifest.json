@@ -1,0 +1,14 @@
+{
+  "system_name": "training_module",
+  "name": "Training",
+  "description": "View training and complete mandatory training.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": true,
+  "dependencies": ["website_module", "employee_portal_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Initial stub.",
+  "repository_token": ""
+}

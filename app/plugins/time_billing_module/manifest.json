@@ -1,0 +1,10 @@
+{
+    "system_name": "time_billing_module",
+    "name": "Shift Timesheets",
+    "description": "Captures weekly contractor timesheets with auto rates, travel, and billing variance rollups.",
+    "version": "0.0.1",
+    "icon": "icon.png",
+    "enabled": true,
+    "installed": true,
+    "update_available": false
+}

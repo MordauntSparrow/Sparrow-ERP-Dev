@@ -1,0 +1,22 @@
+{% extends "hr_module/base_public.html" %}
+{% block content %}
+<h1 class="h5 mb-1">{{ req.title }}</h1>
+{% if req.description %}<p class="text-secondary small">{{ req.description }}</p>{% endif %}
+{% if req.required_by_date %}<p class="small text-warning">Required by {{ req.required_by_date }}</p>{% endif %}
+<p class="small"><span class="badge bg-secondary">{{ req.status }}</span></p>
+<h2 class="h6 mt-3">Upload document</h2>
+<form method="post" action="{{ url_for('public_hr.request_upload', req_id=req.id) }}" enctype="multipart/form-data" class="mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+  <input type="file" name="document" class="form-control mb-2 bg-dark text-light border-secondary" accept=".pdf,.jpg,.jpeg,.png">
+  <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+</form>
+{% if req.uploads %}
+<h2 class="h6">Uploaded files</h2>
+<ul class="list-unstyled">
+  {% for u in req.uploads %}
+  <li class="small mb-1"><a href="/static/{{ u.file_path }}" target="_blank" class="text-info">{{ u.file_name or u.file_path }}</a> – {{ u.uploaded_at.strftime('%d %b %Y') if u.uploaded_at else '' }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+<a href="/hr/" class="btn btn-outline-light btn-sm mt-3">Back to HR</a>
+{% endblock %}
