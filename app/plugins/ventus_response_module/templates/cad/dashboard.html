@@ -2800,6 +2800,18 @@ window.assignJobWithSuggestion = function(cad, suggestedCallsign = '') {
   });
 };
 
+window.backToJobStack = function() {
+  activeJobCad = null;
+  const panelEntry = Object.values(openPanels).find(p => p.type === 'jobs');
+  if (!panelEntry || !panelEntry.element) return;
+  const panel = panelEntry.element;
+  panel.dataset.jobsView = 'list';
+  panel.dataset.jobsCad = '';
+  const contentEl = panel.querySelector('.cad-panel-body');
+  if (!contentEl) return;
+  loadJobsPanel(contentEl);
+};
+
 window.loadJobDetail = function(cad) {
   activeJobCad = parseInt(cad, 10) || null;
   if (panelRefreshTimer) {
@@ -2870,7 +2882,10 @@ window.loadJobDetail = function(cad) {
       contentEl.innerHTML = `
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-            <div style="font-weight:600;">Status: ${prettyStatus(job.status)}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button class="btn" style="padding:6px 10px;background:transparent;border:1px solid var(--border-color);" onclick="backToJobStack()"><i class="bi bi-arrow-left"></i> Back to Stack</button>
+              <div style="font-weight:600;">Status: ${prettyStatus(job.status)}</div>
+            </div>
             <div style="display:flex;gap:8px;">
               <button class="btn" style="padding:7px 10px;" onclick="assignJob(${job.cad})"><i class="bi bi-person-check"></i> Assign Unit(s)</button>
               <button class="btn" style="padding:7px 10px;background:transparent;border:1px solid var(--border-color);" onclick="openJobDetailPopout(${job.cad})"><i class="bi bi-box-arrow-up-right"></i> Popout</button>

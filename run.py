@@ -191,14 +191,17 @@ def try_start_website():
         def _run_website():
             try:
                 ws.start()
-                print(f"[INFO] Website server started on port {web_port}. Demo site and employee login: http://<host>:{web_port}/")
+                print(
+                    f"[INFO] Website server started on port {web_port}. Demo site and employee login: http://<host>:{web_port}/")
             except Exception:
                 print("[ERROR] WebsiteServer failed to start:")
                 traceback.print_exc()
 
-        t = threading.Thread(target=_run_website, name="WebsiteServerThread", daemon=True)
+        t = threading.Thread(target=_run_website,
+                             name="WebsiteServerThread", daemon=True)
         t.start()
-        print(f"[INFO] Website server thread started (listening on port {web_port}).")
+        print(
+            f"[INFO] Website server thread started (listening on port {web_port}).")
 
     except Exception:
         print("[ERROR] Failed to start WebsiteServer:")
@@ -218,7 +221,7 @@ if __name__ == "__main__":
     # Start website module (port 80/8080) if installed and enabled; set WEB_PORT=80 to use port 80.
     # Pre-deployment (e.g. Railway): re-comment the line below so the website server is not started
     # from this script (deployment typically runs the admin app only, or starts the website separately).
-    try_start_website()
+    # try_start_website()
 
     # Always watch restart.flag (PluginManager lifecycle actions should touch it)
     watcher_thread = threading.Thread(
