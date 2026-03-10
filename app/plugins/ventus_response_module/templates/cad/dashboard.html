@@ -586,6 +586,7 @@ const btnUnits = document.getElementById('btnUnits');
 const btnMsgs = document.getElementById('btnMsgs');
 const btnKPI = document.getElementById('btnKPI');
 const btnPastJobs = document.getElementById('btnPastJobs');
+const btnResetPanels = document.getElementById('btnResetPanels');
 const cadMain = document.getElementById('cadMain');
 const panelsContainer = document.getElementById('panelsContainer');
 const toast = document.getElementById('toast');
@@ -697,6 +698,39 @@ function savePanelState(panelEl) {
     localStorage.setItem(key, JSON.stringify(state));
   } catch (e) {}
 }
+
+function getDefaultPanelPosition(type, typeIndex) {
+  const w = 420, h = 400;
+  if (type === 'jobs') return { left: 40, top: 120, width: w, height: h };
+  if (type === 'units') return { left: 480, top: 120, width: w, height: h };
+  return { left: 40 + typeIndex * 30, top: 120 + typeIndex * 40, width: w, height: h };
+}
+
+window.resetPanelsToDefault = function() {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.indexOf('cad_panel_state_') === 0) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+  const typeOrder = ['jobs', 'units', 'messages', 'past_jobs'];
+  let typeIndex = 0;
+  for (const type of typeOrder) {
+    const entry = Object.values(openPanels).find(p => p.type === type);
+    if (entry && entry.element) {
+      const def = getDefaultPanelPosition(type, typeIndex);
+      entry.element.style.left = def.left + 'px';
+      entry.element.style.top = def.top + 'px';
+      entry.element.style.width = def.width + 'px';
+      entry.element.style.height = def.height + 'px';
+      try { clampPanelToViewport(entry.element); } catch (e) {}
+      typeIndex++;
+    }
+  }
+  try { showNotification('success', 'Panels reset', 'Panel positions and sizes restored to default.'); } catch (e) {}
+};
 
 function createPanel(type, title) {
   const panelId = 'panel-' + type + '-' + Date.now();
@@ -3129,6 +3163,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnPastJobs?.addEventListener('click', () => {
     togglePanelByType('past_jobs', 'Past / Cleared Jobs', btnPastJobs);
+  });
+
+  btnResetPanels?.addEventListener('click', () => {
+    if (typeof window.resetPanelsToDefault === 'function') window.resetPanelsToDefault();
   });
 
   btnKPI?.addEventListener('click', () => {

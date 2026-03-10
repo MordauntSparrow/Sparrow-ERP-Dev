@@ -282,6 +282,7 @@
       {% endwith %}
 
       <form method="POST" action="{{ url_for('routes.login') }}" autocomplete="on" id="login-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="input-group">
           <span class="input-icon"><i class="fas fa-user"></i></span>
           <input type="text" class="form-control" id="username" name="username" placeholder="Username" required autocomplete="username">

@@ -156,10 +156,12 @@
 
                             {% if not plugin.enabled %}
                             <form action="/plugin/{{ plugin.system_name }}/enable" method="POST" class="action-form" data-action-label="Enabling {{ plugin.name }}…">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-success btn-sm action-btn" data-loading-text="Enabling…">Enable</button>
                             </form>
                             {% else %}
                             <form action="/plugin/{{ plugin.system_name }}/disable" method="POST" class="action-form" data-action-label="Disabling {{ plugin.name }}…">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-warning btn-sm action-btn" data-loading-text="Disabling…">Disable</button>
                             </form>
                             {% endif %}
@@ -167,6 +169,7 @@
                             <form action="/plugin/{{ plugin.system_name }}/uninstall" method="POST" class="action-form"
                                   data-action-label="Uninstalling {{ plugin.name }}…"
                                   onsubmit="return confirm('Uninstall {{ plugin.name }}? This will disable any dependents.');">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-outline-danger btn-sm action-btn" data-loading-text="Uninstalling…">Uninstall</button>
                             </form>
                         </div>
@@ -256,6 +259,7 @@
                                   class="action-form"
                                   data-action-label="Installing {{ p.name }}…"
                                   action="{{ url_for('routes.install_plugin_remote', plugin_system_name=p.system_name) }}">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-success w-100 action-btn" data-loading-text="Installing…">Install</button>
                             </form>
                         </div>
