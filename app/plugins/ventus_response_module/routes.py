@@ -1736,7 +1736,7 @@ def job_system_log(cad):
             "type": "incident_created",
             "time": job.get("created_at"),
             "actor": created_by or "system",
-            "message": f"CAD #{cad} created"
+            "message": f"CAD #{cad} created by {created_by}" if created_by else f"CAD #{cad} created"
         })
 
         _ensure_job_units_table(cur)
@@ -4571,6 +4571,15 @@ def close_job(cad):
 
         cur.execute("DELETE FROM mdt_job_units WHERE job_cad = %s", (cad,))
         _sync_claimed_by_from_job_units(cur, cad)
+        _ensure_job_comms_table(cur)
+        closer_user = getattr(current_user, 'username', None) or getattr(current_user, 'id', None) or 'dispatcher'
+        cur.execute(
+            """
+            INSERT INTO mdt_job_comms (cad, message_type, sender_role, sender_user, message_text)
+            VALUES (%s, 'closed', 'dispatch', %s, %s)
+            """,
+            (cad, str(closer_user), f"CAD closed ({outcome})")
+        )
         conn.commit()
 
         try:

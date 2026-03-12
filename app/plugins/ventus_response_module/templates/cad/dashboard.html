@@ -188,12 +188,46 @@ function prettyFieldLabel(key) {
     .replace(/\b\w/g, c => c.toUpperCase());
 }
 
+function formatDisplayValue(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) {
+    return v.map(function(item) {
+      if (item === null || item === undefined) return '';
+      if (typeof item === 'object') {
+        const parts = Object.entries(item).map(function(entry) { return prettyFieldLabel(entry[0]) + ': ' + formatDisplayValue(entry[1]); });
+        return parts.filter(Boolean).join(' · ');
+      }
+      return String(item);
+    }).filter(Boolean).join('; ');
+  }
+  if (typeof v === 'object') {
+    const lines = Object.entries(v).map(function(entry) {
+      const key = prettyFieldLabel(entry[0]);
+      const val = formatDisplayValue(entry[1]);
+      if (val === '') return '';
+      return key + ': ' + val;
+    }).filter(Boolean);
+    return lines.join(' · ');
+  }
+  return String(v);
+}
+
+function capitalizeWord(s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+
 function renderIncidentDetails(triageRaw) {
   const triage = (triageRaw && typeof triageRaw === 'object') ? triageRaw : {};
   const take = (k) => triage[k];
   const row = (label, val) => {
     if (val === undefined || val === null || String(val).trim() === '') return '';
-    return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(val)}</div>`;
+    const display = typeof val === 'object' ? formatDisplayValue(val) : String(val).trim();
+    if (!display) return '';
+    return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(display)}</div>`;
   };
 
   const coreRows = [
@@ -207,14 +241,14 @@ function renderIncidentDetails(triageRaw) {
     row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
     row('DOB', take('patient_dob')),
     row('Age', calcAgeFromDateString(take('patient_dob'))),
-    row('Gender', take('patient_gender')),
+    row('Gender', take('patient_gender') ? capitalizeWord(take('patient_gender')) : ''),
     row('Patient Phone', take('phone_number')),
     row('Onset', take('onset_datetime')),
     row('Form Profile', [take('form_name'), take('form_slug') ? `(${take('form_slug')})` : ''].join(' ').trim())
   ].filter(Boolean);
 
   const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
-  const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v)).filter(Boolean);
+  const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), v)).filter(Boolean);
 
   const updates = Array.isArray(take('incident_updates')) ? take('incident_updates') : [];
   const updateRows = updates.length
@@ -234,7 +268,7 @@ function renderIncidentDetails(triageRaw) {
   ]);
   const rawRows = Object.entries(triage)
     .filter(([k]) => !hidden.has(String(k)))
-    .map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v))
+    .map(([k, v]) => row(prettyFieldLabel(k), v))
     .filter(Boolean);
 
   return `
@@ -270,7 +304,7 @@ function getCurrentStatusTimer(job, timingRow) {
   if (!started) return '';
   const dur = formatDuration(now - started);
   if (!dur) return '';
-  return `${status.replaceAll('_', ' ')} ${dur}`;
+  return `${prettyStatus(status)} ${dur}`;
 }
 
 function formatStatusTimesTable(job, timingRow) {
@@ -435,7 +469,7 @@ function handleRemoteAction(msg) {
     })
       .then(r => r.json())
       .then(() => {
-        showNotification('success', 'Updated', `${p.callsign}: ${p.status}`);
+        showNotification('success', 'Updated', `${p.callsign}: ${prettyStatus(p.status)}`);
       })
       .catch(() => showNotification('danger', 'Error', 'Failed to update status'));
   }
@@ -1083,7 +1117,7 @@ function renderUnitMapQuickPreview(unit) {
     ? `Assigned CAD #${assignedCad}`
     : (standbyName ? `Standby: ${standbyName}` : 'No target');
   return `
-    <div style="min-width:220px;max-width:280px;">
+    <div style="min-width:220px;max-width:280px;background:var(--bg-dark,#0f172a);color:var(--text-primary,#f1f5f9);padding:8px;border-radius:8px;border:1px solid var(--border-color,#1e293b);">
       <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(cs)}</div>
       <div class="meta" style="margin-bottom:4px;">Status: ${escapeHtml(prettyStatus(status))}</div>
       <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
@@ -1091,7 +1125,7 @@ function renderUnitMapQuickPreview(unit) {
       ${(!breakBlocked && breakDue) ? `<div class="meta" style="margin-bottom:4px;color:#fde68a;">Break due soon${breakDueIn !== null ? ` (${escapeHtml(String(breakDueIn))}m)` : ''}</div>` : ''}
       ${(shiftRemaining !== null) ? `<div class="meta" style="margin-bottom:4px;">Shift remaining: ${escapeHtml(String(shiftRemaining))}m</div>` : ''}
       <div class="meta" style="margin-bottom:8px;">${escapeHtml(target)}</div>
-      <button class="btn" style="width:100%;padding:6px 8px;font-size:12px;" onclick="loadUnitDetail(${JSON.stringify(cs)})">Open Unit Detail</button>
+      <button type="button" class="unit-open-detail-btn" data-callsign="${escapeHtml(cs)}" style="width:100%;padding:6px 8px;font-size:12px;background:var(--primary-light,#3b82f6);color:#fff;border:none;border-radius:6px;cursor:pointer;">Open Unit Detail</button>
     </div>
   `;
 }
@@ -2846,6 +2880,24 @@ window.backToJobStack = function() {
   loadJobsPanel(contentEl);
 };
 
+window.closeCadFromDetail = function(cad) {
+  const outcome = (prompt('Close outcome (e.g. completed, cancelled, self_resolved):', 'completed') || '').trim();
+  if (!outcome) return;
+  if (!confirm(`Close CAD #${cad} as "${outcome}"?`)) return;
+  fetch(`/plugin/ventus_response_module/job/${cad}/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome, public_notes: `Closed by dispatcher: ${outcome}` })
+  })
+    .then(r => r.json())
+    .then(data => {
+      showNotification('success', 'Closed', data.message || 'CAD closed');
+      backToJobStack();
+      setTimeout(refreshMap, 400);
+    })
+    .catch(() => showNotification('danger', 'Error', 'Failed to close CAD'));
+};
+
 window.loadJobDetail = function(cad) {
   activeJobCad = parseInt(cad, 10) || null;
   if (panelRefreshTimer) {
@@ -2913,40 +2965,47 @@ window.loadJobDetail = function(cad) {
           }).join('')
         : '<div class="meta"><i>No system events logged.</i></div>';
 
+      const priorityVal = String(job.priority || (triage && triage.call_priority) || '').trim();
+      const priorityBadge = priorityVal ? `<span class="status" style="margin-left:6px;background:rgba(59,130,246,0.2);color:var(--primary-light);">${escapeHtml(priorityVal)}</span>` : '';
       contentEl.innerHTML = `
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button class="btn" style="padding:6px 10px;background:transparent;border:1px solid var(--border-color);" onclick="backToJobStack()"><i class="bi bi-arrow-left"></i> Back to Stack</button>
-              <div style="font-weight:600;">Status: ${prettyStatus(job.status)}</div>
+              <button class="btn" style="padding:6px 10px;background:transparent;border:1px solid var(--border-color);" onclick="backToJobStack()" title="Back to Stack"><i class="bi bi-arrow-left"></i></button>
+              <div style="font-weight:700;">CAD #${escapeHtml(String(job.cad))}${priorityBadge}</div>
             </div>
             <div style="display:flex;gap:8px;">
               <button class="btn" style="padding:7px 10px;" onclick="assignJob(${job.cad})"><i class="bi bi-person-check"></i> Assign Unit(s)</button>
-              <button class="btn" style="padding:7px 10px;background:transparent;border:1px solid var(--border-color);" onclick="openJobDetailPopout(${job.cad})"><i class="bi bi-box-arrow-up-right"></i> Popout</button>
+              <button class="btn" style="padding:7px 10px;background:transparent;border:1px solid var(--border-color);" onclick="openJobDetailPopout(${job.cad})" title="Pop out"><i class="bi bi-box-arrow-up-right"></i></button>
             </div>
           </div>
-          <div class="meta" style="margin-bottom:8px;">Division: ${escapeHtml(job.division || 'general')}</div>
+          <div style="font-weight:700;margin-bottom:8px;">Status: ${prettyStatus(job.status)} · Division: ${escapeHtml(job.division || 'general')}</div>
           ${job.break_override_active ? `<div class="meta" style="margin-bottom:8px;"><span class="status" style="background:rgba(239,68,68,0.22);color:#fecaca;">Break Override Used</span> ${escapeHtml((job.break_override_last_units || []).join(', '))}${job.break_override_last_at ? ` - ${escapeHtml(new Date(job.break_override_last_at).toLocaleString())}` : ''}${job.break_override_last_by ? ` - by ${escapeHtml(job.break_override_last_by)}` : ''}</div>` : ''}
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="margin-bottom:8px;">
-            <div class="meta" style="margin-bottom:4px;">Assigned Units</div>
+            <div class="meta" style="margin-bottom:4px;">Attached Units</div>
             ${assignedUnitsHtml}
           </div>
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           ${incidentDetailsHtml}
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div class="meta" style="margin-bottom:8px;"><i class="bi bi-info-circle"></i> Incident details are maintained by Response Centre.</div>
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="font-weight:600;margin-bottom:6px;">Status Times</div>
           ${statusTimesTable}
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="font-weight:600;margin-bottom:6px;">System Log</div>
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${systemHtml}</div>
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="font-weight:600;margin-bottom:6px;">Response Centre Comms</div>
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${commHtml}</div>
           <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;" placeholder="Message to call taker for this CAD"></textarea>
           <button class="btn" style="width:100%;padding:8px;margin-bottom:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send Message to Response Centre</button>
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:8px 0;">
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            <button class="btn" style="padding:8px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
+          </div>
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="font-weight:600;margin-bottom:6px;">Crew Comms</div>
           ${assignedUnits.length ? `
             <select id="jobCrewCallsign_${job.cad}" style="width:100%;margin-bottom:8px;">${crewOptions}</select>
@@ -3111,6 +3170,14 @@ document.addEventListener('DOMContentLoaded', () => {
   initAudioOnce();
   document.addEventListener('click', initAudioOnce, { passive: true });
   document.addEventListener('keydown', initAudioOnce);
+
+  document.body.addEventListener('click', function(ev) {
+    const btn = ev.target && ev.target.closest && ev.target.closest('.unit-open-detail-btn');
+    if (btn && typeof window.loadUnitDetail === 'function') {
+      const cs = btn.getAttribute('data-callsign');
+      if (cs) { ev.preventDefault(); window.loadUnitDetail(cs); }
+    }
+  });
 
   // Optional deep-link / popout mode.
   try {

@@ -383,12 +383,46 @@
         .replace(/\b\w/g, c => c.toUpperCase());
     }
 
+    function formatDisplayValue(v) {
+      if (v === undefined || v === null) return '';
+      if (typeof v === 'string') return v.trim();
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (Array.isArray(v)) {
+        return v.map(function(item) {
+          if (item === null || item === undefined) return '';
+          if (typeof item === 'object') {
+            const parts = Object.entries(item).map(function(entry) { return prettyFieldLabel(entry[0]) + ': ' + formatDisplayValue(entry[1]); });
+            return parts.filter(Boolean).join(' · ');
+          }
+          return String(item);
+        }).filter(Boolean).join('; ');
+      }
+      if (typeof v === 'object') {
+        const lines = Object.entries(v).map(function(entry) {
+          const key = prettyFieldLabel(entry[0]);
+          const val = formatDisplayValue(entry[1]);
+          if (val === '') return '';
+          return key + ': ' + val;
+        }).filter(Boolean);
+        return lines.join(' · ');
+      }
+      return String(v);
+    }
+
+    function capitalizeWord(s) {
+      const t = String(s || '').trim();
+      if (!t) return '';
+      return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    }
+
     function renderIncidentDetails(triageRaw) {
       const triage = (triageRaw && typeof triageRaw === 'object') ? triageRaw : {};
       const take = (k) => triage[k];
       const row = (label, val) => {
         if (val === undefined || val === null || String(val).trim() === '') return '';
-        return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(val)}</div>`;
+        const display = typeof val === 'object' ? formatDisplayValue(val) : String(val).trim();
+        if (!display) return '';
+        return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(display)}</div>`;
       };
 
       const coreRows = [
@@ -401,14 +435,14 @@
         row('Caller Phone', take('caller_phone')),
         row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
         row('DOB', take('patient_dob')),
-        row('Gender', take('patient_gender')),
+        row('Gender', take('patient_gender') ? capitalizeWord(take('patient_gender')) : ''),
         row('Patient Phone', take('phone_number')),
         row('Onset', take('onset_datetime')),
         row('Form Profile', [take('form_name'), take('form_slug') ? `(${take('form_slug')})` : ''].join(' ').trim())
       ].filter(Boolean);
 
       const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
-      const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v)).filter(Boolean);
+      const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), v)).filter(Boolean);
 
       const updates = Array.isArray(take('incident_updates')) ? take('incident_updates') : [];
       const updateRows = updates.length
@@ -428,7 +462,7 @@
       ]);
       const rawRows = Object.entries(triage)
         .filter(([k]) => !hidden.has(String(k)))
-        .map(([k, v]) => row(prettyFieldLabel(k), typeof v === 'object' ? JSON.stringify(v) : v))
+        .map(([k, v]) => row(prettyFieldLabel(k), v))
         .filter(Boolean);
 
       return `

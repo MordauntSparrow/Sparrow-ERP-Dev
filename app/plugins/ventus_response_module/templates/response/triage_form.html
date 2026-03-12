@@ -74,7 +74,6 @@
           </div>
           <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn" type="button" id="unknownFullNameBtn"><i class="bi bi-person-x"></i> Mark Name Unknown</button>
-            <button class="btn" type="button" id="copyCallerToPatientBtn"><i class="bi bi-arrow-down-circle"></i> Copy Caller Name/Phone to Patient</button>
           </div>
           <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px;">
             <div><label class="muted">DOB</label><input id="patientDobInput" type="date" name="patient_dob"></div>
@@ -100,6 +99,9 @@
           </div>
           <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn" type="button" id="unknownDemographicsBtn"><i class="bi bi-question-circle"></i> Unknown DOB/Gender/Phone</button>
+          </div>
+          <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="copyCallerToPatientBtn"><i class="bi bi-arrow-down-circle"></i> Copy Caller Name/Phone to Patient</button>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
             <div><label class="muted">Caller Name</label><input id="callerNameInput" type="text" name="caller_name"></div>
@@ -399,16 +401,40 @@
   }
 
   function setUnknownNameRow() {
+    if (unknownFullNameBtn && unknownFullNameBtn.dataset.marked === "1") {
+      clearUnknownName();
+      return;
+    }
     if (firstNameInput) firstNameInput.value = "Unknown";
-    if (middleNameInput) middleNameInput.value = "";
+    if (middleNameInput) middleNameInput.value = "Unknown";
     if (lastNameInput) lastNameInput.value = "Unknown";
     if (firstNameInput) firstNameInput.classList.add("unknown-marked");
     if (middleNameInput) middleNameInput.classList.add("unknown-marked");
     if (lastNameInput) lastNameInput.classList.add("unknown-marked");
-    markActionUsed(unknownFullNameBtn, '<i class="bi bi-check2"></i> Name Marked Unknown');
+    if (unknownFullNameBtn) unknownFullNameBtn.dataset.marked = "1";
+    markActionUsed(unknownFullNameBtn, '<i class="bi bi-check2"></i> Name Marked Unknown (click again to clear)');
+  }
+
+  function clearUnknownName() {
+    if (firstNameInput) { firstNameInput.value = ""; firstNameInput.classList.remove("unknown-marked"); }
+    if (middleNameInput) { middleNameInput.value = ""; middleNameInput.classList.remove("unknown-marked"); }
+    if (lastNameInput) { lastNameInput.value = ""; lastNameInput.classList.remove("unknown-marked"); }
+    if (unknownFullNameBtn) { unknownFullNameBtn.dataset.marked = "0"; unknownFullNameBtn.innerHTML = '<i class="bi bi-person-x"></i> Mark Name Unknown'; }
+  }
+
+  function clearUnknownDemographics() {
+    if (patientDobInput) { patientDobInput.value = ""; patientDobInput.classList.remove("unknown-marked"); }
+    if (patientGenderInput) { patientGenderInput.value = ""; patientGenderInput.classList.remove("unknown-marked"); }
+    if (patientPhoneInput) { patientPhoneInput.value = ""; patientPhoneInput.classList.remove("unknown-marked"); }
+    updatePatientAge();
+    if (unknownDemographicsBtn) { unknownDemographicsBtn.dataset.marked = "0"; unknownDemographicsBtn.innerHTML = '<i class="bi bi-question-circle"></i> Unknown DOB/Gender/Phone'; }
   }
 
   function setUnknownDemographics() {
+    if (unknownDemographicsBtn && unknownDemographicsBtn.dataset.marked === "1") {
+      clearUnknownDemographics();
+      return;
+    }
     if (patientDobInput) patientDobInput.value = "";
     if (patientGenderInput) patientGenderInput.value = "";
     if (patientPhoneInput) patientPhoneInput.value = "Unknown";
@@ -416,7 +442,8 @@
     if (patientGenderInput) patientGenderInput.classList.add("unknown-marked");
     if (patientPhoneInput) patientPhoneInput.classList.add("unknown-marked");
     updatePatientAge();
-    markActionUsed(unknownDemographicsBtn, '<i class="bi bi-check2"></i> Demographics Marked Unknown');
+    if (unknownDemographicsBtn) unknownDemographicsBtn.dataset.marked = "1";
+    markActionUsed(unknownDemographicsBtn, '<i class="bi bi-check2"></i> Demographics Marked Unknown (click again to clear)');
   }
 
   function updatePatientAge() {
@@ -442,10 +469,23 @@
     const callerName = normalizeToken(callerNameInput?.value || "");
     const callerPhone = normalizeToken(callerPhoneInput?.value || "");
     if (callerName) {
-      const parts = callerName.split(" ");
+      const parts = callerName.split(" ").filter(Boolean);
       if (firstNameInput) firstNameInput.value = parts[0] || "";
-      if (lastNameInput) lastNameInput.value = parts.length > 1 ? parts.slice(1).join(" ") : "";
-      if (middleNameInput && !middleNameInput.value) middleNameInput.value = "";
+      if (parts.length >= 3 && middleNameInput) {
+        middleNameInput.value = parts[1] || "";
+        if (lastNameInput) lastNameInput.value = parts.slice(2).join(" ");
+      } else if (parts.length === 2) {
+        if (middleNameInput) middleNameInput.value = "";
+        if (lastNameInput) lastNameInput.value = parts[1] || "";
+      } else {
+        if (middleNameInput) middleNameInput.value = "";
+        if (lastNameInput) lastNameInput.value = "";
+      }
+      [firstNameInput, middleNameInput, lastNameInput].forEach(function(el) {
+        if (el) el.classList.remove("unknown-marked");
+      });
+      if (unknownFullNameBtn && unknownFullNameBtn.dataset) unknownFullNameBtn.dataset.marked = "0";
+      if (unknownFullNameBtn) unknownFullNameBtn.innerHTML = '<i class="bi bi-person-x"></i> Mark Name Unknown';
     }
     if (callerPhone && patientPhoneInput && !normalizeToken(patientPhoneInput.value)) {
       patientPhoneInput.value = callerPhone;
