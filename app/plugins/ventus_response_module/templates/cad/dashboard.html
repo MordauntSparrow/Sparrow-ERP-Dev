@@ -1890,14 +1890,14 @@ function loadMsgPanel(contentEl) {
     <div style="display:grid;grid-template-columns:1fr;gap:10px;">
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <div style="font-weight:700;">Response Centre / Incident Inbox <span id="msgInboxCount" class="status" style="margin-left:6px;background:rgba(59,130,246,0.2);color:#bfdbfe;">0</span></div>
+          <div style="font-weight:700;">Response Centre / Incident Inbox <span id="msgInboxCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(59,130,246,0.22);color:#bfdbfe;">0</span></div>
           <button class="btn" id="toggleInboxPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
         </div>
         <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;${dispatchMsgUI.collapsed.inbox ? 'display:none;' : ''}"></ul>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <div style="font-weight:700;">Conversations <span id="msgConversationCount" class="status" style="margin-left:6px;background:rgba(16,185,129,0.2);color:#a7f3d0;">0</span></div>
+          <div style="font-weight:700;">Conversations <span id="msgConversationCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(16,185,129,0.22);color:#a7f3d0;">0</span></div>
           <button class="btn" id="toggleConversationsPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
         </div>
         <div id="conversationBlock" style="${dispatchMsgUI.collapsed.conversations ? 'display:none;' : ''}">
@@ -1913,7 +1913,7 @@ function loadMsgPanel(contentEl) {
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <div style="font-weight:700;">Cross-Division Assist Requests <span id="msgAssistCount" class="status" style="margin-left:6px;background:rgba(245,158,11,0.22);color:#fde68a;">0</span></div>
+          <div style="font-weight:700;">Cross-Division Assist Requests <span id="msgAssistCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(245,158,11,0.22);color:#fde68a;">0</span></div>
           <button class="btn" id="toggleAssistPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
         </div>
         <ul id="dispatcherAssistList" style="list-style:none;padding:0;margin:0;max-height:150px;overflow:auto;${dispatchMsgUI.collapsed.assist ? 'display:none;' : ''}"></ul>
@@ -3084,9 +3084,14 @@ window.loadJobDetail = function(cad) {
           <div id="jobResponseCommsSection">
             <div style="font-weight:600;margin-bottom:8px;">Updates &amp; messages</div>
             <div style="font-size:12px;color:var(--text-secondary);max-height:240px;overflow-y:auto;margin-bottom:12px;">${commHtml}</div>
-            <div class="meta" style="margin-bottom:6px;">To response officer</div>
-            <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;box-sizing:border-box;" placeholder="Message…"></textarea>
-            <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send to response officer</button>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+              <select id="jobCommType_${job.cad}" style="width:auto;min-width:160px;padding:6px 10px;">
+                <option value="update">Update to CAD</option>
+                <option value="message">Message to TO</option>
+              </select>
+            </div>
+            <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;box-sizing:border-box;" placeholder="Type your message or update…"></textarea>
+            <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobComms(${job.cad})"><i class="bi bi-send"></i> Send</button>
           </div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -3199,23 +3204,31 @@ window.toggleJobSystemLog = function(cad) {
   }
 };
 
-window.sendDispatcherJobMessage = function(cad) {
+window.sendDispatcherJobComms = function(cad) {
   const input = document.getElementById(`jobCommMsg_${cad}`);
+  const typeEl = document.getElementById(`jobCommType_${cad}`);
   const text = (input?.value || '').trim();
   if (!text) return;
+  const msgType = (typeEl && typeEl.value === 'update') ? 'update' : 'message';
   fetch(`/plugin/ventus_response_module/job/${cad}/comms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'message', text, sender_portal: 'dispatch' })
+    body: JSON.stringify({ type: msgType, text, sender_portal: 'dispatch' })
   })
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
-      if (!ok) throw new Error((d && d.error) || 'Message failed');
+      if (!ok) throw new Error((d && d.error) || 'Send failed');
       if (input) input.value = '';
-      showNotification('success', 'Message Sent', `CAD #${cad}`);
+      showNotification('success', msgType === 'update' ? 'Update added to CAD' : 'Message sent to TO', `CAD #${cad}`);
       try { loadJobDetail(cad); } catch (e) {}
     })
     .catch((e) => showNotification('danger', 'Send Failed', e.message || 'Failed to send'));
+};
+
+window.sendDispatcherJobMessage = function(cad) {
+  const typeEl = document.getElementById(`jobCommType_${cad}`);
+  if (typeEl) typeEl.value = 'message';
+  window.sendDispatcherJobComms(cad);
 };
 
 window.standDownUnitFromJob = function(cad, callsign) {
