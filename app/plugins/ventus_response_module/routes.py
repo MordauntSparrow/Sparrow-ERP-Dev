@@ -5867,13 +5867,64 @@ def _get_contractor_id_for_username(cur, username):
         if not cur.fetchone():
             return None
         cur.execute(
-            "SELECT id FROM tb_contractors WHERE LOWER(TRIM(COALESCE(email,''))) = LOWER(%s) OR LOWER(TRIM(COALESCE(name,''))) = LOWER(%s) LIMIT 1",
+            "SELECT id FROM tb_contractors WHERE (status IS NULL OR LOWER(TRIM(COALESCE(status,''))) IN ('active','1')) AND (LOWER(TRIM(COALESCE(email,''))) = LOWER(%s) OR LOWER(TRIM(COALESCE(name,''))) = LOWER(%s)) LIMIT 1",
             (uname, uname),
         )
         row = cur.fetchone()
         return int(row["id"]) if row and row.get("id") is not None else None
     except Exception:
         return None
+
+
+def _is_core_user_username(cur, username):
+    """Return True if username matches a core user (users table) by username or email."""
+    uname = (username or "").strip()
+    if not uname:
+        return False
+    try:
+        cur.execute("SHOW TABLES LIKE 'users'")
+        if not cur.fetchone():
+            return False
+        cur.execute(
+            "SELECT 1 FROM users WHERE LOWER(TRIM(COALESCE(username,''))) = LOWER(%s) OR LOWER(TRIM(COALESCE(email,''))) = LOWER(%s) LIMIT 1",
+            (uname, uname),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _is_valid_crew_username(cur, username):
+    """Return True if username is a valid crew member: core user (users), active contractor (tb_contractors), or mdt_crew_profiles."""
+    uname = (username or "").strip()
+    if not uname:
+        return False
+    if _is_core_user_username(cur, uname):
+        return True
+    if _get_contractor_id_for_username(cur, uname) is not None:
+        return True
+    try:
+        _ensure_mdt_crew_profiles_table(cur)
+        cur.execute("SELECT 1 FROM mdt_crew_profiles WHERE username = %s LIMIT 1", (uname,))
+        if cur.fetchone():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _validate_crew_usernames(cur, usernames):
+    """Return (invalid_list, error_message). invalid_list is non-empty if any username is not a valid crew member."""
+    invalid = []
+    for u in (usernames or []):
+        uname = (u or "").strip()
+        if not uname:
+            continue
+        if not _is_valid_crew_username(cur, uname):
+            invalid.append(uname)
+    if invalid:
+        return invalid, "Crew member(s) not found (must be a user or active contractor): " + ", ".join(invalid)
+    return [], None
 
 
 def _get_crew_profile(cur, username):
@@ -6372,37 +6423,10 @@ def mdt_sign_on():
     cur = conn.cursor(dictionary=True)
     try:
         _ensure_mdts_signed_on_schema(cur)
-        # Optional directory validation for crew entries.
-        try:
-            cur.execute("SHOW TABLES LIKE 'users'")
-            if cur.fetchone() is not None:
-                cur.execute("SHOW COLUMNS FROM users")
-                user_cols = {str(r.get('Field') or '') for r in (cur.fetchall() or [])}
-                unknown_crew = []
-                for member in crew:
-                    checks = []
-                    args = []
-                    if 'id' in user_cols:
-                        try:
-                            checks.append("id = %s")
-                            args.append(int(member))
-                        except Exception:
-                            pass
-                    if 'username' in user_cols:
-                        checks.append("LOWER(TRIM(username)) = LOWER(TRIM(%s))")
-                        args.append(member)
-                    if 'email' in user_cols:
-                        checks.append("LOWER(TRIM(email)) = LOWER(TRIM(%s))")
-                        args.append(member)
-                    if not checks:
-                        continue
-                    cur.execute(f"SELECT 1 FROM users WHERE {' OR '.join(checks)} LIMIT 1", tuple(args))
-                    if cur.fetchone() is None:
-                        unknown_crew.append(member)
-                if unknown_crew:
-                    return jsonify({'error': 'Unknown crew member(s)', 'unknown_crew': unknown_crew}), 400
-        except Exception:
-            pass
+        # Validate crew against contractor table (and mdt_crew_profiles): only allow valid crew members to sign on.
+        invalid_crew, crew_err = _validate_crew_usernames(cur, crew)
+        if invalid_crew:
+            return jsonify({'error': crew_err or 'Invalid crew member(s)', 'unknown_crew': invalid_crew}), 400
         try:
             cur.execute("""
                 DELETE FROM mdts_signed_on
@@ -7596,15 +7620,9 @@ def mdt_update_crew_legacy(callsign):
 
         add_username = str(payload.get('username') or '').strip()
         if add_username:
-            # Add single crew member: validate user exists, append, return full crew
-            cur.execute("SHOW TABLES LIKE 'users'")
-            if cur.fetchone():
-                cur.execute(
-                    "SELECT 1 FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(%s)) LIMIT 1",
-                    (add_username,)
-                )
-                if cur.fetchone() is None:
-                    return jsonify({'error': 'User not found'}), 404
+            # Add single crew member: must be a valid contractor or in mdt_crew_profiles
+            if not _is_valid_crew_username(cur, add_username):
+                return jsonify({'error': 'Crew member not found. Must be a core user (username/email) or active contractor.', 'username': add_username}), 400
             raw_list = []
             try:
                 r = row.get('crew')
@@ -7638,6 +7656,9 @@ def mdt_update_crew_legacy(callsign):
         elif isinstance(crew_raw, list):
             crew = crew_raw
         crew = [str(x).strip() for x in crew if str(x).strip()]
+        invalid_crew, crew_err = _validate_crew_usernames(cur, crew)
+        if invalid_crew:
+            return jsonify({'error': crew_err or 'Invalid crew member(s)', 'unknown_crew': invalid_crew}), 400
 
         removed = str(payload.get('removed') or '').strip()
         removal_reason = str(payload.get('removal_reason') or '').strip()
