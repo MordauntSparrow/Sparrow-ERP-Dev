@@ -255,7 +255,8 @@ function renderIncidentDetails(triageRaw) {
     'reason_for_call','additional_details','address','postcode','what3words',
     'caller_name','caller_phone','first_name','middle_name','last_name',
     'patient_dob','patient_gender','phone_number','onset_datetime',
-    'form_name','form_slug','form_answers','incident_updates'
+    'form_name','form_slug','form_answers','incident_updates',
+    'cad','call_priority','call_priority_label'
   ]);
   const rawRows = Object.entries(triage)
     .filter(([k]) => !hidden.has(String(k)))
