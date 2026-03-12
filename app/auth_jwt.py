@@ -1,14 +1,18 @@
 """
 Session JWT for API clients (e.g. Lovable, mobile) that prefer Bearer token over cookies.
 Uses JWT_SECRET_KEY or SECRET_KEY; tokens are short-lived (default 24h).
+Requires PyJWT (pip install PyJWT), not python-jwt.
 """
 import os
 from datetime import datetime, timedelta, timezone
 
+pyjwt = None
 try:
-    import jwt as pyjwt
+    import jwt as _jwt
+    if callable(getattr(_jwt, "encode", None)) and callable(getattr(_jwt, "decode", None)):
+        pyjwt = _jwt
 except ImportError:
-    pyjwt = None
+    pass
 
 # Default lifetime when not specified
 DEFAULT_EXPIRY_HOURS = 24
@@ -32,22 +36,25 @@ def encode_session_token(user_id, username: str, role: str, expiry_hours: int = 
     """
     if not pyjwt:
         return ""
-    expiry = expiry_hours if expiry_hours is not None else _get_expiry_hours()
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(hours=expiry)
-    payload = {
-        "sub": user_id if isinstance(user_id, (int, str)) else str(user_id),
-        "username": str(username),
-        "role": str(role),
-        "iat": int(now.timestamp()),
-        "exp": int(exp.timestamp()),
-    }
-    out = pyjwt.encode(
-        payload,
-        _get_secret(),
-        algorithm="HS256",
-    )
-    return out if isinstance(out, str) else out.decode("utf-8")
+    try:
+        expiry = expiry_hours if expiry_hours is not None else _get_expiry_hours()
+        now = datetime.now(timezone.utc)
+        exp = now + timedelta(hours=expiry)
+        payload = {
+            "sub": user_id if isinstance(user_id, (int, str)) else str(user_id),
+            "username": str(username),
+            "role": str(role),
+            "iat": int(now.timestamp()),
+            "exp": int(exp.timestamp()),
+        }
+        out = pyjwt.encode(
+            payload,
+            _get_secret(),
+            algorithm="HS256",
+        )
+        return out if isinstance(out, str) else out.decode("utf-8")
+    except (AttributeError, TypeError, Exception):
+        return ""
 
 
 def decode_session_token(token: str):
