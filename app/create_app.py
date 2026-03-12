@@ -255,16 +255,10 @@ def create_app():
                     if view and not getattr(view, "_csrf_exempt", False):
                         csrf.exempt(view)
                         view._csrf_exempt = True
-            # Exempt Ventus MDT API routes so JWT Bearer auth works (no CSRF cookie from mobile/cross-origin MDT clients)
+            # Exempt all Ventus plugin routes: CAD, response centre, and dispatch use fetch() without CSRF token;
+            # MDT uses JWT. Auth is session or Bearer. Covers job/, api/, messages/, dispatch/, unit/, motd, etc.
             for rule in app.url_map.iter_rules():
-                if rule.rule.startswith("/plugin/ventus_response_module/api/"):
-                    view = app.view_functions.get(rule.endpoint)
-                    if view and not getattr(view, "_csrf_exempt", False):
-                        csrf.exempt(view)
-                        view._csrf_exempt = True
-            # Exempt Ventus job routes (assign, close, comms, etc.) used by CAD dashboard fetch() which does not send CSRF
-            for rule in app.url_map.iter_rules():
-                if rule.rule.startswith("/plugin/ventus_response_module/job/"):
+                if rule.rule.startswith("/plugin/ventus_response_module/"):
                     view = app.view_functions.get(rule.endpoint)
                     if view and not getattr(view, "_csrf_exempt", False):
                         csrf.exempt(view)
