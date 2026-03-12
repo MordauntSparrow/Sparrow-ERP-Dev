@@ -45,6 +45,27 @@
   min-height: 120px;
   border-radius: 8px;
   transition: background 0.15s ease, outline 0.15s ease;
+  position: relative;
+}
+.job-detail-drop-hint {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  background: rgba(59, 130, 246, 0.95);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.job-detail-drop-target.drag-over .job-detail-drop-hint {
+  display: block;
 }
 .draggable-unit:active {
   cursor: grabbing;
@@ -237,7 +258,7 @@ function renderIncidentDetails(triageRaw) {
     row('Caller Phone', take('caller_phone')),
     row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
     row('DOB', take('patient_dob')),
-    row('Age', calcAgeFromDateString(take('patient_dob'))),
+    row('Age', (() => { const fromDob = calcAgeFromDateString(take('patient_dob')); if (fromDob != null) return fromDob; const direct = take('patient_age') != null ? take('patient_age') : take('age'); return (direct != null && direct !== '') ? String(Math.round(Number(direct))) : ''; })().toString() || null),
     row('Gender', take('patient_gender') ? capitalizeWord(take('patient_gender')) : ''),
     row('Patient Phone', take('phone_number')),
     row('Onset', take('onset_datetime')),
@@ -250,7 +271,7 @@ function renderIncidentDetails(triageRaw) {
   const hidden = new Set([
     'reason_for_call','additional_details','address','postcode','what3words',
     'caller_name','caller_phone','first_name','middle_name','last_name',
-    'patient_dob','patient_gender','phone_number','onset_datetime',
+    'patient_dob','patient_age','age','patient_gender','phone_number','onset_datetime',
     'form_name','form_slug','form_answers','incident_updates',
     'cad','call_priority','call_priority_label'
   ]);
@@ -3038,6 +3059,11 @@ window.loadJobDetail = function(cad) {
           }).join('')
         : '<div class="meta"><i>No system events logged.</i></div>';
 
+      const ageFromDob = triage && triage.patient_dob ? calcAgeFromDateString(triage.patient_dob) : null;
+      const ageDirect = triage && (triage.patient_age != null || triage.age != null)
+        ? (Number(triage.patient_age) || Number(triage.age))
+        : null;
+      const patientAgeDisplay = (ageFromDob != null ? String(ageFromDob) : (ageDirect != null && !Number.isNaN(ageDirect) ? String(Math.round(ageDirect)) : ''));
       const priorityVal = String(job.priority || (triage && triage.call_priority) || '').trim();
       const priorityDetailClass = priorityVal === 'P1'
         ? 'background:rgba(239,68,68,0.22);color:#fecaca;'
@@ -3050,10 +3076,11 @@ window.loadJobDetail = function(cad) {
       const cadForDrop = job.cad;
       contentEl.innerHTML = `
         <div class="job-detail-drop-target" data-cad="${cadForDrop}"
-             ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}"
-             ondragenter="event.preventDefault();event.currentTarget.classList.add('drag-over');"
-             ondragleave="event.preventDefault();event.currentTarget.classList.remove('drag-over');"
+             ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}event.currentTarget.classList.add('drag-over');var h=event.currentTarget.querySelector('.job-detail-drop-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}"
+             ondragenter="event.preventDefault();event.currentTarget.classList.add('drag-over');var h=event.currentTarget.querySelector('.job-detail-drop-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}"
+             ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}"
              ondrop="event.preventDefault();event.stopPropagation();event.currentTarget.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(event.currentTarget.dataset.cad,10),cs);}">
+          <div class="job-detail-drop-hint" aria-live="polite">Drop to assign unit</div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <button class="btn" style="padding:6px 10px;background:transparent;border:1px solid var(--border-color);" onclick="backToJobStack()" title="Back to Stack"><i class="bi bi-arrow-left"></i></button>
@@ -3065,6 +3092,7 @@ window.loadJobDetail = function(cad) {
             </div>
           </div>
           <div style="font-weight:700;margin-bottom:8px;">Status: ${prettyStatus(job.status)} · Division: ${escapeHtml(job.division || 'general')}</div>
+          ${patientAgeDisplay ? `<div class="meta" style="margin-bottom:8px;"><strong>Patient age:</strong> ${escapeHtml(patientAgeDisplay)}</div>` : ''}
           ${job.break_override_active ? `<div class="meta" style="margin-bottom:8px;"><span class="status" style="background:rgba(239,68,68,0.22);color:#fecaca;">Break Override Used</span> ${escapeHtml((job.break_override_last_units || []).join(', '))}${job.break_override_last_at ? ` - ${escapeHtml(new Date(job.break_override_last_at).toLocaleString())}` : ''}${job.break_override_last_by ? ` - by ${escapeHtml(job.break_override_last_by)}` : ''}</div>` : ''}
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="margin-bottom:8px;">
