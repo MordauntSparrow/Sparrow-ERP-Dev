@@ -247,16 +247,6 @@ function renderIncidentDetails(triageRaw) {
   const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
   const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), v)).filter(Boolean);
 
-  const updates = Array.isArray(take('incident_updates')) ? take('incident_updates') : [];
-  const updateRows = updates.length
-    ? updates.slice(-8).reverse().map((u) => {
-        const t = u && u.time ? new Date(u.time).toLocaleString() : '';
-        const by = (u && u.by) ? ` by ${u.by}` : '';
-        const text = (u && u.text) ? u.text : '';
-        return `<div style="padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;background:rgba(0,0,0,0.15);"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)}${escapeHtml(by)}</div><div>${escapeHtml(text)}</div></div>`;
-      }).join('')
-    : '<div class="meta"><i>No controller updates logged.</i></div>';
-
   const hidden = new Set([
     'reason_for_call','additional_details','address','postcode','what3words',
     'caller_name','caller_phone','first_name','middle_name','last_name',
@@ -276,9 +266,6 @@ function renderIncidentDetails(triageRaw) {
       <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
       <div style="font-weight:600;margin-bottom:6px;">Profile Questions</div>
       <div style="font-size:12px;color:var(--text-secondary);">${answerRows.join('') || '<i>No profile answers captured.</i>'}</div>
-      <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
-      <div style="font-weight:600;margin-bottom:6px;">Incident Updates</div>
-      <div style="font-size:12px;color:var(--text-secondary);">${updateRows}</div>
       ${rawRows.length ? `<hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;"><div style="font-weight:600;margin-bottom:6px;">Other Captured Data</div><div style="font-size:12px;color:var(--text-secondary);">${rawRows.join('')}</div>` : ''}
     </div>
   `;
