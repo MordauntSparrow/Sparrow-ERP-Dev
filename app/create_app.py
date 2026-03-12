@@ -262,6 +262,13 @@ def create_app():
                     if view and not getattr(view, "_csrf_exempt", False):
                         csrf.exempt(view)
                         view._csrf_exempt = True
+            # Exempt core /api/* (e.g. POST /api/login) so MDT, Lovable, and other API clients can authenticate without CSRF
+            for rule in app.url_map.iter_rules():
+                if rule.rule.startswith("/api/"):
+                    view = app.view_functions.get(rule.endpoint)
+                    if view and not getattr(view, "_csrf_exempt", False):
+                        csrf.exempt(view)
+                        view._csrf_exempt = True
         except Exception as e:
             print(f"[WARN] SeaSurf init failed: {e}")
     # Ensure csrf_token() exists in Jinja so templates never raise UndefinedError (e.g. when SeaSurf not installed or init failed)

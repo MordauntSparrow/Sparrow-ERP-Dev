@@ -8,25 +8,7 @@
 <!-- Panels container: allows multiple open sidebar panels and popouts -->
 <div class="cad-panels" id="panelsContainer" aria-live="polite"></div>
 
-<!-- KPI/Stats Topbar -->
-<div id="kpiStatsPanel" style="position:fixed;top:80px;right:20px;z-index:2000;display:flex;gap:10px;align-items:flex-start;padding:10px;flex-wrap:wrap;max-width:780px;">
-  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-    <span id="kpiActiveJobs"></span>
-    <span id="kpiUnitsAvail"></span>
-    <span id="kpiClearedToday"></span>
-    <span id="kpiAvgResp"></span>
-  </div>
-  <div style="flex-basis:100%;height:1px;background:var(--border-color);opacity:0.6;"></div>
-  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
-    <span id="kpiAvgWaitAssign"></span>
-    <span id="kpiAvgMobileScene"></span>
-    <span id="kpiAvgOnScene"></span>
-    <span id="kpiAvgLeaveHosp"></span>
-    <span id="kpiAvgAtHosp"></span>
-  </div>
-  <button id="kpiClose" class="panel-btn close" title="Close KPI" style="margin-left:6px;padding:6px 8px;border-radius:6px;">&times;</button>
-  <div class="resize-handle" title="Resize KPI"></div>
-</div>
+<!-- KPI is opened as a panel from the rail (moveable, popout, close like other panels) -->
 
 <!-- Toast notifications -->
 <div id="toast" style="position:fixed;bottom:28px;left:50%;transform:translateX(-50%);display:none;z-index:5000;"></div>
@@ -628,25 +610,8 @@ const dispatchModeSelect = document.getElementById('dispatchModeTopbar');
 const divisionSelect = document.getElementById('divisionTopbar');
 const showExternalToggle = document.getElementById('showExternalToggle');
 const showUnitLinesToggle = document.getElementById('showUnitLinesToggle');
-const kpiStatsPanel = document.getElementById('kpiStatsPanel');
-const kpiCloseBtn = document.getElementById('kpiClose');
 setRailBadge('btnMsgs', 0);
 
-// Restore KPI visibility preference
-try{
-  if (localStorage.getItem('cad_kpi_hidden')) {
-    if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
-  }
-}catch(e){}
-
-if (kpiCloseBtn) {
-  kpiCloseBtn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
-    try{ localStorage.setItem('cad_kpi_hidden','1'); }catch(e){}
-    try { if (btnKPI) btnKPI.classList.remove('active'); } catch (e2) {}
-  });
-}
 
 function cancelMapPick(reason = 'cancelled') {
   const session = mapPickSession;
@@ -817,6 +782,7 @@ function createPanel(type, title) {
   if (type === 'jobs') { posLeft = 40; posTop = 120; }
   else if (type === 'units') { posLeft = 480; posTop = 120; }
   else if (type === 'messages') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
+  else if (type === 'kpi') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
   else { posLeft = 40 + panelCount * 30; posTop = 120 + panelCount * 40; }
   // prefer saved spawn position for this panel type
   try {
@@ -997,6 +963,7 @@ function loadPanelContent(panelId, type) {
   else if (type === 'units') loadUnitsPanel(contentEl);
   else if (type === 'messages') loadMsgPanel(contentEl);
   else if (type === 'past_jobs') loadPastJobsPanel(contentEl);
+  else if (type === 'kpi') loadKPIPanel(contentEl);
 }
 
 let panelRefreshTimer = null;
@@ -1054,6 +1021,10 @@ function closePanel(panelId) {
       else if (panel.type === 'units' && btnUnits) btnUnits.classList.remove('active');
       else if (panel.type === 'messages' && btnMsgs) btnMsgs.classList.remove('active');
       else if (panel.type === 'past_jobs' && btnPastJobs) btnPastJobs.classList.remove('active');
+      else if (panel.type === 'kpi' && btnKPI) {
+        btnKPI.classList.remove('active');
+        try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
+      }
     } catch (e) {}
     delete openPanels[panelId];
     if (isPopoutMode && Object.keys(openPanels).length === 0) {
@@ -1090,7 +1061,6 @@ function applySinglePanelPopoutLayout(panelType) {
   if (root) root.style.top = '0';
   if (rail) rail.style.display = 'none';
   if (mapWrap) mapWrap.style.display = 'none';
-  if (kpiStatsPanel) kpiStatsPanel.style.display = 'none';
   if (cadMain) {
     cadMain.style.display = 'block';
     cadMain.style.padding = '0';
@@ -1359,18 +1329,42 @@ function pollDispatcherAlerts() {
 setInterval(pollDispatcherAlerts, 5000);
 
 // ===== KPI/STATS =====
+function loadKPIPanel(contentEl) {
+  if (!contentEl) return;
+  contentEl.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span id="kpiActiveJobs"></span>
+        <span id="kpiUnitsAvail"></span>
+        <span id="kpiClearedToday"></span>
+        <span id="kpiAvgResp"></span>
+      </div>
+      <div style="height:1px;background:var(--border-color);opacity:0.6;"></div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <span id="kpiAvgWaitAssign"></span>
+        <span id="kpiAvgMobileScene"></span>
+        <span id="kpiAvgOnScene"></span>
+        <span id="kpiAvgLeaveHosp"></span>
+        <span id="kpiAvgAtHosp"></span>
+      </div>
+    </div>
+  `;
+  refreshKPIs();
+}
+
 function refreshKPIs() {
   fetch(withDivision('/plugin/ventus_response_module/kpis')).then(r => r.json()).then(k => {
-    document.getElementById('kpiActiveJobs').textContent = `📋 ${k.active_jobs} Active`;
-    document.getElementById('kpiUnitsAvail').textContent = `🚑 ${k.units_available} Available`;
-    document.getElementById('kpiClearedToday').textContent = `✅ ${k.cleared_today} Cleared`;
-    document.getElementById('kpiAvgResp').textContent = `⏱ Avg Cycle Today ${k.avg_response_time || '--'}`;
+    const el = (id) => document.getElementById(id);
+    if (el('kpiActiveJobs')) el('kpiActiveJobs').textContent = `📋 ${k.active_jobs} Active`;
+    if (el('kpiUnitsAvail')) el('kpiUnitsAvail').textContent = `🚑 ${k.units_available} Available`;
+    if (el('kpiClearedToday')) el('kpiClearedToday').textContent = `✅ ${k.cleared_today} Cleared`;
+    if (el('kpiAvgResp')) el('kpiAvgResp').textContent = `⏱ Avg Cycle Today ${k.avg_response_time || '--'}`;
     const stage = (k && k.stage_averages) || {};
-    document.getElementById('kpiAvgWaitAssign').textContent = `Wait->Assign ${stage.wait_to_assigned || '--'}`;
-    document.getElementById('kpiAvgMobileScene').textContent = `Mobile->Scene ${stage.mobile_to_scene || '--'}`;
-    document.getElementById('kpiAvgOnScene').textContent = `On Scene ${stage.on_scene || '--'}`;
-    document.getElementById('kpiAvgLeaveHosp').textContent = `Leave->Hospital ${stage.leave_to_hospital || '--'}`;
-    document.getElementById('kpiAvgAtHosp').textContent = `At Hospital ${stage.at_hospital || '--'}`;
+    if (el('kpiAvgWaitAssign')) el('kpiAvgWaitAssign').textContent = `Wait->Assign ${stage.wait_to_assigned || '--'}`;
+    if (el('kpiAvgMobileScene')) el('kpiAvgMobileScene').textContent = `Mobile->Scene ${stage.mobile_to_scene || '--'}`;
+    if (el('kpiAvgOnScene')) el('kpiAvgOnScene').textContent = `On Scene ${stage.on_scene || '--'}`;
+    if (el('kpiAvgLeaveHosp')) el('kpiAvgLeaveHosp').textContent = `Leave->Hospital ${stage.leave_to_hospital || '--'}`;
+    if (el('kpiAvgAtHosp')) el('kpiAvgAtHosp').textContent = `At Hospital ${stage.at_hospital || '--'}`;
   });
 }
 
@@ -3212,11 +3206,12 @@ document.addEventListener('DOMContentLoaded', () => {
       jobs: 'CAD Stack',
       units: 'Active Units',
       messages: 'Messages',
-      past_jobs: 'Past / Cleared Jobs'
+      past_jobs: 'Past / Cleared Jobs',
+      kpi: 'Live KPI'
     };
     if (isPopoutMode && autoPanel && panelTitles[autoPanel]) {
       setTimeout(() => {
-        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : btnMsgs)));
+        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
         applySinglePanelPopoutLayout(autoPanel);
         if (Number.isInteger(autoCad) && autoCad > 0) {
           setTimeout(() => {
@@ -3228,7 +3223,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (autoPanel && panelTitles[autoPanel]) {
       setTimeout(() => {
-        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : btnMsgs)));
+        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
         if (autoPanel === 'jobs' && Number.isInteger(autoCad) && autoCad > 0) {
           setTimeout(() => {
             try { loadJobDetail(autoCad); } catch (e) {}
@@ -3259,22 +3254,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnKPI?.addEventListener('click', () => {
-    if (!kpiStatsPanel) return;
-    const hidden = kpiStatsPanel.style.display === 'none';
-    if (hidden) {
-      kpiStatsPanel.style.display = 'flex';
-      try { localStorage.removeItem('cad_kpi_hidden'); } catch (e) {}
-      btnKPI.classList.add('active');
-    } else {
-      kpiStatsPanel.style.display = 'none';
-      try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
-      btnKPI.classList.remove('active');
-    }
+    togglePanelByType('kpi', 'Live KPI', btnKPI);
   });
 
   try {
-    const hidden = !!(kpiStatsPanel && kpiStatsPanel.style.display === 'none');
-    if (btnKPI && !hidden) btnKPI.classList.add('active');
+    const kpiOpen = Object.values(openPanels || {}).some(p => p && p.type === 'kpi');
+    if (btnKPI && kpiOpen) btnKPI.classList.add('active');
+    else if (!localStorage.getItem('cad_kpi_hidden')) {
+      setTimeout(() => togglePanelByType('kpi', 'Live KPI', btnKPI), 400);
+    }
   } catch (e) {}
 });
 
@@ -3288,12 +3276,14 @@ function togglePanelByType(type, title, btn) {
       } else {
         closePanel(existing.id);
         if (btn) btn.classList.remove('active');
+        if (type === 'kpi') try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
       }
       return;
     }
     const panel = getOrCreatePanel(type, title);
     if (btn) btn.classList.add('active');
     if (type === 'messages') clearMessageBadge();
+    if (type === 'kpi') try { localStorage.removeItem('cad_kpi_hidden'); } catch (e) {}
   } catch (e) { }
 }
 

@@ -1100,10 +1100,10 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 @api_bp.route('/login', methods=['POST'])
 def api_login():
-    # If already authenticated, clear session first
-    if current_user.is_authenticated:
-        logout_user()
-
+    """
+    API login: JWT-only, no session or cookies. For MDT, Lovable, and other API clients.
+    Send JSON: {"username": "...", "password": "..."}. Use the returned token as Authorization: Bearer <token>.
+    """
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -1115,6 +1115,33 @@ def api_login():
     if not (user_data and AuthManager.verify_password(user_data["password_hash"], password)):
         return jsonify({"status": "error", "message": "Invalid credentials."}), 401
 
+    token = encode_session_token(
+        user_data["id"],
+        user_data["username"],
+        user_data["role"],
+    )
+    if not token:
+        return jsonify({
+            "status": "error",
+            "message": "JWT not available. Install PyJWT on the server for API login.",
+        }), 503
+
+    # Update last login timestamp (audit only; no session)
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET last_login = %s WHERE id = %s",
+            (datetime.now(), user_data['id'])
+        )
+        conn.commit()
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        conn.close()
+
     permissions = []
     if user_data.get('permissions'):
         try:
@@ -1122,38 +1149,10 @@ def api_login():
         except Exception:
             permissions = []
 
-    user = User(
-        user_data['id'],
-        user_data['username'],
-        user_data['email'],
-        user_data['role'],
-        permissions
-    )
-    login_user(user)
-
-    session['first_name'] = user_data.get('first_name', '')
-    session['last_name'] = user_data.get('last_name', '')
-    session['theme'] = user_data.get('theme', 'default')
-
-    # Update last login timestamp
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE users SET last_login = %s WHERE id = %s",
-        (datetime.now(), user_data['id'])
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    # Provide site settings/core manifest for PWA clients
-    plugin_manager = PluginManager(PLUGINS_FOLDER)
-    core_manifest = plugin_manager.get_core_manifest() or {}
-    site_settings = core_manifest.get('site_settings', {})
-
-    response_data = {
+    return jsonify({
         "status": "success",
         "message": f"Welcome back, {user_data.get('first_name', user_data['username'])}!",
+        "token": token,
         "user": {
             "id": user_data['id'],
             "username": user_data['username'],
@@ -1162,37 +1161,16 @@ def api_login():
             "first_name": user_data.get('first_name', ''),
             "last_name": user_data.get('last_name', ''),
             "theme": user_data.get('theme', 'default'),
-            "permissions": permissions
+            "permissions": permissions,
         },
-        "site_settings": site_settings,
-        "core_manifest": core_manifest
-    }
-    # Session token for API clients (tablet, mobile, Lovable) that use Bearer auth instead of cookies.
-    # Always include "token" in the response so the payload shape is stable; null when JWT cannot be issued.
-    token = encode_session_token(
-        user_data["id"],
-        user_data["username"],
-        user_data["role"],
-    )
-    response_data["token"] = token if token else None
-    if not token:
-        response_data["token_available"] = False
-        response_data["hint"] = (
-            "Session token not available. Install PyJWT (pip install PyJWT) on the server for Bearer auth."
-        )
-    else:
-        response_data["token_available"] = True
-
-    return jsonify(response_data), 200
+    }), 200
 
 
 @api_bp.route('/logout', methods=['POST'])
 def api_logout():
     """
-    API endpoint for logout. Logs out the user and returns a JSON response.
-    Note: @login_required is removed to prevent redirection.
+    API logout: no server session to clear (API login is JWT-only). Client should discard the token.
     """
-    logout_user()
     return jsonify({"status": "success", "message": "You have been logged out."}), 200
 
 
