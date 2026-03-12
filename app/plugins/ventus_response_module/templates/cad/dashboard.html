@@ -34,12 +34,36 @@
   border-color: rgba(100, 116, 139, 0.45);
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.15);
 }
+.drop-target-job,
+.job-detail-drop-target {
+  position: relative;
+}
 .drop-target-job.drag-over,
 .job-detail-drop-target.drag-over {
   background: rgba(59, 130, 246, 0.15);
   border-left-color: var(--primary-light);
   outline: 2px dashed var(--primary-light);
   outline-offset: -2px;
+}
+.drop-target-job-hint {
+  display: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 10px;
+  background: rgba(59, 130, 246, 0.95);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+}
+.drop-target-job.drag-over .drop-target-job-hint {
+  display: block;
 }
 .job-detail-drop-target {
   min-height: 120px;
@@ -247,6 +271,12 @@ function renderIncidentDetails(triageRaw) {
     if (!display) return '';
     return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(display)}</div>`;
   };
+  const rowOrEmpty = (label, val) => {
+    const display = (val === undefined || val === null || String(val).trim() === '') ? '—' : (typeof val === 'object' ? formatDisplayValue(val) : String(val).trim());
+    return `<div style="padding:4px 0;"><b>${escapeHtml(label)}:</b> ${escapeHtml(display || '—')}</div>`;
+  };
+
+  const ageValue = (() => { const fromDob = calcAgeFromDateString(take('patient_dob')); if (fromDob != null) return String(fromDob); const direct = take('patient_age') != null ? take('patient_age') : take('age'); return (direct != null && direct !== '') ? String(Math.round(Number(direct))) : ''; })();
 
   const coreRows = [
     row('Reason for Call', take('reason_for_call')),
@@ -257,8 +287,8 @@ function renderIncidentDetails(triageRaw) {
     row('Caller Name', take('caller_name')),
     row('Caller Phone', take('caller_phone')),
     row('Patient', [take('first_name'), take('middle_name'), take('last_name')].filter(Boolean).join(' ')),
-    row('DOB', take('patient_dob')),
-    row('Age', (() => { const fromDob = calcAgeFromDateString(take('patient_dob')); if (fromDob != null) return fromDob; const direct = take('patient_age') != null ? take('patient_age') : take('age'); return (direct != null && direct !== '') ? String(Math.round(Number(direct))) : ''; })().toString() || null),
+    rowOrEmpty('DOB', take('patient_dob')),
+    rowOrEmpty('Age', ageValue),
     row('Gender', take('patient_gender') ? capitalizeWord(take('patient_gender')) : ''),
     row('Patient Phone', take('phone_number')),
     row('Onset', take('onset_datetime')),
@@ -1753,7 +1783,8 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
       ? String(eligibilityMap[job.cad].recommended.callsign)
       : '';
     html += `
-      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}" ondragenter="event.preventDefault();this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
+      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragenter="event.preventDefault();this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
+        <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
           <div style="font-weight:500;">CAD #${job.cad}</div>
@@ -1903,9 +1934,12 @@ function loadMsgPanel(contentEl) {
   contentEl.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr;gap:10px;">
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
           <div style="font-weight:700;">Response Centre / Incident Inbox <span id="msgInboxCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(59,130,246,0.22);color:#bfdbfe;">0</span></div>
-          <button class="btn" id="toggleInboxPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" id="clearInboxNotificationsBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);font-size:11px;" title="Clear notification count on rail">Clear</button>
+            <button class="btn" id="toggleInboxPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          </div>
         </div>
         <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;${dispatchMsgUI.collapsed.inbox ? 'display:none;' : ''}"></ul>
       </div>
@@ -1969,6 +2003,11 @@ function loadMsgPanel(contentEl) {
   toggleLabel(toggleAssistBtn, dispatchMsgUI.collapsed.assist);
   toggleLabel(toggleMotdBtn, dispatchMsgUI.collapsed.motd);
   toggleInboxBtn?.addEventListener('click', () => toggleSection('inbox', inboxListEl, toggleInboxBtn));
+  contentEl.querySelector('#clearInboxNotificationsBtn')?.addEventListener('click', () => {
+    clearMessageBadge();
+    if (msgInboxCount) setSectionCount(msgInboxCount, 0);
+    showNotification('success', 'Notifications', 'Count cleared');
+  });
   toggleConvoBtn?.addEventListener('click', () => toggleSection('conversations', convoBlockEl, toggleConvoBtn));
   toggleAssistBtn?.addEventListener('click', () => toggleSection('assist', assistListEl, toggleAssistBtn));
   toggleMotdBtn?.addEventListener('click', () => toggleSection('motd', motdBlockEl, toggleMotdBtn));
@@ -2139,6 +2178,7 @@ function loadMsgPanel(contentEl) {
       .then(rows => {
         const list = (Array.isArray(rows) ? rows : []);
         setSectionCount(msgInboxCount, list.length);
+        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', list.length);
         if (!list.length) {
           dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No incident messages yet.</li>';
           return;
@@ -2149,7 +2189,7 @@ function loadMsgPanel(contentEl) {
           const when = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
           const cad = Number(m && m.cad);
           return `
-            <li class="panel-list-item" style="cursor:pointer;" onclick="${Number.isFinite(cad) && cad > 0 ? `loadJobDetail(${cad});` : ''}">
+            <li class="panel-list-item" style="cursor:pointer;" onclick="${Number.isFinite(cad) && cad > 0 ? `openJobFromInbox(${cad});` : ''}">
               <i class="bi bi-bell" style="color:var(--accent);"></i>
               <span>
                 <div style="font-weight:600;">CAD #${escapeHtml(Number.isFinite(cad) ? cad : '?')} | ${escapeHtml(type)}</div>
@@ -2162,6 +2202,7 @@ function loadMsgPanel(contentEl) {
       })
       .catch(() => {
         setSectionCount(msgInboxCount, 0);
+        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', 0);
         dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">Unable to load inbox.</li>';
       });
 
@@ -2975,27 +3016,69 @@ window.backToJobStack = function() {
   loadJobsPanel(contentEl);
 };
 
+const CLOSE_CAD_STATUSES = ['cleared', 'stood_down', 'received', 'assigned', 'mobile', 'on_scene', 'leave_scene', 'at_hospital'];
+
 window.closeCadFromDetail = function(cad) {
-  const outcome = (prompt('Close outcome (e.g. completed, cancelled, self_resolved):', 'completed') || '').trim();
-  if (!outcome) return;
-  if (!confirm(`Close CAD #${cad} as "${outcome}"?`)) return;
-  fetch(`/plugin/ventus_response_module/job/${cad}/close`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outcome, public_notes: `Closed by dispatcher: ${outcome}` })
-  })
-    .then(r => r.json())
-    .then(data => {
-      showNotification('success', 'Closed', data.message || 'CAD closed');
-      backToJobStack();
-      setTimeout(refreshMap, 400);
+  const modal = document.createElement('div');
+  modal.id = 'closeCadModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:7000;';
+  const statusOptions = CLOSE_CAD_STATUSES.map(s => `<option value="${escapeHtml(s)}" ${s === 'cleared' ? 'selected' : ''}>${escapeHtml(prettyStatus(s))}</option>`).join('');
+  modal.innerHTML = `
+    <div style="width:min(420px,92vw);background:var(--bg-panel,rgba(15,23,42,0.98));border:1px solid var(--border-color);border-radius:12px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:10px;">Close CAD #${escapeHtml(String(cad))}</div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block;font-weight:600;margin-bottom:6px;">Status</label>
+        <select id="closeCadStatus" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:13px;">
+          ${statusOptions}
+        </select>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-weight:600;margin-bottom:6px;">Notes</label>
+        <textarea id="closeCadNotes" rows="3" placeholder="Optional notes…" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="closeCadModalCancel" class="btn" style="flex:1;background:transparent;border:1px solid var(--border-color);">Cancel</button>
+        <button id="closeCadModalConfirm" class="btn" style="flex:1;background:rgba(239,68,68,0.25);border:1px solid #ef4444;color:#fecaca;"><i class="bi bi-x-circle"></i> Close CAD</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const closeModal = () => { try { modal.remove(); } catch (e) {} };
+  modal.querySelector('#closeCadModalCancel')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (ev) => { if (ev.target === modal) closeModal(); });
+  modal.querySelector('#closeCadModalConfirm')?.addEventListener('click', () => {
+    const statusEl = modal.querySelector('#closeCadStatus');
+    const notesEl = modal.querySelector('#closeCadNotes');
+    const forceStatus = (statusEl?.value || 'cleared').trim();
+    const notes = (notesEl?.value || '').trim();
+    const confirmBtn = modal.querySelector('#closeCadModalConfirm');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Closing…'; }
+    closeModal();
+    fetch(`/plugin/ventus_response_module/job/${cad}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        force_status: forceStatus,
+        outcome: forceStatus,
+        private_notes: notes,
+        public_notes: notes ? `Closed by dispatcher: ${notes}` : ''
+      })
     })
-    .catch(() => showNotification('danger', 'Error', 'Failed to close CAD'));
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        showNotification('success', 'Closed', data.message || 'CAD closed');
+        backToJobStack();
+        setTimeout(refreshMap, 400);
+      })
+      .catch((e) => showNotification('danger', 'Error', e.message || 'Failed to close CAD'));
+  });
 };
 
-window.loadJobDetail = function(cad) {
+window.loadJobDetail = function(cad, opts) {
   const cadNum = parseInt(cad, 10) || null;
   const wasAlreadyViewingThisJob = (activeJobCad === cadNum);
+  const scrollToComms = !!(opts && opts.scrollToComms);
   activeJobCad = cadNum;
   if (panelRefreshTimer) {
     clearTimeout(panelRefreshTimer);
@@ -3033,8 +3116,11 @@ window.loadJobDetail = function(cad) {
         ? commItems.map((m) => {
             const t = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
             const by = m && (m.sender_user || m.sender_role) ? (m.sender_user || m.sender_role) : 'unknown';
-            const typeLabel = (m && m.message_type === 'update') ? 'Update' : 'Message';
-            return `<div style="padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,0.12);"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)} · ${escapeHtml(by)} · ${escapeHtml(typeLabel)}</div><div>${escapeHtml(m && m.message_text ? m.message_text : '')}</div></div>`;
+            const isUpdate = m && m.message_type === 'update';
+            const typeLabel = isUpdate ? 'Update' : 'Message';
+            const bg = isUpdate ? 'rgba(245,158,11,0.12)' : 'rgba(59,130,246,0.12)';
+            const border = isUpdate ? '1px solid rgba(245,158,11,0.4)' : '1px solid rgba(59,130,246,0.4)';
+            return `<div style="padding:8px 10px;border:${border};border-radius:8px;margin-bottom:8px;background:${bg};"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)} · ${escapeHtml(by)} · <span style="font-weight:600;color:${isUpdate ? '#fde68a' : '#bfdbfe'};">${escapeHtml(typeLabel)}</span></div><div>${escapeHtml(m && m.message_text ? m.message_text : '')}</div></div>`;
           }).join('')
         : '<div class="meta"><i>No updates or messages yet.</i></div>';
       const eventsRaw = Array.isArray(systemLog && systemLog.events) ? systemLog.events : [];
@@ -3108,7 +3194,7 @@ window.loadJobDetail = function(cad) {
           ${statusTimesTable}
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div id="jobResponseCommsSection">
-            <div style="font-weight:600;margin-bottom:6px;">Updates &amp; messages</div>
+            <div style="font-weight:600;margin-bottom:6px;">Updates &amp; Messages</div>
             <div style="font-size:12px;color:var(--text-secondary);max-height:240px;overflow-y:auto;margin-bottom:12px;">${commHtml}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
               <select id="jobCommType_${job.cad}" style="width:auto;min-width:160px;padding:6px 10px;">
@@ -3131,7 +3217,7 @@ window.loadJobDetail = function(cad) {
           <button class="btn" style="width:100%;padding:10px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
         </div>
       `;
-      if (wasAlreadyViewingThisJob && contentEl) {
+      if ((wasAlreadyViewingThisJob || scrollToComms) && contentEl) {
         requestAnimationFrame(() => {
           const commsSection = contentEl.querySelector('#jobResponseCommsSection');
           if (commsSection) commsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3141,6 +3227,19 @@ window.loadJobDetail = function(cad) {
     .catch(() => {
       contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load details.</div>';
     });
+};
+
+window.openJobFromInbox = function(cad) {
+  const num = parseInt(cad, 10);
+  if (!Number.isFinite(num) || num <= 0) return;
+  const existing = Object.values(openPanels || {}).find(p => p && p.type === 'jobs');
+  if (!existing) {
+    getOrCreatePanel('jobs', 'CAD Stack');
+    if (typeof btnJobs !== 'undefined' && btnJobs) btnJobs.classList.add('active');
+    setTimeout(() => loadJobDetail(num, { scrollToComms: true }), 180);
+  } else {
+    loadJobDetail(num, { scrollToComms: true });
+  }
 };
 
 window.assignJob = function(cad) {
