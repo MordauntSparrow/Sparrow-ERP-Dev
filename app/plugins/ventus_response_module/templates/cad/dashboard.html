@@ -711,6 +711,9 @@ function getDefaultPanelPosition(type, typeIndex) {
   const w = 420, h = 400;
   if (type === 'jobs') return { left: 40, top: 120, width: w, height: h };
   if (type === 'units') return { left: 480, top: 120, width: w, height: h };
+  if (type === 'messages') return { left: 40 + 2 * 30, top: 120 + 2 * 40, width: w, height: h };
+  if (type === 'past_jobs') return { left: 40 + 3 * 30, top: 120 + 3 * 40, width: w, height: h };
+  if (type === 'kpi') return { left: 40 + 4 * 30, top: 120 + 4 * 40, width: 520, height: 180 };
   return { left: 40 + typeIndex * 30, top: 120 + typeIndex * 40, width: w, height: h };
 }
 
@@ -723,7 +726,7 @@ window.resetPanelsToDefault = function() {
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
   } catch (e) {}
-  const typeOrder = ['jobs', 'units', 'messages', 'past_jobs'];
+  const typeOrder = ['jobs', 'units', 'messages', 'past_jobs', 'kpi'];
   let typeIndex = 0;
   for (const type of typeOrder) {
     const entry = Object.values(openPanels).find(p => p.type === type);

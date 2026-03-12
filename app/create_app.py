@@ -262,6 +262,13 @@ def create_app():
                     if view and not getattr(view, "_csrf_exempt", False):
                         csrf.exempt(view)
                         view._csrf_exempt = True
+            # Exempt Ventus job routes (assign, close, comms, etc.) used by CAD dashboard fetch() which does not send CSRF
+            for rule in app.url_map.iter_rules():
+                if rule.rule.startswith("/plugin/ventus_response_module/job/"):
+                    view = app.view_functions.get(rule.endpoint)
+                    if view and not getattr(view, "_csrf_exempt", False):
+                        csrf.exempt(view)
+                        view._csrf_exempt = True
             # Exempt core /api/* (e.g. POST /api/login) so MDT, Lovable, and other API clients can authenticate without CSRF
             for rule in app.url_map.iter_rules():
                 if rule.rule.startswith("/api/"):
