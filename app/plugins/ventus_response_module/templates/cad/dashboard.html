@@ -3081,18 +3081,24 @@ window.loadJobDetail = function(cad) {
           <div style="font-weight:600;margin-bottom:6px;">Status Times</div>
           ${statusTimesTable}
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
-          <div style="font-weight:600;margin-bottom:6px;">System Log</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${systemHtml}</div>
-          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div id="jobResponseCommsSection">
             <div style="font-weight:600;margin-bottom:8px;">Updates &amp; messages</div>
             <div style="font-size:12px;color:var(--text-secondary);max-height:240px;overflow-y:auto;margin-bottom:12px;">${commHtml}</div>
-            <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;box-sizing:border-box;" placeholder="Message to response centre (broadcast)"></textarea>
-            <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send to response centre</button>
+            <div class="meta" style="margin-bottom:6px;">To response officer</div>
+            <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;box-sizing:border-box;" placeholder="Message…"></textarea>
+            <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send to response officer</button>
           </div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <button class="btn" style="padding:8px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
+          </div>
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
+          <div style="margin-bottom:8px;">
+            <button type="button" id="jobSystemLogBtn_${job.cad}" class="btn" style="width:100%;padding:6px 10px;background:transparent;border:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:8px;" onclick="window.toggleJobSystemLog(${job.cad})" aria-expanded="false">
+              <span>System log</span>
+              <i class="bi bi-chevron-down" aria-hidden="true"></i>
+            </button>
+            <div id="jobSystemLog_${job.cad}" style="display:none;font-size:12px;color:var(--text-secondary);margin-top:8px;max-height:200px;overflow-y:auto;">${systemHtml}</div>
           </div>
         </div>
       `;
@@ -3176,6 +3182,20 @@ window.openJobDetailPopout = function(cad) {
   const w = window.open(url, 'ventus-cad-job-' + parsed, 'width=560,height=760');
   if (!w) {
     showNotification('warning', 'Blocked', 'Browser blocked pop-out window');
+  }
+};
+
+window.toggleJobSystemLog = function(cad) {
+  const el = document.getElementById('jobSystemLog_' + cad);
+  const btn = document.getElementById('jobSystemLogBtn_' + cad);
+  if (!el || !btn) return;
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  btn.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+  const icon = btn.querySelector('i');
+  if (icon) {
+    icon.classList.toggle('bi-chevron-down', !isHidden);
+    icon.classList.toggle('bi-chevron-up', isHidden);
   }
 };
 
