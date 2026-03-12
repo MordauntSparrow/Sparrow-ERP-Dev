@@ -3016,7 +3016,14 @@ window.loadJobDetail = function(cad) {
         : '<div class="meta"><i>No system events logged.</i></div>';
 
       const priorityVal = String(job.priority || (triage && triage.call_priority) || '').trim();
-      const priorityBadge = priorityVal ? `<span class="status" style="margin-left:6px;background:rgba(59,130,246,0.2);color:var(--primary-light);">${escapeHtml(priorityVal)}</span>` : '';
+      const priorityDetailClass = priorityVal === 'P1'
+        ? 'background:rgba(239,68,68,0.22);color:#fecaca;'
+        : priorityVal === 'P2'
+          ? 'background:rgba(245,158,11,0.22);color:#fde68a;'
+          : priorityVal === 'P3'
+            ? 'background:rgba(59,130,246,0.22);color:#bfdbfe;'
+            : 'background:rgba(34,197,94,0.2);color:#bbf7d0;';
+      const priorityBadge = priorityVal ? `<span class="status" style="margin-left:8px;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;${priorityDetailClass}">${escapeHtml(priorityVal)}</span>` : '';
       contentEl.innerHTML = `
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
