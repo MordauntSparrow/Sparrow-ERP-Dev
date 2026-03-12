@@ -823,7 +823,7 @@ function createPanel(type, title) {
   });
 
   const expandToggleBtn = panelEl.querySelector('[data-action="expand-toggle"]');
-  if (expandToggleBtn) {
+  if (expandToggleBtn && type !== 'messages') {
     expandToggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const body = panelEl.querySelector('.cad-panel-body');
@@ -1858,10 +1858,6 @@ function loadMsgPanel(contentEl) {
   clearMessageBadge();
   contentEl.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr;gap:10px;">
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn" id="msgExpandAllBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Expand All</button>
-        <button class="btn" id="msgCollapseAllBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise All</button>
-      </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <div style="font-weight:700;">Response Centre / Incident Inbox <span id="msgInboxCount" class="status" style="margin-left:6px;background:rgba(59,130,246,0.2);color:#bfdbfe;">0</span></div>
@@ -1917,8 +1913,6 @@ function loadMsgPanel(contentEl) {
   const convoBlockEl = contentEl.querySelector('#conversationBlock');
   const assistListEl = contentEl.querySelector('#dispatcherAssistList');
   const motdBlockEl = contentEl.querySelector('#motdBlock');
-  const msgExpandAllBtn = contentEl.querySelector('#msgExpandAllBtn');
-  const msgCollapseAllBtn = contentEl.querySelector('#msgCollapseAllBtn');
   const msgInboxCount = contentEl.querySelector('#msgInboxCount');
   const msgConversationCount = contentEl.querySelector('#msgConversationCount');
   const msgAssistCount = contentEl.querySelector('#msgAssistCount');
@@ -1934,7 +1928,9 @@ function loadMsgPanel(contentEl) {
   toggleConvoBtn?.addEventListener('click', () => toggleSection('conversations', convoBlockEl, toggleConvoBtn));
   toggleAssistBtn?.addEventListener('click', () => toggleSection('assist', assistListEl, toggleAssistBtn));
   toggleMotdBtn?.addEventListener('click', () => toggleSection('motd', motdBlockEl, toggleMotdBtn));
-  msgExpandAllBtn?.addEventListener('click', () => {
+
+  const allCollapsed = () => dispatchMsgUI.collapsed.inbox && dispatchMsgUI.collapsed.conversations && dispatchMsgUI.collapsed.assist && dispatchMsgUI.collapsed.motd;
+  const applyExpandAll = () => {
     dispatchMsgUI.collapsed = { inbox: false, conversations: false, assist: false, motd: false };
     if (inboxListEl) inboxListEl.style.display = '';
     if (convoBlockEl) convoBlockEl.style.display = '';
@@ -1944,8 +1940,8 @@ function loadMsgPanel(contentEl) {
     toggleLabel(toggleConvoBtn, false);
     toggleLabel(toggleAssistBtn, false);
     toggleLabel(toggleMotdBtn, false);
-  });
-  msgCollapseAllBtn?.addEventListener('click', () => {
+  };
+  const applyCollapseAll = () => {
     dispatchMsgUI.collapsed = { inbox: true, conversations: true, assist: true, motd: true };
     if (inboxListEl) inboxListEl.style.display = 'none';
     if (convoBlockEl) convoBlockEl.style.display = 'none';
@@ -1955,7 +1951,31 @@ function loadMsgPanel(contentEl) {
     toggleLabel(toggleConvoBtn, true);
     toggleLabel(toggleAssistBtn, true);
     toggleLabel(toggleMotdBtn, true);
-  });
+  };
+  const panelEl = contentEl.closest('.cad-panel');
+  const headerExpandBtn = panelEl?.querySelector('[data-action="expand-toggle"]');
+  if (headerExpandBtn) {
+    headerExpandBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const icon = headerExpandBtn.querySelector('i');
+      if (allCollapsed()) {
+        applyExpandAll();
+        headerExpandBtn.title = 'Collapse sections';
+        if (icon) icon.className = 'bi bi-chevron-down';
+      } else {
+        applyCollapseAll();
+        headerExpandBtn.title = 'Expand sections';
+        if (icon) icon.className = 'bi bi-chevron-up';
+      }
+    });
+    if (allCollapsed()) {
+      headerExpandBtn.title = 'Expand sections';
+      if (headerExpandBtn.querySelector('i')) headerExpandBtn.querySelector('i').className = 'bi bi-chevron-up';
+    } else {
+      headerExpandBtn.title = 'Collapse sections';
+      if (headerExpandBtn.querySelector('i')) headerExpandBtn.querySelector('i').className = 'bi bi-chevron-down';
+    }
+  }
 
   const msgsList = contentEl.querySelector('#msgsList');
   const recipientChips = contentEl.querySelector('#msgRecipientChips');
@@ -2079,7 +2099,7 @@ function loadMsgPanel(contentEl) {
           dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No incident messages yet.</li>';
           return;
         }
-        dispatcherInboxList.innerHTML = list.slice(-25).reverse().map((m) => {
+        dispatcherInboxList.innerHTML = list.slice(-25).map((m) => {
           const type = (m && m.message_type === 'update') ? 'Update' : 'Message';
           const who = (m && (m.sender_user || m.sender_role)) || 'unknown';
           const when = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
@@ -2930,7 +2950,9 @@ window.closeCadFromDetail = function(cad) {
 };
 
 window.loadJobDetail = function(cad) {
-  activeJobCad = parseInt(cad, 10) || null;
+  const cadNum = parseInt(cad, 10) || null;
+  const wasAlreadyViewingThisJob = (activeJobCad === cadNum);
+  activeJobCad = cadNum;
   if (panelRefreshTimer) {
     clearTimeout(panelRefreshTimer);
     panelRefreshTimer = null;
@@ -2962,18 +2984,15 @@ window.loadJobDetail = function(cad) {
             </div>
           `).join('')
         : '<div class="meta">None</div>';
-      const crewOptions = assignedUnits.map((cs) => `<option value="${escapeHtml(cs)}">${escapeHtml(cs)}</option>`).join('');
-      const commItems = Array.isArray(comms) ? comms.slice(-8).reverse() : [];
+      const commItems = Array.isArray(comms) ? comms.slice(-20) : [];
       const commHtml = commItems.length
         ? commItems.map((m) => {
             const t = m && m.created_at ? new Date(m.created_at).toLocaleString() : '';
             const by = m && (m.sender_user || m.sender_role) ? (m.sender_user || m.sender_role) : 'unknown';
-            const typeBadge = (m && m.message_type === 'update')
-              ? '<span class="badge bg-warning text-dark" style="margin-right:6px;">Update</span>'
-              : '<span class="badge bg-info text-dark" style="margin-right:6px;">Message</span>';
-            return `<div style="padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;background:rgba(0,0,0,0.15);"><div class="meta" style="margin-bottom:4px;">${typeBadge}${escapeHtml(t)} by ${escapeHtml(by)}</div><div>${escapeHtml(m && m.message_text ? m.message_text : '')}</div></div>`;
+            const typeLabel = (m && m.message_type === 'update') ? 'Update' : 'Message';
+            return `<div style="padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,0.12);"><div class="meta" style="margin-bottom:4px;">${escapeHtml(t)} · ${escapeHtml(by)} · ${escapeHtml(typeLabel)}</div><div>${escapeHtml(m && m.message_text ? m.message_text : '')}</div></div>`;
           }).join('')
-        : '<div class="meta"><i>No response centre messages yet.</i></div>';
+        : '<div class="meta"><i>No updates or messages yet.</i></div>';
       const eventsRaw = Array.isArray(systemLog && systemLog.events) ? systemLog.events : [];
       const compactEvents = [];
       eventsRaw.forEach((ev) => {
@@ -3028,59 +3047,23 @@ window.loadJobDetail = function(cad) {
           <div style="font-weight:600;margin-bottom:6px;">System Log</div>
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${systemHtml}</div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
-          <div style="font-weight:600;margin-bottom:6px;">Response Centre Comms</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${commHtml}</div>
-          <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;" placeholder="Message to call taker for this CAD"></textarea>
-          <button class="btn" style="width:100%;padding:8px;margin-bottom:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send Message to Response Centre</button>
+          <div id="jobResponseCommsSection">
+            <div style="font-weight:600;margin-bottom:8px;">Updates &amp; messages</div>
+            <div style="font-size:12px;color:var(--text-secondary);max-height:240px;overflow-y:auto;margin-bottom:12px;">${commHtml}</div>
+            <textarea id="jobCommMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;box-sizing:border-box;" placeholder="Message to response centre (broadcast)"></textarea>
+            <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobMessage(${job.cad})"><i class="bi bi-send"></i> Send to response centre</button>
+          </div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <button class="btn" style="padding:8px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
           </div>
-          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
-          <div style="font-weight:600;margin-bottom:6px;">Crew Comms</div>
-          ${assignedUnits.length ? `
-            <select id="jobCrewCallsign_${job.cad}" style="width:100%;margin-bottom:8px;">${crewOptions}</select>
-            <div id="jobCrewCommsList_${job.cad}" style="max-height:180px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;padding:8px;background:rgba(0,0,0,0.16);margin-bottom:8px;"></div>
-            <textarea id="jobCrewMsg_${job.cad}" style="width:100%;min-height:56px;margin-bottom:8px;" placeholder="Message to selected crew unit"></textarea>
-            <button class="btn" style="width:100%;padding:8px;margin-bottom:8px;" onclick="sendDispatcherCrewMessage(${job.cad})"><i class="bi bi-send"></i> Send Message to Crew</button>
-          ` : '<div class="meta" style="margin-bottom:8px;"><i>No assigned units to message yet.</i></div>'}
         </div>
       `;
-      if (assignedUnits.length) {
-        const sel = document.getElementById(`jobCrewCallsign_${job.cad}`);
-        const refreshCrewThread = () => {
-          const cs = String(sel?.value || '').trim();
-          const target = document.getElementById(`jobCrewCommsList_${job.cad}`);
-          if (!cs || !target) return;
-          target.innerHTML = '<div class="meta">Loading crew conversation...</div>';
-          fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(cs)}`)
-            .then(r => r.ok ? r.json() : [])
-            .then((rows) => {
-              const list = Array.isArray(rows) ? rows.slice(-30) : [];
-              if (!list.length) {
-                target.innerHTML = '<div class="meta">No messages with this unit yet.</div>';
-                return;
-              }
-              target.innerHTML = list.map((m) => {
-                const from = String(m && m.from ? m.from : '').trim() || 'unknown';
-                const outgoing = from.toLowerCase() === 'dispatcher';
-                const when = m && m.timestamp ? new Date(m.timestamp).toLocaleString() : '';
-                const text = String(m && m.text ? m.text : '');
-                return `
-                  <div style="display:flex;justify-content:${outgoing ? 'flex-end' : 'flex-start'};margin-bottom:8px;">
-                    <div style="max-width:82%;padding:8px 10px;border-radius:10px;border:1px solid var(--border-color);background:${outgoing ? 'rgba(59,130,246,0.2)' : 'rgba(2,6,23,0.55)'};">
-                      <div style="font-size:11px;opacity:0.85;margin-bottom:4px;">${escapeHtml(from)} | ${escapeHtml(when)}</div>
-                      <div>${escapeHtml(text)}</div>
-                    </div>
-                  </div>
-                `;
-              }).join('');
-              target.scrollTop = target.scrollHeight;
-            })
-            .catch(() => { target.innerHTML = '<div class="meta">Unable to load crew conversation.</div>'; });
-        };
-        sel?.addEventListener('change', refreshCrewThread);
-        refreshCrewThread();
+      if (wasAlreadyViewingThisJob && contentEl) {
+        requestAnimationFrame(() => {
+          const commsSection = contentEl.querySelector('#jobResponseCommsSection');
+          if (commsSection) commsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
       }
     })
     .catch(() => {
@@ -3173,30 +3156,6 @@ window.sendDispatcherJobMessage = function(cad) {
       if (!ok) throw new Error((d && d.error) || 'Message failed');
       if (input) input.value = '';
       showNotification('success', 'Message Sent', `CAD #${cad}`);
-      try { loadJobDetail(cad); } catch (e) {}
-    })
-    .catch((e) => showNotification('danger', 'Send Failed', e.message || 'Failed to send'));
-};
-
-window.sendDispatcherCrewMessage = function(cad) {
-  const csEl = document.getElementById(`jobCrewCallsign_${cad}`);
-  const msgEl = document.getElementById(`jobCrewMsg_${cad}`);
-  const callsign = String(csEl?.value || '').trim();
-  const text = String(msgEl?.value || '').trim();
-  if (!callsign || !text) {
-    showNotification('warning', 'Crew Message', 'Select a crew unit and enter a message');
-    return;
-  }
-  fetch(`/plugin/ventus_response_module/messages/${encodeURIComponent(callsign)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, from: 'dispatcher', sender_portal: 'dispatch' })
-  })
-    .then(r => r.json().then(d => ({ ok: r.ok, d })))
-    .then(({ ok, d }) => {
-      if (!ok) throw new Error((d && d.error) || 'Message failed');
-      if (msgEl) msgEl.value = '';
-      showNotification('success', 'Crew Message Sent', `${callsign}`);
       try { loadJobDetail(cad); } catch (e) {}
     })
     .catch((e) => showNotification('danger', 'Send Failed', e.message || 'Failed to send'));
