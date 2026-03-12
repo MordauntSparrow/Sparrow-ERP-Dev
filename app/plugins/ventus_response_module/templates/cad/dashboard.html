@@ -263,10 +263,10 @@ function renderIncidentDetails(triageRaw) {
     <div>
       <div style="font-weight:600;margin-bottom:6px;">Incident Summary</div>
       <div style="font-size:12px;color:var(--text-secondary);">${coreRows.join('') || '<i>No incident summary fields.</i>'}</div>
-      <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;">
+      <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
       <div style="font-weight:600;margin-bottom:6px;">Profile Questions</div>
       <div style="font-size:12px;color:var(--text-secondary);">${answerRows.join('') || '<i>No profile answers captured.</i>'}</div>
-      ${rawRows.length ? `<hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;"><div style="font-weight:600;margin-bottom:6px;">Other Captured Data</div><div style="font-size:12px;color:var(--text-secondary);">${rawRows.join('')}</div>` : ''}
+      ${rawRows.length ? `<hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;"><div style="font-weight:600;margin-bottom:6px;">Other Captured Data</div><div style="font-size:12px;color:var(--text-secondary);">${rawRows.join('')}</div>` : ''}
     </div>
   `;
 }
@@ -1377,7 +1377,7 @@ function loadKPIPanel(contentEl) {
         <span id="kpiClearedToday"></span>
         <span id="kpiAvgResp"></span>
       </div>
-      <div style="height:1px;background:var(--border-color);opacity:0.6;"></div>
+      <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
         <span id="kpiAvgWaitAssign"></span>
         <span id="kpiAvgMobileScene"></span>
@@ -2392,7 +2392,7 @@ window.loadUnitDetail = function(callsign) {
     bodyEl.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-          <div style="font-weight:700;margin-bottom:8px;">Live Status</div>
+          <div style="font-weight:600;margin-bottom:6px;">Live Status</div>
           <div class="meta">Status: <b>${escapeHtml(prettyStatus(detail.status || '--'))}</b></div>
           <div class="meta">Division: <b>${escapeHtml(detail.division || 'general')}</b></div>
           <div class="meta">Last Ping: <b>${escapeHtml(formatAgo(detail.last_ping_seconds))}</b></div>
@@ -2407,8 +2407,8 @@ window.loadUnitDetail = function(callsign) {
           <div class="meta">Break Policy: ${detail.break_due ? '<span style="color:#fca5a5;">Break due</span>' : (detail.near_break ? '<span style="color:#fde68a;">Break due soon</span>' : 'OK')}</div>
           <div class="meta">Break Due In: ${detail.break_due_in_minutes != null ? `${escapeHtml(String(detail.break_due_in_minutes))}m` : '--'}</div>
           ${detail.meal_break_active ? `<div class="meta" style="color:#fbbf24;">Meal break remaining: ${escapeHtml(formatAgo(detail.meal_break_remaining_seconds || 0))}</div>` : ''}
-          <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-color);">
-            <div style="font-size:12px;font-weight:700;opacity:0.95;margin-bottom:6px;">Crew Changes</div>
+          <div style="margin-top:8px;padding-top:8px;border-top:2px solid var(--border-light);">
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Crew Changes</div>
             ${crewRemovals.length ? `
               <div style="max-height:108px;overflow:auto;padding-right:4px;">
                 ${crewRemovals.map((entry) => {
@@ -2423,7 +2423,7 @@ window.loadUnitDetail = function(callsign) {
           ${detail.meal_break_until ? `<div class="meta" style="color:#fbbf24;">Meal break until ${escapeHtml(detail.meal_break_until)}</div>` : ''}
         </div>
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-          <div style="font-weight:700;margin-bottom:8px;">Workload</div>
+          <div style="font-weight:600;margin-bottom:6px;">Workload</div>
           <div class="meta">Current Job: ${currentJob ? `<b>CAD #${escapeHtml(currentJob.cad)}</b> (${escapeHtml(prettyStatus(currentJob.status || '--'))})` : '--'}</div>
           ${currentJob ? `<div class="meta">${escapeHtml(currentJob.reason_for_call || '')}</div><button id="unitOpenJobBtn" class="btn" style="margin-top:8px;width:100%;"><i class="bi bi-folder2-open"></i> Open Current CAD</button>` : ''}
           <div class="meta" style="margin-top:8px;">Jobs since sign on: <b>${escapeHtml(String(detail.jobs_since_sign_on || 0))}</b></div>
@@ -2433,7 +2433,7 @@ window.loadUnitDetail = function(callsign) {
         </div>
       </div>
       <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-        <div style="font-weight:700;margin-bottom:8px;">Dispatch Destination / Standby Instruction</div>
+        <div style="font-weight:600;margin-bottom:6px;">Dispatch Destination / Standby Instruction</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
           <input id="unitStandbyName" placeholder="Location name" value="Standby ${escapeHtml(cs)}">
           <input id="unitStandbyLat" placeholder="Latitude">
@@ -2472,7 +2472,7 @@ window.loadUnitDetail = function(callsign) {
         <div class="meta" style="margin-top:6px;">Instructions are delivered to MDT via dedicated dispatch-instruction endpoint and retained as standby destination.</div>
       </div>
       <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-        <div style="font-weight:700;margin-bottom:8px;">Unit Messaging</div>
+        <div style="font-weight:600;margin-bottom:6px;">Unit Messaging</div>
         <div id="unitConversationList" style="max-height:180px;overflow:auto;border:1px solid var(--border-color);border-radius:8px;padding:8px;background:rgba(0,0,0,0.18);margin-bottom:8px;">
           ${conversation.length ? conversation.map((m) => {
             const from = String(m && m.from ? m.from : '').trim() || 'unknown';
@@ -2496,7 +2496,7 @@ window.loadUnitDetail = function(callsign) {
         </div>
       </div>
       <div style="margin-top:12px;border:1px solid var(--border-color);border-radius:10px;padding:10px;">
-        <div style="font-weight:700;margin-bottom:8px;">Controls</div>
+        <div style="font-weight:600;margin-bottom:6px;">Controls</div>
         <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;">
           <input id="unitMealMins" type="number" min="5" max="180" value="30" placeholder="Meal break minutes">
           <button id="unitMealStartBtn" class="btn" style="background:rgba(245,158,11,0.18);border:1px solid #f59e0b;">Start Meal Break</button>
@@ -3068,7 +3068,7 @@ window.loadJobDetail = function(cad) {
           ${job.break_override_active ? `<div class="meta" style="margin-bottom:8px;"><span class="status" style="background:rgba(239,68,68,0.22);color:#fecaca;">Break Override Used</span> ${escapeHtml((job.break_override_last_units || []).join(', '))}${job.break_override_last_at ? ` - ${escapeHtml(new Date(job.break_override_last_at).toLocaleString())}` : ''}${job.break_override_last_by ? ` - by ${escapeHtml(job.break_override_last_by)}` : ''}</div>` : ''}
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="margin-bottom:8px;">
-            <div class="meta" style="margin-bottom:4px;">Attached Units</div>
+            <div style="font-weight:600;margin-bottom:6px;">Attached Units</div>
             ${assignedUnitsHtml}
           </div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
@@ -3080,7 +3080,7 @@ window.loadJobDetail = function(cad) {
           ${statusTimesTable}
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div id="jobResponseCommsSection">
-            <div style="font-weight:600;margin-bottom:8px;">Updates &amp; messages</div>
+            <div style="font-weight:600;margin-bottom:6px;">Updates &amp; messages</div>
             <div style="font-size:12px;color:var(--text-secondary);max-height:240px;overflow-y:auto;margin-bottom:12px;">${commHtml}</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
               <select id="jobCommType_${job.cad}" style="width:auto;min-width:160px;padding:6px 10px;">
@@ -3092,10 +3092,6 @@ window.loadJobDetail = function(cad) {
             <button class="btn" style="width:100%;padding:8px;" onclick="sendDispatcherJobComms(${job.cad})"><i class="bi bi-send"></i> Send</button>
           </div>
           <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-            <button class="btn" style="padding:8px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
-          </div>
-          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="margin-bottom:8px;">
             <button type="button" id="jobSystemLogBtn_${job.cad}" class="btn" style="width:100%;padding:6px 10px;background:transparent;border:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:8px;" onclick="window.toggleJobSystemLog(${job.cad})" aria-expanded="false">
               <span>System log</span>
@@ -3103,6 +3099,8 @@ window.loadJobDetail = function(cad) {
             </button>
             <div id="jobSystemLog_${job.cad}" style="display:none;font-size:12px;color:var(--text-secondary);margin-top:8px;max-height:200px;overflow-y:auto;">${systemHtml}</div>
           </div>
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
+          <button class="btn" style="width:100%;padding:10px 12px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fecaca;" onclick="closeCadFromDetail(${job.cad})" title="Close this CAD"><i class="bi bi-x-circle"></i> Close CAD</button>
         </div>
       `;
       if (wasAlreadyViewingThisJob && contentEl) {
