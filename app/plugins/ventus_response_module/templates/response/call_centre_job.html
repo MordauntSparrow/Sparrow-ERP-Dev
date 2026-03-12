@@ -173,6 +173,28 @@ function toLabel(key) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatDisplayValue(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) {
+    return v.map(function(item) {
+      if (item == null) return '';
+      if (typeof item === 'object') {
+        return Object.entries(item).map(function(e) { return toLabel(e[0]) + ': ' + formatDisplayValue(e[1]); }).filter(Boolean).join(' · ');
+      }
+      return String(item);
+    }).filter(Boolean).join('; ');
+  }
+  if (typeof v === 'object') {
+    return Object.entries(v).map(function(e) {
+      const val = formatDisplayValue(e[1]);
+      return val === '' ? '' : toLabel(e[0]) + ': ' + val;
+    }).filter(Boolean).join(' · ');
+  }
+  return String(v);
+}
+
 function fieldIdForKey(key) {
   return `dynField_${String(key || '').replace(/[^a-zA-Z0-9_]/g, '_')}`;
 }
@@ -185,7 +207,7 @@ function buildDynamicFieldSpec(triage) {
   Object.keys(answers).forEach((key) => {
     const k = String(key || '').trim();
     if (!k) return;
-    specs.push({ key: k, value: answers[key] ?? '' });
+    specs.push({ key: k, value: formatDisplayValue(answers[key]) });
   });
 
   Object.keys(t).forEach((key) => {
@@ -198,8 +220,7 @@ function buildDynamicFieldSpec(triage) {
     if (Object.prototype.hasOwnProperty.call(answers, k)) return;
     const v = t[k];
     if (v == null) return;
-    if (typeof v === 'object') return;
-    specs.push({ key: k, value: v });
+    specs.push({ key: k, value: formatDisplayValue(v) });
   });
 
   return specs;

@@ -34,6 +34,15 @@
   border-color: rgba(100, 116, 139, 0.45);
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.15);
 }
+.drop-target-job.drag-over {
+  background: rgba(59, 130, 246, 0.15);
+  border-left-color: var(--primary-light);
+  outline: 2px dashed var(--primary-light);
+  outline-offset: -2px;
+}
+.draggable-unit:active {
+  cursor: grabbing;
+}
 </style>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1225,7 +1234,10 @@ function refreshMap() {
             className: 'unit-map-label',
             offset: [0, 14]
           })
-          .bindPopup(renderUnitMapQuickPreview(unit), { closeButton: true, autoPan: true, maxWidth: 300 });
+          .on('click', function() {
+            const cs = (unit && unit.callSign) ? String(unit.callSign).trim() : '';
+            if (cs && typeof window.loadUnitDetail === 'function') window.loadUnitDetail(cs);
+          });
 
         const assignedCad = parseInt(unit.assignedIncident, 10);
         let targetPoint = null;
@@ -1694,7 +1706,7 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
       ? String(eligibilityMap[job.cad].recommended.callsign)
       : '';
     html += `
-      <li class="panel-list-item" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})">
+      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}" ondragenter="event.preventDefault();this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
           <div style="font-weight:500;">CAD #${job.cad}</div>
@@ -1807,7 +1819,7 @@ function renderUnitsList(units, contentEl) {
         `
       : '';
     html += `
-      <li class="panel-list-item" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})'>
+      <li class="panel-list-item draggable-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';">
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
           <div style="font-weight:600;">${callsign}</div>
@@ -3075,6 +3087,50 @@ window.loadJobDetail = function(cad) {
 
 window.assignJob = function(cad) {
   window.assignJobWithSuggestion(cad, '');
+};
+
+window.assignUnitToJobDirect = function(cad, callsign) {
+  const cs = String(callsign || '').trim();
+  if (!Number.isInteger(cad) || cad <= 0 || !cs) return;
+  fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callsigns: [cs], division: selectedDivision, transfer_division: false, break_override: false })
+  })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) {
+        const blocked = Array.isArray(d && d.blocked_for_break) ? d.blocked_for_break : [];
+        if (blocked.length) {
+          showNotification('warning', 'Break lockout', 'Unit on break hold. Use Assign button to override.');
+          openAssignUnitsModal({
+            title: `Assign Units to CAD #${cad}`,
+            suggested: [cs],
+            onConfirm: ({ callsigns, transferDivision, breakOverride }) => {
+              fetch(`/plugin/ventus_response_module/job/${cad}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callsigns: callsigns || [cs], division: selectedDivision, transfer_division: transferDivision, break_override: breakOverride })
+              })
+                .then(r2 => r2.json().then(d2 => ({ ok: r2.ok, d: d2 })))
+                .then(({ ok: ok2, d: d2 }) => {
+                  if (!ok2) throw new Error((d2 && d2.error) || 'Assign failed');
+                  showNotification('success', 'Assigned', `CAD #${cad} -> ${(callsigns || [cs]).join(', ')}`);
+                  setTimeout(refreshMap, 400);
+                  try { loadJobDetail(cad); } catch (e) {}
+                })
+                .catch((e) => showNotification('danger', 'Assign', (e && e.message) || 'Failed'));
+            }
+          });
+          return;
+        }
+        throw new Error((d && d.error) || 'Assign failed');
+      }
+      showNotification('success', 'Assigned', `CAD #${cad} -> ${cs}`);
+      setTimeout(refreshMap, 400);
+      try { loadJobDetail(cad); } catch (e) {}
+    })
+    .catch((e) => showNotification('danger', 'Assign', (e && e.message) || 'Failed to assign'));
 };
 
 window.openJobDetailFromMap = function(cad) {
