@@ -6278,7 +6278,7 @@ def mdt_crew_profile(username):
         qualifications = payload.get('qualifications')
         if qualifications is not None and not isinstance(qualifications, list):
             qualifications = [qualifications] if qualifications else []
-        profile_picture_path = (str(payload.get('profile_picture_path') or '').strip() or None
+        profile_picture_path = (str(payload.get('profile_picture_path') or '').strip() or None)
         skills_json = json.dumps(skills) if skills is not None else None
         qualifications_json = json.dumps(qualifications) if qualifications is not None else None
         cur.execute("""

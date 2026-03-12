@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import wraps
 from io import StringIO
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, response, session, url_for
+from flask import Blueprint, current_app, flash, make_response, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 from app.objects import PluginManager
 from . import services as hr_services
@@ -367,7 +367,7 @@ def admin_reports_export():
             p.get("dbs_expiry") or "",
             p.get("contract_end") or "",
         ])
-    resp = response.make_response(out.getvalue())
+    resp = make_response(out.getvalue())
     resp.headers["Content-Type"] = "text/csv"
     resp.headers["Content-Disposition"] = "attachment; filename=hr_export.csv"
     return resp
