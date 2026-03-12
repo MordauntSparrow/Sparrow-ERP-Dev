@@ -1,14 +1,54 @@
 {% extends "scheduling_module/base_public.html" %}
 {% block content %}
-<div class="card card-module">
-  <div class="card-body text-center py-5">
-    <i class="bi bi-calendar-week display-4 text-info"></i>
-    <h1 class="h4 mt-3">{{ module_name }}</h1>
-    <p class="text-secondary">{{ module_description }}</p>
-    <p class="text-muted small">View your shifts and manage time off.</p>
-    <a href="/scheduling/my-day" class="btn btn-primary mt-3 me-2">My day</a>
-    <a href="/scheduling/my-requests" class="btn btn-outline-light mt-3 me-2">Time off & sickness</a>
-    <a href="/employee-portal/" class="btn btn-outline-light mt-3">Back to Portal</a>
+<div class="card card-module mb-4">
+  <div class="card-body">
+    <h1 class="h4 mb-2">{{ module_name }}</h1>
+    <p class="text-muted small mb-0">{{ module_description }}</p>
   </div>
+</div>
+<div class="d-grid gap-3">
+  <a href="{{ url_for('public_scheduling.my_day') }}" class="card card-module text-decoration-none text-light p-3 d-flex align-items-center">
+    <div class="rounded-circle bg-primary bg-opacity-25 p-2 me-3"><i class="bi bi-calendar-day fs-4 text-primary"></i></div>
+    <div class="flex-grow-1">
+      <strong>My day</strong>
+      <p class="small text-muted mb-0">Today’s shifts and record times</p>
+    </div>
+    <i class="bi bi-chevron-right text-muted"></i>
+  </a>
+  <a href="{{ url_for('public_scheduling.my_requests') }}" class="card card-module text-decoration-none text-light p-3 d-flex align-items-center">
+    <div class="rounded-circle bg-success bg-opacity-25 p-2 me-3"><i class="bi bi-calendar-check fs-4 text-success"></i></div>
+    <div class="flex-grow-1">
+      <strong>Time off & sickness</strong>
+      <p class="small text-muted mb-0">Request leave or report sickness</p>
+    </div>
+    <i class="bi bi-chevron-right text-muted"></i>
+  </a>
+  <a href="{{ url_for('public_scheduling.my_swaps') }}" class="card card-module text-decoration-none text-light p-3 d-flex align-items-center border-warning">
+    <div class="rounded-circle bg-warning bg-opacity-25 p-2 me-3"><i class="bi bi-arrow-left-right fs-4 text-warning"></i></div>
+    <div class="flex-grow-1">
+      <strong>Shift swap</strong>
+      <p class="small text-muted mb-0">Offer your shift or claim someone else's</p>
+    </div>
+    <i class="bi bi-chevron-right text-muted"></i>
+  </a>
+  <a href="{{ url_for('public_scheduling.my_availability') }}" class="card card-module text-decoration-none text-light p-3 d-flex align-items-center">
+    <div class="rounded-circle bg-info bg-opacity-25 p-2 me-3"><i class="bi bi-clock fs-4 text-info"></i></div>
+    <div class="flex-grow-1">
+      <strong>My availability</strong>
+      <p class="small text-muted mb-0">Set when you're available to be scheduled</p>
+    </div>
+    <i class="bi bi-chevron-right text-muted"></i>
+  </a>
+  <a href="{{ url_for('public_scheduling.ai_chat_page') }}" class="card card-module text-decoration-none text-light p-3 d-flex align-items-center border-success">
+    <div class="rounded-circle bg-success bg-opacity-25 p-2 me-3"><i class="bi bi-robot fs-4 text-success"></i></div>
+    <div class="flex-grow-1">
+      <strong>Ask the assistant</strong>
+      <p class="small text-muted mb-0">Chat about availability, who can take your shift, or request time off</p>
+    </div>
+    <i class="bi bi-chevron-right text-muted"></i>
+  </a>
+</div>
+<div class="mt-4">
+  <a href="{{ url_for('public_employee_portal.dashboard') }}" class="btn btn-outline-light btn-sm">Back to Portal</a>
 </div>
 {% endblock %}

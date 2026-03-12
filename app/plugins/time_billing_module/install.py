@@ -66,13 +66,30 @@ def _record_applied(conn, filename):
         cur.close()
 
 
+def _strip_sql_comments(text):
+    """
+    Remove SQL line comments (-- to EOL) so semicolons inside comments
+    don't break statement splitting. Leaves block comments /* */ as-is
+    (no semicolons usually inside). Safe for typical migration files.
+    """
+    lines = []
+    for line in text.splitlines():
+        # Remove trailing -- comment (ignore -- inside strings for simplicity)
+        i = line.find("--")
+        if i != -1:
+            line = line[:i].rstrip()
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _split_sql(statements_text):
     """
-    Simple splitter by semicolons.
-    Assumes no procedural delimiter changes in files.
+    Split by semicolons after stripping line comments, so comments
+    containing ';' don't produce invalid statement chunks.
     Skips empty statements.
     """
-    parts = [s.strip() for s in statements_text.split(";")]
+    cleaned = _strip_sql_comments(statements_text)
+    parts = [s.strip() for s in cleaned.split(";")]
     return [p for p in parts if p]
 
 

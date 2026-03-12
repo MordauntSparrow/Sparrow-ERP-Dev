@@ -10,7 +10,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from app.objects import get_db_connection, AuthManager, PluginManager
-from .services import TimesheetService, RunsheetService, TemplateService, ExportService, _dec
+from .services import TimesheetService, RunsheetService, TemplateService, ExportService, InvoiceService, _dec
 
 # =============================================================================
 # Blueprints
@@ -683,7 +683,10 @@ def api_list_runsheets():
 @internal_bp.get("/api/runsheets/<int:rs_id>")
 @admin_required_tb
 def api_get_runsheet(rs_id):
-    return jsonify(RunsheetService.get_runsheet(rs_id))
+    rs = RunsheetService.get_runsheet(rs_id)
+    if not rs or not rs.get("id"):
+        return jsonify({"error": "Runsheet not found"}), 404
+    return jsonify(rs)
 
 
 @internal_bp.post("/api/runsheets")
@@ -708,6 +711,63 @@ def api_publish_runsheet(rs_id):
     published_by = current_tb_user_id()
     res = RunsheetService.publish_runsheet(rs_id, published_by=published_by)
     return jsonify(res), (200 if res.get("ok") else 400)
+
+# =============================================================================
+# Configuration hub (job types, rates, policies, templates)
+# =============================================================================
+
+
+@internal_bp.get("/config/page")
+@admin_required_tb
+def config_page():
+    """Single hub for all Time Billing configuration."""
+    return render_template("admin/config/index.html", config=core_manifest)
+
+
+@internal_bp.get("/job-types/page")
+@admin_required_tb
+def job_types_page():
+    return render_template("admin/job_types/list.html", config=core_manifest)
+
+
+@internal_bp.get("/api/job-types")
+@admin_required_tb
+def api_list_job_types():
+    return jsonify(TemplateService.list_job_types())
+
+
+@internal_bp.post("/api/job-types")
+@admin_required_tb
+def api_create_job_type():
+    data = request.get_json(force=True) or {}
+    try:
+        jid = TemplateService.create_job_type(data)
+        return jsonify({"id": jid}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@internal_bp.put("/api/job-types/<int:jid>")
+@admin_required_tb
+def api_update_job_type(jid):
+    data = request.get_json(force=True) or {}
+    data["id"] = jid
+    try:
+        TemplateService.update_job_type(data)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@internal_bp.delete("/api/job-types/<int:jid>")
+@admin_required_tb
+def api_delete_job_type(jid):
+    try:
+        TemplateService.delete_job_type(jid)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
 
 # =============================================================================
 # Rate cards / policies (admin)
@@ -906,26 +966,45 @@ def contractors_edit_page():
 @internal_bp.get("/api/contractors/<int:user_id>")
 @admin_required_tb
 def api_get_contractor(user_id):
+    import mysql.connector
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("""
-            SELECT
-                c.id,
-                c.email,
-                c.name,
-                c.status,
-                c.role_id,
-                c.wage_rate_card_id,
-                CASE WHEN c.status = 'active' THEN 1 ELSE 0 END AS is_active,
-                DATE_FORMAT(c.created_at, '%%Y-%%m-%%d %%H:%%i') AS created_at
-            FROM tb_contractors c
-            WHERE c.id = %s
-        """, (user_id,))
+        try:
+            cur.execute("""
+                SELECT
+                    c.id,
+                    c.email,
+                    c.name,
+                    c.status,
+                    c.role_id,
+                    c.wage_rate_card_id,
+                    COALESCE(c.employment_type, 'paye') AS employment_type,
+                    CASE WHEN c.status = 'active' THEN 1 ELSE 0 END AS is_active,
+                    DATE_FORMAT(c.created_at, '%%Y-%%m-%%d %%H:%%i') AS created_at
+                FROM tb_contractors c
+                WHERE c.id = %s
+            """, (user_id,))
+        except (mysql.connector.Error, Exception):
+            cur.execute("""
+                SELECT
+                    c.id,
+                    c.email,
+                    c.name,
+                    c.status,
+                    c.role_id,
+                    c.wage_rate_card_id,
+                    CASE WHEN c.status = 'active' THEN 1 ELSE 0 END AS is_active,
+                    DATE_FORMAT(c.created_at, '%%Y-%%m-%%d %%H:%%i') AS created_at
+                FROM tb_contractors c
+                WHERE c.id = %s
+            """, (user_id,))
         row = cur.fetchone()
 
         if not row:
             return jsonify({"error": "not found"}), 404
+        if "employment_type" not in row:
+            row["employment_type"] = "self_employed"
 
         # Optionally keep roles array (for display/back-compat)
         cur.execute("""
@@ -1159,22 +1238,33 @@ def api_update_contractor(user_id):
 
     role_id = data.get("role_id")
     wage_rate_card_id = data.get("wage_rate_card_id")
+    employment_type = (data.get("employment_type") or "self_employed").strip().lower()
+    if employment_type not in ("paye", "self_employed"):
+        employment_type = "self_employed"
     # legacy roles support (optional)
     roles = data.get("roles") or []
 
     if not name:
         return jsonify({"ok": False, "error": "Name required"}), 400
 
+    import mysql.connector
     conn = get_db_connection()
     try:
         cur = conn.cursor()
 
-        # update base fields
-        cur.execute("""
-            UPDATE tb_contractors
-            SET name = %s, status = %s
-            WHERE id = %s
-        """, (name, status, user_id))
+        # update base fields (employment_type if column exists)
+        try:
+            cur.execute("""
+                UPDATE tb_contractors
+                SET name = %s, status = %s, employment_type = %s
+                WHERE id = %s
+            """, (name, status, employment_type, user_id))
+        except (mysql.connector.Error, Exception):
+            cur.execute("""
+                UPDATE tb_contractors
+                SET name = %s, status = %s
+                WHERE id = %s
+            """, (name, status, user_id))
 
         # update primary role_id if provided
         if role_id is not None:
@@ -1512,6 +1602,68 @@ def api_public_submit(week_id):
     return jsonify({"ok": True})
 
 
+# -------------------------
+# Self-employed invoice (mobile-first)
+# -------------------------
+
+
+@public_bp.get("/weeks/<week_id>/invoice")
+@staff_required_tb
+def public_week_invoice_page(week_id):
+    """Mobile-first page to create an invoice with the timesheet (submitted or approved). Self-employed only."""
+    uid = current_tb_user_id()
+    wk = TimesheetService._ensure_week(uid, week_id)
+    status = (wk.get("status") or "").lower()
+    if status not in ("submitted", "approved"):
+        flash("Submit your timesheet first, then create an invoice to send for approval with it.", "warning")
+        return redirect(url_for("public_time_billing.public_week_page", week_id=week_id))
+    if InvoiceService.get_contractor_employment_type(uid) != "self_employed":
+        flash("Invoicing is for self-employed contractors only.", "info")
+        return redirect(url_for("public_time_billing.public_week_page", week_id=week_id))
+    entries = InvoiceService.get_uninvoiced_entries(wk["id"], uid)
+    if not entries:
+        flash("No uninvoiced entries for this week.", "info")
+        return redirect(url_for("public_time_billing.public_week_page", week_id=week_id))
+    total = sum((e.get("pay") or 0) + (e.get("travel_parking") or 0) for e in entries)
+    suggested = InvoiceService.get_next_invoice_number(uid)
+    invoice_info = InvoiceService.get_week_invoice_info(wk["id"])
+    we = wk.get("week_ending")
+    if hasattr(we, "strftime"):
+        we = we.strftime("%Y-%m-%d")
+    return render_template(
+        "public/invoice/create.html",
+        week_id=week_id,
+        week_ending=we,
+        entries=entries,
+        total=total,
+        suggested_invoice_number=suggested,
+        has_voided_invoice=invoice_info.get("has_voided_invoice"),
+        week_status=status,
+        config=core_manifest,
+    )
+
+
+@public_bp.post("/api/weeks/<week_id>/invoice")
+@staff_required_tb
+def api_public_create_invoice(week_id):
+    """Create invoice with timesheet: draft when week submitted, sent when week already approved."""
+    uid = current_tb_user_id()
+    wk = TimesheetService._ensure_week(uid, week_id)
+    status = (wk.get("status") or "").lower()
+    if status not in ("submitted", "approved"):
+        return jsonify({"ok": False, "message": "Submit your timesheet first"}), 400
+    if InvoiceService.get_contractor_employment_type(uid) != "self_employed":
+        return jsonify({"ok": False, "message": "Self-employed only"}), 403
+    data = request.get_json() or {}
+    invoice_number = (data.get("invoice_number") or "").strip() or InvoiceService.get_next_invoice_number(uid)
+    mark_sent = status == "approved"
+    try:
+        inv = InvoiceService.create_invoice(uid, wk["id"], invoice_number, mark_sent=mark_sent)
+        return jsonify({"ok": True, "invoice": inv})
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+
+
 @public_bp.get("/api/refs/clients")
 @staff_required_tb
 def api_refs_clients():
@@ -1567,7 +1719,7 @@ def api_refs_job_types():
     cur = conn.cursor(dictionary=True)
     try:
         cur.execute("""
-            SELECT id, name
+            SELECT id, name, colour_hex
             FROM job_types
             WHERE active IN (1, '1', 'active', TRUE)
             ORDER BY name ASC

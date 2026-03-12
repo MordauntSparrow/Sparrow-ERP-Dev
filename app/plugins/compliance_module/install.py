@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS compliance_policies (
   slug VARCHAR(120) NOT NULL,
   summary TEXT,
   body LONGTEXT,
+  file_path VARCHAR(512) DEFAULT NULL,
+  file_name VARCHAR(255) DEFAULT NULL,
   version INT NOT NULL DEFAULT 1,
   effective_from DATE NOT NULL,
   effective_to DATE DEFAULT NULL,
@@ -80,18 +82,40 @@ def ensure_tables(conn):
         _run_sql(conn, sql)
 
 
+def _add_policy_file_columns_if_missing(conn):
+    """Add file_path, file_name to compliance_policies for existing installs."""
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'compliance_policies' AND COLUMN_NAME = 'file_path'
+        """)
+        if cur.fetchone()[0] == 0:
+            cur.execute("ALTER TABLE compliance_policies ADD COLUMN file_path VARCHAR(512) DEFAULT NULL AFTER body")
+            cur.execute("ALTER TABLE compliance_policies ADD COLUMN file_name VARCHAR(255) DEFAULT NULL AFTER file_path")
+            conn.commit()
+    finally:
+        cur.close()
+
+
 def install():
-    """Ensure all MODULE_TABLES exist (idempotent)."""
+    """Ensure all MODULE_TABLES exist (idempotent). Add policy file columns if missing."""
     conn = get_db_connection()
     try:
         ensure_tables(conn)
+        _add_policy_file_columns_if_missing(conn)
     finally:
         conn.close()
 
 
 def upgrade():
-    """Ensure all MODULE_TABLES exist (same as install, idempotent)."""
-    install()
+    """Ensure all MODULE_TABLES exist and policy file columns present (idempotent)."""
+    conn = get_db_connection()
+    try:
+        ensure_tables(conn)
+        _add_policy_file_columns_if_missing(conn)
+    finally:
+        conn.close()
 
 
 def uninstall(drop_data: bool = False):

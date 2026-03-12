@@ -1,0 +1,14 @@
+{
+  "system_name": "essentials_module",
+  "name": "Essentials",
+  "description": "Optional generic document store. Prefer per-module attachments (e.g. Compliance policies support PDF + raw text).",
+  "version": "0.1.0",
+  "icon": "icon.png",
+  "settings": {},
+  "enabled": false,
+  "dependencies": ["website_module", "employee_portal_module"],
+  "repository": "official",
+  "download_url": "",
+  "changelog": "Initial release: admin upload/paste essentials, staff view on portal.",
+  "repository_token": ""
+}

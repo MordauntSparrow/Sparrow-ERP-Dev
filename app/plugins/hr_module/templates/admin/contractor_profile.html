@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.name or profile.email }} – HR Admin{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <nav aria-label="Breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0 small">
+      <li class="breadcrumb-item"><a href="/">Home</a></li>
+      <li class="breadcrumb-item"><a href="{{ url_for('internal_hr.admin_index') }}">HR</a></li>
+      <li class="breadcrumb-item"><a href="{{ url_for('internal_hr.admin_contractors') }}">Contractors</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ profile.name or profile.email }}</li>
+    </ol>
+  </nav>
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <h1 class="mb-0">{{ profile.name or profile.email }}</h1>
+    <a href="{{ url_for('internal_hr.admin_contractor_edit_form', cid=profile.id) }}" class="btn btn-primary btn-sm">Edit profile</a>
+  </div>
+  <p class="text-muted small">{{ profile.email }} · Status: {{ profile.status or '—' }}</p>
+
+  <div class="row">
+    <div class="col-lg-6">
+      <div class="card mb-4">
+        <div class="card-header"><strong>Contact & address</strong></div>
+        <div class="card-body">
+          <p class="mb-1"><strong>Phone</strong> {{ profile.phone or '—' }}</p>
+          <p class="mb-1"><strong>Address</strong> {{ profile.address_line1 or '—' }}{% if profile.address_line2 %}, {{ profile.address_line2 }}{% endif %}</p>
+          <p class="mb-1"><strong>Postcode</strong> {{ profile.postcode or '—' }}</p>
+          <p class="mb-0"><strong>Emergency contact</strong> {{ profile.emergency_contact_name or '—' }} {{ profile.emergency_contact_phone or '' }}</p>
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="card-header"><strong>Driving licence</strong></div>
+        <div class="card-body">
+          <p class="mb-1">{{ profile.driving_licence_number or '—' }}</p>
+          <p class="mb-0">Expiry: {{ profile.driving_licence_expiry|string if profile.driving_licence_expiry else '—' }}</p>
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="card-header"><strong>Right to work</strong></div>
+        <div class="card-body">
+          <p class="mb-1">Type: {{ profile.right_to_work_type or '—' }}</p>
+          <p class="mb-0">Expiry: {{ profile.right_to_work_expiry|string if profile.right_to_work_expiry else '—' }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card mb-4">
+        <div class="card-header"><strong>DBS</strong></div>
+        <div class="card-body">
+          <p class="mb-1">Level: {{ profile.dbs_level or '—' }} · Number: {{ profile.dbs_number or '—' }}</p>
+          <p class="mb-0">Expiry: {{ profile.dbs_expiry|string if profile.dbs_expiry else '—' }}</p>
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="card-header"><strong>Contract</strong></div>
+        <div class="card-body">
+          <p class="mb-1">Type: {{ profile.contract_type or '—' }}</p>
+          <p class="mb-0">Start: {{ profile.contract_start|string if profile.contract_start else '—' }} · End: {{ profile.contract_end|string if profile.contract_end else '—' }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="h5 mt-4">Document requests</h2>
+  {% if requests_list %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-striped">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Required by</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in requests_list %}
+        <tr>
+          <td>{{ r.title }}</td>
+          <td><span class="badge bg-secondary">{{ r.request_type or 'other' }}</span></td>
+          <td>{{ r.required_by_date|string if r.required_by_date else '—' }}</td>
+          <td><span class="badge {% if r.status == 'approved' %}bg-success{% elif r.status == 'rejected' %}bg-danger{% elif r.status == 'overdue' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ r.status }}</span></td>
+          <td><a href="{{ url_for('internal_hr.admin_request_detail', rid=r.id) }}" class="btn btn-sm btn-outline-secondary">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted">No document requests.</p>
+  {% endif %}
+
+  <a href="{{ url_for('internal_hr.admin_contractors') }}" class="btn btn-outline-secondary btn-sm mt-3">Back to Contractors</a>
+</div>
+{% endblock %}

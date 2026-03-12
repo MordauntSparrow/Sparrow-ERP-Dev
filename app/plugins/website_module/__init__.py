@@ -8,6 +8,11 @@ from ...objects import PluginManager
 from flask_login import LoginManager
 import logging
 
+try:
+    from flask_seasurf import SeaSurf
+except Exception:
+    SeaSurf = None
+
 def create_website_app(plugins_dir=None):
     """
     Creates and configures the Flask app for the website module.
@@ -48,6 +53,17 @@ def create_website_app(plugins_dir=None):
     # Ensure session cookie is sent for all paths (e.g. /employee-portal and /time-billing share auth)
     app.config.setdefault('SESSION_COOKIE_PATH', '/')
     app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
+
+    # CSRF: provide csrf_token() in templates so shared templates (e.g. forms) don't raise UndefinedError
+    if SeaSurf:
+        try:
+            SeaSurf(app)
+        except Exception as e:
+            logging.warning("SeaSurf init failed on website app: %s", e)
+    if 'csrf_token' not in app.jinja_env.globals:
+        def _csrf_token():
+            return ''
+        app.jinja_env.globals['csrf_token'] = _csrf_token
 
     # Initialize Flask-Login and configure the user loader.
     login_manager = LoginManager()

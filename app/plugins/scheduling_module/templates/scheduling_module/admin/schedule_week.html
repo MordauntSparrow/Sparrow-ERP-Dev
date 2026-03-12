@@ -1,0 +1,98 @@
+{% extends "scheduling_module/admin/base_admin.html" %}
+{% block title %}Week view – Scheduling{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Week view</h1>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a href="{{ url_for('internal_scheduling.admin_schedule_week', week=(week_start - timedelta(days=7)).isoformat(), contractor_id=contractor_id or '', client_id=client_id or '') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i> Previous</a>
+    <span class="fw-medium">{{ week_start.strftime('%d %b') }} – {{ week_end.strftime('%d %b %Y') }}</span>
+    <a href="{{ url_for('internal_scheduling.admin_schedule_week', week=(week_start + timedelta(days=7)).isoformat(), contractor_id=contractor_id or '', client_id=client_id or '') }}" class="btn btn-outline-secondary btn-sm">Next <i class="bi bi-chevron-right"></i></a>
+    <form method="get" class="d-inline-flex gap-1 align-items-center">
+      <input type="hidden" name="week" value="{{ week_start.isoformat() }}">
+      <label class="form-label small mb-0">Contractor</label>
+      <select name="contractor_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+        <option value="">All</option>
+        {% for c in contractors %}
+        <option value="{{ c.id }}" {{ 'selected' if contractor_id == c.id else '' }}>{{ c.name or c.email }}</option>
+        {% endfor %}
+      </select>
+      <label class="form-label small mb-0 ms-2">Client</label>
+      <select name="client_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+        <option value="">All</option>
+        {% for c in clients %}
+        <option value="{{ c.id }}" {{ 'selected' if client_id == c.id else '' }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="mb-2">
+  <a href="{{ url_for('internal_scheduling.admin_shift_new') }}?date={{ week_start.isoformat() }}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i> Add shift</a>
+  <form method="post" action="{{ url_for('internal_scheduling.admin_copy_week') }}" class="d-inline ms-2">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="week" value="{{ week_start.isoformat() }}">
+    <button type="submit" class="btn btn-outline-info btn-sm" title="Copy last week's shifts into this week as drafts"><i class="bi bi-copy me-1"></i> Copy previous week</button>
+  </form>
+  <a href="{{ url_for('internal_scheduling.admin_index') }}" class="btn btn-outline-secondary btn-sm ms-2">Dashboard</a>
+</div>
+
+<div class="table-responsive border rounded">
+  <table class="table table-bordered table-hover mb-0 schedule-week-table">
+    <thead class="table-light">
+      <tr>
+        <th class="schedule-week-col-name">Staff</th>
+        {% for d in week_days %}
+        <th class="text-center schedule-week-day">
+          <div class="small text-muted">{{ d.strftime('%a') }}</div>
+          <div class="fw-medium">{{ d.strftime('%d') }}</div>
+          <a href="{{ url_for('internal_scheduling.admin_shift_new') }}?date={{ d.isoformat() }}" class="d-block small text-primary" title="Add shift on this day">+ Add</a>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in contractors %}
+      <tr>
+        <td class="schedule-week-col-name align-top">
+          <strong>{{ c.name or c.email }}</strong>
+        </td>
+        {% for d in week_days %}
+        <td class="align-top schedule-week-cell p-1">
+          {% set cell_off = time_off_by.get((c.id, d.isoformat()), []) %}
+          {% if cell_off %}
+          <div class="small text-muted mb-1"><span class="badge bg-secondary">Off</span> {{ cell_off[0].type if cell_off else '' }}</div>
+          {% endif %}
+          {% set cell_shifts = shifts_by.get((c.id, d.isoformat()), []) %}
+          {% for s in cell_shifts %}
+          <div class="schedule-shift-block rounded px-2 py-1 mb-1 small
+            {% if s.status == 'published' %}bg-primary bg-opacity-15 border-start border-primary border-3
+            {% elif s.status == 'draft' %}bg-secondary bg-opacity-10 border-start border-secondary border-3
+            {% elif s.status == 'completed' %}bg-success bg-opacity-15
+            {% elif s.status == 'cancelled' %}bg-danger bg-opacity-10 text-muted
+            {% else %}bg-light border-start border-2{% endif %}"
+            title="{{ s.client_name }} · {{ s.job_type_name }}">
+            <a href="{{ url_for('internal_scheduling.admin_shift_edit', shift_id=s.id) }}" class="text-decoration-none text-dark d-block">
+              <span class="d-block">{{ (s.scheduled_start|string)[:5] if s.scheduled_start else '—' }}–{{ (s.scheduled_end|string)[:5] if s.scheduled_end else '—' }}</span>
+              <span class="text-muted">{{ s.client_name or '—' }}</span>
+              <span class="badge bg-opacity-50 {{ 'bg-secondary' if s.status == 'draft' else 'bg-primary' if s.status == 'published' else 'bg-success' }}">{{ s.status }}</span>
+            </a>
+          </div>
+          {% endfor %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+.schedule-week-table { font-size: 0.875rem; }
+.schedule-week-col-name { min-width: 140px; max-width: 180px; }
+.schedule-week-day { min-width: 100px; }
+.schedule-week-cell { min-width: 100px; vertical-align: top !important; }
+.schedule-shift-block { transition: opacity 0.15s; }
+.schedule-shift-block:hover { opacity: 0.95; }
+</style>
+{% endblock %}

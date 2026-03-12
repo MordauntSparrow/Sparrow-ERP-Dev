@@ -2,8 +2,22 @@
 {% block content %}
 <h1 class="h5 mb-3">My details</h1>
 <p class="text-secondary small">Keep your contact and emergency details up to date.</p>
+
+{% if profile.driving_licence_expiry or profile.right_to_work_expiry or profile.dbs_expiry or profile.contract_end %}
+<section class="card card-body mb-4 bg-dark border-secondary">
+  <h2 class="h6 text-secondary">Documents on file</h2>
+  <p class="small mb-0">Summary of what we hold. Expiry dates are shown where applicable.</p>
+  <ul class="small mb-0 mt-2 list-unstyled">
+    {% if profile.driving_licence_number or profile.driving_licence_expiry %}<li>Driving licence: {{ profile.driving_licence_number or '—' }} · Expires {{ profile.driving_licence_expiry|string if profile.driving_licence_expiry else '—' }}</li>{% endif %}
+    {% if profile.right_to_work_type or profile.right_to_work_expiry %}<li>Right to work: {{ profile.right_to_work_type or '—' }} · Expires {{ profile.right_to_work_expiry|string if profile.right_to_work_expiry else '—' }}</li>{% endif %}
+    {% if profile.dbs_level or profile.dbs_expiry %}<li>DBS: {{ profile.dbs_level or '—' }} · Expires {{ profile.dbs_expiry|string if profile.dbs_expiry else '—' }}</li>{% endif %}
+    {% if profile.contract_type or profile.contract_end %}<li>Contract: {{ profile.contract_type or '—' }} · End date {{ profile.contract_end|string if profile.contract_end else '—' }}</li>{% endif %}
+  </ul>
+</section>
+{% endif %}
+
 <form method="post" action="{{ url_for('public_hr.profile_save') }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <div class="mb-2">
     <label class="form-label small">Name</label>
     <input type="text" class="form-control bg-dark text-light" value="{{ profile.name or '' }}" disabled>

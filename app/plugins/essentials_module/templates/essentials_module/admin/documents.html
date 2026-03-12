@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Documents – Essentials Admin{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Documents</h1>
+    <a href="{{ url_for('internal_essentials.admin_document_new') }}" class="btn btn-primary">New document</a>
+  </div>
+  <div class="mb-2">
+    <a href="{{ url_for('internal_essentials.admin_documents') }}" class="btn btn-sm {{ 'btn-primary' if active_only else 'btn-outline-secondary' }}">Active only</a>
+    <a href="{{ url_for('internal_essentials.admin_documents', active='all') }}" class="btn btn-sm {{ 'btn-primary' if not active_only else 'btn-outline-secondary' }}">All</a>
+  </div>
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Slug</th>
+              <th>File</th>
+              <th>Order</th>
+              <th>Active</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in documents %}
+            <tr>
+              <td>{{ d.title }}</td>
+              <td><code class="small">{{ d.slug }}</code></td>
+              <td>{% if d.file_name %}<span class="badge bg-info">{{ d.file_name }}</span>{% else %}—{% endif %}</td>
+              <td>{{ d.display_order }}</td>
+              <td>{% if d.active %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+              <td>
+                <a href="{{ url_for('internal_essentials.admin_document_edit', doc_id=d.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                <form method="post" action="{{ url_for('internal_essentials.admin_document_delete', doc_id=d.id) }}" class="d-inline" onsubmit="return confirm('Delete this document?');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-muted text-center py-4">No documents. <a href="{{ url_for('internal_essentials.admin_document_new') }}">Create one</a>.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <a href="{{ url_for('internal_essentials.admin_index') }}" class="btn btn-outline-secondary btn-sm mt-3">Back to Essentials admin</a>
+</div>
+{% endblock %}

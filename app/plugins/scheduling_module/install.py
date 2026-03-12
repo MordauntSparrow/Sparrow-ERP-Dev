@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS schedule_time_off (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   reason VARCHAR(255) DEFAULT NULL,
-  status ENUM('requested','approved','rejected') NOT NULL DEFAULT 'requested',
+  status ENUM('requested','approved','rejected','cancelled') NOT NULL DEFAULT 'requested',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_sto_contractor (contractor_id),
   KEY idx_sto_dates (start_date, end_date),
@@ -185,10 +185,24 @@ def _column_exists(conn, table, column):
         cur.close()
 
 
+def _ensure_time_off_review_columns(conn):
+    """Add reviewed_at, reviewed_by_user_id, admin_notes for approval workflow."""
+    cur = conn.cursor()
+    try:
+        if not _column_exists(conn, "schedule_time_off", "reviewed_at"):
+            cur.execute("ALTER TABLE schedule_time_off ADD COLUMN reviewed_at DATETIME DEFAULT NULL AFTER status")
+        if not _column_exists(conn, "schedule_time_off", "reviewed_by_user_id"):
+            cur.execute("ALTER TABLE schedule_time_off ADD COLUMN reviewed_by_user_id INT DEFAULT NULL AFTER reviewed_at")
+        if not _column_exists(conn, "schedule_time_off", "admin_notes"):
+            cur.execute("ALTER TABLE schedule_time_off ADD COLUMN admin_notes TEXT DEFAULT NULL AFTER reviewed_by_user_id")
+        conn.commit()
+    finally:
+        cur.close()
+
+
 def ensure_tables(conn):
     for sql in CREATES:
         _run_sql(conn, sql)
-    # Backfill type on schedule_time_off if table existed from before we added the column (all in this file)
     cur = conn.cursor()
     try:
         cur.execute("SHOW TABLES LIKE 'schedule_time_off'")
@@ -199,6 +213,18 @@ def ensure_tables(conn):
             conn.commit()
     finally:
         cur.close()
+    _ensure_time_off_review_columns(conn)
+    # Ensure status ENUM includes 'cancelled' (existing DBs)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "ALTER TABLE schedule_time_off MODIFY COLUMN status "
+            "ENUM('requested','approved','rejected','cancelled') NOT NULL DEFAULT 'requested'"
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        pass
 
 
 def install():

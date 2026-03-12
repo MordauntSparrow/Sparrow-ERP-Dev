@@ -1,7 +1,7 @@
 {
   "system_name": "work_module",
   "name": "Work",
-  "description": "My day: record arrival, leaving, notes and photos per stop; syncs to timesheets.",
+  "description": "Work planner: schedule paired with client/site details, record times, notes and photos per stop; syncs to timesheets.",
   "version": "0.0.1",
   "icon": "icon.png",
   "settings": {},

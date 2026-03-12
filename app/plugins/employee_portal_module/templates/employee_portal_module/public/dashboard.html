@@ -1,6 +1,49 @@
 {% extends "employee_portal_module/base_public.html" %}
 {% block title %}Dashboard – {{ ((config or {}).get('site_settings') or {}).get('company_name') or 'Employee Portal' }}{% endblock %}
 {% block content %}
+{% if welcome_message %}
+<section class="mb-4" role="region" aria-label="Welcome">
+  <div class="ep-card p-3">
+    <p class="mb-0">{{ welcome_message }}</p>
+  </div>
+</section>
+{% endif %}
+
+{% set _glance = summary_context|default({}) %}
+{% set _has_attention = (_glance.pending_policies|default(0) > 0) or (_glance.pending_training|default(0) > 0) or (_glance.pending_hr_requests|default(0) > 0) or (_glance.pending_todo_count|default(0) > 0) or (_glance.unread_messages|default(0) > 0) %}
+<section class="mb-4" role="region" aria-label="At a glance">
+  <div class="ep-card p-3">
+    <h3 class="h6 text-secondary text-uppercase mb-2">At a glance</h3>
+    {% if _has_attention %}
+    <ul class="list-unstyled mb-0 small">
+      {% if _glance.pending_policies|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-shield-check text-warning me-2" aria-hidden="true"></i><a href="{{ url_for('public_compliance.public_index') }}">{{ _glance.pending_policies }} policy/policies to sign</a></li>
+      {% endif %}
+      {% if _glance.pending_training|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-mortarboard text-success me-2" aria-hidden="true"></i><a href="{{ url_for('public_training.public_index') }}">{{ _glance.pending_training }} training item(s) to complete</a></li>
+      {% endif %}
+      {% if _glance.pending_hr_requests|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-person-badge text-info me-2" aria-hidden="true"></i><a href="{{ url_for('public_hr.public_index') }}">{{ _glance.pending_hr_requests }} HR document request(s)</a></li>
+      {% endif %}
+      {% if _glance.pending_todo_count|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-list-check text-warning me-2" aria-hidden="true"></i>{{ _glance.pending_todo_count }} to-do(s) pending</li>
+      {% endif %}
+      {% if _glance.unread_messages|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-envelope text-primary me-2" aria-hidden="true"></i>{{ _glance.unread_messages }} unread message(s)</li>
+      {% endif %}
+    </ul>
+    {% else %}
+    <p class="text-secondary small mb-0">Nothing needs your attention right now.</p>
+    {% endif %}
+    {% if ai_summary %}
+    <p class="mt-2 mb-0 small fst-italic">{{ ai_summary }}</p>
+    {% endif %}
+    {% if ai_available|default(False) %}
+    <p class="mt-2 mb-0"><a href="{{ url_for('public_employee_portal.assistant_page') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-chat-dots me-1"></i>Ask assistant</a></p>
+    {% endif %}
+  </div>
+</section>
+
 <div class="text-center py-4" role="region" aria-label="Profile">
   {% if user and user.get('profile_picture_path') %}
     <img src="{{ url_for('static', filename=user.profile_picture_path) }}" alt="" class="ep-avatar" width="96" height="96">
@@ -13,7 +56,7 @@
   <p class="text-secondary small mb-0">Employee Portal</p>
 </div>
 
-{% set _has_quick_actions = (scheduling_enabled|default(False)) or (pending_policies|default(0) > 0) or (pending_hr_requests|default(0) > 0) %}
+{% set _has_quick_actions = (scheduling_enabled|default(False)) or (pending_policies|default(0) > 0) or (pending_hr_requests|default(0) > 0) or (pending_training|default(0) > 0) %}
 {% if _has_quick_actions %}
 <section class="mb-4" aria-labelledby="quick-actions-heading">
   <h3 id="quick-actions-heading" class="h6 text-secondary text-uppercase mb-3">Quick actions</h3>
@@ -27,6 +70,9 @@
     {% endif %}
     {% if pending_hr_requests|default(0) > 0 %}
     <a href="{{ url_for('public_hr.public_index') }}" class="btn btn-info btn-sm">{{ pending_hr_requests }} document request(s)</a>
+    {% endif %}
+    {% if pending_training|default(0) > 0 %}
+    <a href="{{ url_for('public_training.public_index') }}" class="btn btn-success btn-sm"><i class="bi bi-mortarboard me-1"></i>{{ pending_training }} training item(s) to complete</a>
     {% endif %}
   </div>
 </section>
@@ -50,17 +96,27 @@
     </span>
     {% endif %}
     {% endfor %}
+    {% if ai_available|default(False) %}
+    <a href="{{ url_for('public_employee_portal.assistant_page') }}" class="module-tile">
+      <i class="bi bi-chat-dots"></i>
+      <span class="fw-medium">Portal assistant</span>
+      <i class="bi bi-chevron-right ms-auto text-secondary"></i>
+    </a>
+    {% endif %}
   </div>
 </section>
 
 <section class="mb-4" aria-labelledby="messages-heading">
   <h3 id="messages-heading" class="h6 text-secondary text-uppercase mb-3">
     <i class="bi bi-envelope me-1" aria-hidden="true"></i> Messages
+    {% if (unread_message_count|default(0)) > 0 %}
+    <span class="badge bg-primary ms-1" aria-label="{{ unread_message_count }} unread">{{ unread_message_count }}</span>
+    {% endif %}
   </h3>
   {% if messages %}
   <div class="d-flex flex-column gap-2">
     {% for m in messages %}
-    <div class="ep-card p-3 {% if not m.read_at %}border-start border-primary border-3{% endif %}">
+    <a href="{{ url_for('public_employee_portal.message_detail', msg_id=m.id) }}" class="ep-card p-3 text-decoration-none d-block {% if not m.read_at %}border-start border-primary border-3{% endif %}" style="color: inherit;">
       <div class="d-flex justify-content-between align-items-start">
         <strong class="small text-secondary">{{ m.source_module|replace('_module','') }}</strong>
         <span class="small text-secondary">{{ m.created_at.strftime('%d %b') if m.created_at else '' }}</span>
@@ -69,21 +125,27 @@
       {% if m.body %}
       <p class="small text-secondary mb-0 mt-1">{{ m.body[:120] }}{% if m.body|length > 120 %}…{% endif %}</p>
       {% endif %}
-      <button type="button" class="btn btn-link btn-sm p-0 mt-1 ep-link js-mark-read" data-id="{{ m.id }}" {% if m.read_at %}disabled{% endif %} aria-label="Mark as read">
-        {% if m.read_at %}Read{% else %}Mark as read{% endif %}
-      </button>
-    </div>
+      <span class="small mt-1 d-inline-block">{% if m.read_at %}Read{% else %}View & mark read{% endif %} <i class="bi bi-chevron-right"></i></span>
+    </a>
     {% endfor %}
   </div>
   {% else %}
-  <p class="text-secondary small mb-0">No messages.</p>
+  <p class="text-secondary small mb-0">No messages. When your organisation sends you a message, it will appear here.</p>
   {% endif %}
 </section>
 
 <section class="mb-4" aria-labelledby="todos-heading">
   <h3 id="todos-heading" class="h6 text-secondary text-uppercase mb-3">
     <i class="bi bi-list-check me-1" aria-hidden="true"></i> To-do
+    {% if (pending_todo_count|default(0)) > 0 %}
+    <span class="badge bg-warning text-dark ms-1" aria-label="{{ pending_todo_count }} pending">{{ pending_todo_count }}</span>
+    {% endif %}
   </h3>
+  <div class="d-flex flex-wrap gap-2 mb-2" role="tablist" aria-label="Filter todos">
+    <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='all') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'all' else 'btn-outline-light' }}">All</a>
+    <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='pending') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'pending' else 'btn-outline-light' }}">Pending</a>
+    <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='completed') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'completed' else 'btn-outline-light' }}">Completed</a>
+  </div>
   {% if todos %}
   <div class="d-flex flex-column gap-2">
     {% for t in todos %}
@@ -110,7 +172,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="text-secondary small mb-0">Nothing to do right now.</p>
+  <p class="text-secondary small mb-0">{% if todo_filter == 'completed' %}No completed items.{% elif todo_filter == 'pending' %}Nothing pending right now.{% else %}Nothing to do right now.{% endif %}</p>
   {% endif %}
 </section>
 
@@ -123,26 +185,6 @@
     }
     return Promise.resolve();
   }
-  document.querySelectorAll('.js-mark-read').forEach(function(btn) {
-    if (btn.disabled) return;
-    btn.addEventListener('click', function() {
-      var id = btn.getAttribute('data-id');
-      var url = '{{ url_for("public_employee_portal.api_mark_message_read", msg_id=0) }}'.replace('0', id);
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
-      }).then(function(res) {
-        return handleApiError(res, 'Could not mark as read.').then(function() {
-          if (res.ok) {
-            btn.textContent = 'Read';
-            btn.disabled = true;
-            var card = btn.closest('.ep-card');
-            if (card) card.classList.remove('border-start', 'border-primary', 'border-3');
-          }
-        });
-      }).catch(function() { alert('Something went wrong. Please try again.'); });
-    });
-  });
   document.querySelectorAll('.js-todo-complete').forEach(function(btn) {
     if (btn.disabled) return;
     btn.addEventListener('click', function() {

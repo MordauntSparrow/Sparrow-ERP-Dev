@@ -1,0 +1,138 @@
+"""
+Training module install/upgrade: training_items, training_assignments, training_completions.
+Depends on tb_contractors (time_billing_module). Run from repo root: python app/plugins/training_module/install.py install
+"""
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve()
+PLUGIN_DIR = HERE.parent
+PLUGINS_DIR = PLUGIN_DIR.parent
+APP_ROOT = PLUGINS_DIR.parent
+PROJECT_ROOT = APP_ROOT.parent
+for p in (str(PROJECT_ROOT), str(APP_ROOT), str(PLUGIN_DIR)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+from app.objects import get_db_connection  # noqa: E402
+
+MIGRATIONS_TABLE = "training_migrations"
+MODULE_TABLES = [MIGRATIONS_TABLE, "training_completions", "training_assignments", "training_items"]
+
+SQL_CREATE_MIGRATIONS = """
+CREATE TABLE IF NOT EXISTS training_migrations (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  filename VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+SQL_CREATE_TRAINING_ITEMS = """
+CREATE TABLE IF NOT EXISTS training_items (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  slug VARCHAR(120) NOT NULL,
+  summary TEXT,
+  content LONGTEXT,
+  item_type ENUM('document','link','acknowledgement') NOT NULL DEFAULT 'document',
+  external_url VARCHAR(512) DEFAULT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_slug (slug),
+  KEY idx_active (active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+SQL_CREATE_TRAINING_ASSIGNMENTS = """
+CREATE TABLE IF NOT EXISTS training_assignments (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  training_item_id INT NOT NULL,
+  contractor_id INT NOT NULL,
+  assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  due_date DATE DEFAULT NULL,
+  mandatory TINYINT(1) NOT NULL DEFAULT 0,
+  assigned_by_user_id INT DEFAULT NULL,
+  KEY idx_item (training_item_id),
+  KEY idx_contractor (contractor_id),
+  KEY idx_due (due_date),
+  CONSTRAINT fk_ta_item FOREIGN KEY (training_item_id) REFERENCES training_items(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ta_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+SQL_CREATE_TRAINING_COMPLETIONS = """
+CREATE TABLE IF NOT EXISTS training_completions (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  assignment_id INT NOT NULL,
+  completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  notes VARCHAR(500) DEFAULT NULL,
+  UNIQUE KEY uq_assignment (assignment_id),
+  KEY idx_completed (completed_at),
+  CONSTRAINT fk_tc_assignment FOREIGN KEY (assignment_id) REFERENCES training_assignments(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+CREATES = [
+    SQL_CREATE_MIGRATIONS,
+    SQL_CREATE_TRAINING_ITEMS,
+    SQL_CREATE_TRAINING_ASSIGNMENTS,
+    SQL_CREATE_TRAINING_COMPLETIONS,
+]
+
+
+def _run_sql(conn, sql):
+    for stmt in [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]:
+        cur = conn.cursor()
+        try:
+            cur.execute(stmt)
+        finally:
+            cur.close()
+    conn.commit()
+
+
+def ensure_tables(conn):
+    for sql in CREATES:
+        _run_sql(conn, sql)
+
+
+def install():
+    conn = get_db_connection()
+    try:
+        ensure_tables(conn)
+    finally:
+        conn.close()
+
+
+def upgrade():
+    install()
+
+
+def uninstall(drop_data: bool = False):
+    if not drop_data:
+        return
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SET FOREIGN_KEY_CHECKS=0")
+        for t in reversed(MODULE_TABLES):
+            cur.execute(f"DROP TABLE IF EXISTS `{t}`")
+        cur.execute("SET FOREIGN_KEY_CHECKS=1")
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Training Module Installer")
+    parser.add_argument("command", choices=["install", "upgrade", "uninstall"])
+    parser.add_argument("--drop-data", action="store_true")
+    args = parser.parse_args()
+    if args.command == "install":
+        install()
+        print("Training module tables created.")
+    elif args.command == "upgrade":
+        upgrade()
+    else:
+        uninstall(drop_data=args.drop_data)

@@ -1,0 +1,203 @@
+{% extends "scheduling_module/admin/base_admin.html" %}
+{% block title %}{{ 'Edit shift' if shift else 'New shift' }} – Scheduling{% endblock %}
+{% block content %}
+<nav class="mb-2 small">
+  <a href="{{ url_for('internal_scheduling.admin_index') }}">Scheduling</a>
+  <span class="text-muted">/</span>
+  <a href="{{ url_for('internal_scheduling.admin_schedule_week') }}">Week view</a>
+  <span class="text-muted">/</span>
+  <span>{{ 'Edit shift' if shift else 'New shift' }}</span>
+</nav>
+<h1 class="h4 mb-3">{{ 'Edit shift' if shift else 'New shift' }}</h1>
+
+<form method="post" action="{{ url_for('internal_scheduling.admin_shift_update', shift_id=shift.id) if shift else url_for('internal_scheduling.admin_shift_create') }}" class="card card-body">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Staff <span class="text-danger">*</span></label>
+      <div class="d-flex gap-1 align-items-start">
+        <select name="contractor_id" id="contractor_id" class="form-select" required>
+          <option value="">Select…</option>
+          {% for c in contractors %}
+          <option value="{{ c.id }}" {{ 'selected' if shift and shift.contractor_id == c.id else '' }}>{{ c.name or c.email }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="btn-suggest-staff" title="Suggest available staff for this date/time">Suggest</button>
+      </div>
+      <div id="suggest-list" class="small text-muted mt-1 d-none"></div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Client <span class="text-danger">*</span></label>
+      <select name="client_id" id="client_id" class="form-select" required>
+        <option value="">Select…</option>
+        {% for c in clients %}
+        <option value="{{ c.id }}" {{ 'selected' if shift and shift.client_id == c.id else '' }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Site</label>
+      <select name="site_id" id="site_id" class="form-select">
+        <option value="">Any</option>
+        {% for st in sites %}
+        <option value="{{ st.id }}" data-client-id="{{ st.client_id }}" {{ 'selected' if shift and shift.site_id == st.id else '' }}>{{ st.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Job type <span class="text-danger">*</span></label>
+      <select name="job_type_id" class="form-select" required>
+        <option value="">Select…</option>
+        {% for j in job_types %}
+        <option value="{{ j.id }}" {{ 'selected' if shift and shift.job_type_id == j.id else '' }}>{{ j.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Date <span class="text-danger">*</span></label>
+      <input type="date" name="work_date" class="form-control" value="{{ (shift.work_date|string)[:10] if shift and shift.work_date else default_date }}" required>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Start <span class="text-danger">*</span></label>
+      <input type="time" name="scheduled_start" class="form-control" value="{{ (shift.scheduled_start|string)[:5] if shift and shift.scheduled_start else '09:00' }}" required>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">End <span class="text-danger">*</span></label>
+      <input type="time" name="scheduled_end" class="form-control" value="{{ (shift.scheduled_end|string)[:5] if shift and shift.scheduled_end else '17:00' }}" required>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Break (min)</label>
+      <input type="number" name="break_mins" class="form-control" value="{{ shift.break_mins if shift and shift.break_mins is not none else 0 }}" min="0">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Status</label>
+      <select name="status" class="form-select">
+        <option value="draft" {{ 'selected' if shift and shift.status == 'draft' else '' }}>Draft</option>
+        <option value="published" {{ 'selected' if shift and shift.status == 'published' else '' }}>Published</option>
+        <option value="cancelled" {{ 'selected' if shift and shift.status == 'cancelled' else '' }}>Cancelled</option>
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Notes</label>
+      <textarea name="notes" class="form-control" rows="2" placeholder="Optional notes for the shift">{{ shift.notes if shift and shift.notes else '' }}</textarea>
+    </div>
+    <div class="col-12">
+      <div id="conflict-warnings" class="alert alert-warning py-2 small d-none" role="alert"></div>
+    </div>
+  </div>
+  <div class="mt-3 d-flex gap-2 flex-wrap">
+    <button type="submit" class="btn btn-primary">{{ 'Save' if shift else 'Create shift' }}</button>
+    <a href="{{ url_for('internal_scheduling.admin_schedule_week') }}" class="btn btn-outline-secondary">Cancel</a>
+    {% if shift %}
+    <form method="post" action="{{ url_for('internal_scheduling.admin_shift_repeat', shift_id=shift.id) }}" class="d-inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="number" name="num_weeks" value="4" min="1" max="52" class="form-control form-control-sm d-inline-block" style="width:4rem">
+      <button type="submit" class="btn btn-outline-info btn-sm">Repeat for … weeks</button>
+    </form>
+    {% endif %}
+  </div>
+</form>
+<script>
+(function() {
+  var client = document.getElementById('client_id');
+  var site = document.getElementById('site_id');
+  if (!client || !site) return;
+  function filterSites() {
+    var cid = client.value;
+    for (var i = 0; i < site.options.length; i++) {
+      var opt = site.options[i];
+      if (opt.value === '') { opt.style.display = 'block'; continue; }
+      opt.style.display = (opt.getAttribute('data-client-id') === cid || !cid) ? 'block' : 'none';
+      if (opt.style.display === 'none' && opt.selected) opt.selected = false;
+    }
+  }
+  client.addEventListener('change', filterSites);
+  filterSites();
+})();
+</script>
+<script>
+(function() {
+  var api = '/plugin/scheduling_module/api';
+  var contractorEl = document.getElementById('contractor_id');
+  var workDateEl = document.querySelector('input[name="work_date"]');
+  var startEl = document.querySelector('input[name="scheduled_start"]');
+  var endEl = document.querySelector('input[name="scheduled_end"]');
+  var conflictEl = document.getElementById('conflict-warnings');
+  var suggestListEl = document.getElementById('suggest-list');
+  var suggestBtn = document.getElementById('btn-suggest-staff');
+  var excludeShiftId = {{ shift.id if shift else 'null' }};
+
+  function checkConflicts() {
+    if (!contractorEl || !workDateEl || !startEl || !endEl || !conflictEl) return;
+    var cid = contractorEl.value;
+    var date = workDateEl.value;
+    var start = startEl.value;
+    var end = endEl.value;
+    if (!cid || !date || !start || !end) {
+      conflictEl.classList.add('d-none');
+      return;
+    }
+    var q = 'contractor_id=' + encodeURIComponent(cid) + '&date=' + encodeURIComponent(date) + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+    if (excludeShiftId) q += '&exclude_shift_id=' + excludeShiftId;
+    fetch(api + '/check-conflicts?' + q, { headers: { 'Accept': 'application/json' } })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.conflicts && data.conflicts.length) {
+          conflictEl.innerHTML = '<strong>Warnings:</strong> ' + data.conflicts.join(' ');
+          conflictEl.classList.remove('d-none');
+        } else {
+          conflictEl.classList.add('d-none');
+        }
+      })
+      .catch(function() { conflictEl.classList.add('d-none'); });
+  }
+
+  if (contractorEl) contractorEl.addEventListener('change', checkConflicts);
+  if (workDateEl) workDateEl.addEventListener('change', checkConflicts);
+  if (startEl) startEl.addEventListener('change', checkConflicts);
+  if (endEl) endEl.addEventListener('change', checkConflicts);
+
+  if (suggestBtn && suggestListEl) {
+    suggestBtn.addEventListener('click', function() {
+      var date = workDateEl && workDateEl.value;
+      var start = startEl && startEl.value;
+      var end = endEl && endEl.value;
+      if (!date || !start || !end) {
+        suggestListEl.textContent = 'Set date and start/end time first.';
+        suggestListEl.classList.remove('d-none');
+        return;
+      }
+      var q = 'date=' + encodeURIComponent(date) + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+      if (client && client.value) q += '&client_id=' + client.value;
+      var jt = document.querySelector('select[name="job_type_id"]');
+      if (jt && jt.value) q += '&job_type_id=' + jt.value;
+      suggestListEl.textContent = 'Loading…';
+      suggestListEl.classList.remove('d-none');
+      fetch(api + '/suggest-contractors?' + q, { headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.contractors && data.contractors.length) {
+            suggestListEl.innerHTML = 'Available: ' + data.contractors.map(function(c) {
+              return '<a href="#" class="suggest-pick me-1" data-id="' + c.id + '">' + (c.name || c.email) + '</a>';
+            }).join(', ');
+            suggestListEl.querySelectorAll('.suggest-pick').forEach(function(a) {
+              a.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (contractorEl) contractorEl.value = this.getAttribute('data-id');
+                checkConflicts();
+              });
+            });
+          } else {
+            suggestListEl.textContent = 'No available staff for this slot.';
+          }
+        })
+        .catch(function() { suggestListEl.textContent = 'Could not load suggestions.'; });
+    });
+  }
+
+  if (contractorEl && workDateEl && startEl && endEl && conflictEl) {
+    if (contractorEl.value && workDateEl.value && startEl.value && endEl.value) checkConflicts();
+  }
+})();
+</script>
+{% endblock %}

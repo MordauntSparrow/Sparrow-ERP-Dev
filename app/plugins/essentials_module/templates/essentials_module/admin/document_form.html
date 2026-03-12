@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit document' if document else 'New document' }} – Essentials Admin{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <h1 class="mb-3">{{ 'Edit document' if document else 'New document' }}</h1>
+  <form method="post" action="{{ url_for('internal_essentials.admin_document_update', doc_id=document.id) if document else url_for('internal_essentials.admin_document_create') }}" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Title <span class="text-danger">*</span></label>
+          <input type="text" name="title" class="form-control" value="{{ document.title if document else '' }}" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Slug</label>
+          <input type="text" name="slug" class="form-control" value="{{ document.slug if document else '' }}" placeholder="Auto from title if blank">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Summary</label>
+          <textarea name="summary" class="form-control" rows="2" placeholder="Short description">{{ document.summary if document else '' }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Content (raw text / markdown / HTML)</label>
+          <textarea name="content" class="form-control" rows="14" placeholder="Paste PRD or any text here. Rendered as HTML on the portal.">{{ document.content if document else '' }}</textarea>
+          <div class="form-text">Optional. Staff see this on the document page. You can also attach a file below.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">File (optional)</label>
+          <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx,.txt,.md,.prd">
+          {% if document and document.file_name %}
+          <div class="form-text">Current: {{ document.file_name }}. Upload a new file to replace.</div>
+          {% else %}
+          <div class="form-text">Upload a PDF, DOC, or text file. Staff can download it from the document page.</div>
+          {% endif %}
+        </div>
+        <div class="row">
+          <div class="col-auto mb-3">
+            <label class="form-label">Display order</label>
+            <input type="number" name="display_order" class="form-control" value="{{ document.display_order if document else 0 }}" style="width:6rem">
+          </div>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" name="active" value="1" class="form-check-input" id="active" {{ 'checked' if not document or document.active else '' }}>
+          <label class="form-check-label" for="active">Active (visible on portal)</label>
+        </div>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="{{ url_for('internal_essentials.admin_documents') }}" class="btn btn-outline-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

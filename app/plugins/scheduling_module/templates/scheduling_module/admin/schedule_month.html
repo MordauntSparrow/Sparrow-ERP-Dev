@@ -1,0 +1,78 @@
+{% extends "scheduling_module/admin/base_admin.html" %}
+{% block title %}Month view – Scheduling{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Month view</h1>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% set prev_month = month - 1 if month > 1 else 12 %}
+    {% set prev_year = year if month > 1 else year - 1 %}
+    {% set next_month = month + 1 if month < 12 else 1 %}
+    {% set next_year = year if month < 12 else year + 1 %}
+    <a href="{{ url_for('internal_scheduling.admin_schedule_month', year=prev_year, month=prev_month, contractor_id=contractor_id or '', client_id=client_id or '') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+    <span class="fw-medium">{{ first.strftime('%B %Y') }}</span>
+    <a href="{{ url_for('internal_scheduling.admin_schedule_month', year=next_year, month=next_month, contractor_id=contractor_id or '', client_id=client_id or '') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+    <form method="get" class="d-inline-flex gap-1 align-items-center ms-2">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <select name="contractor_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+        <option value="">All staff</option>
+        {% for c in contractors %}
+        <option value="{{ c.id }}" {{ 'selected' if contractor_id == c.id else '' }}>{{ c.name or c.email }}</option>
+        {% endfor %}
+      </select>
+      <select name="client_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+        <option value="">All clients</option>
+        {% for c in clients %}
+        <option value="{{ c.id }}" {{ 'selected' if client_id == c.id else '' }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="mb-2">
+  <a href="{{ url_for('internal_scheduling.admin_schedule_week') }}" class="btn btn-outline-primary btn-sm me-2">Week view</a>
+  <a href="{{ url_for('internal_scheduling.admin_index') }}" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+</div>
+
+<div class="table-responsive border rounded">
+  <table class="table table-bordered mb-0 schedule-month-table">
+    <thead class="table-light">
+      <tr>
+        <th class="text-center schedule-month-dow">Mon</th>
+        <th class="text-center schedule-month-dow">Tue</th>
+        <th class="text-center schedule-month-dow">Wed</th>
+        <th class="text-center schedule-month-dow">Thu</th>
+        <th class="text-center schedule-month-dow">Fri</th>
+        <th class="text-center schedule-month-dow">Sat</th>
+        <th class="text-center schedule-month-dow">Sun</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for week in weeks %}
+      <tr>
+        {% for day in week %}
+        <td class="schedule-month-cell align-top p-1 {{ '' if day.in_month else 'text-muted bg-light' }}">
+          <div class="d-flex justify-content-between align-items-start">
+            <span class="small">{{ day.date.strftime('%d') }}</span>
+            <a href="{{ url_for('internal_scheduling.admin_shift_new') }}?date={{ day.iso }}" class="small text-primary" title="Add shift">+</a>
+          </div>
+          {% if day.count > 0 %}
+          <a href="{{ url_for('internal_scheduling.admin_schedule_week') }}?week={{ (day.date - timedelta(days=day.date.weekday())).isoformat() }}{% if contractor_id %}&contractor_id={{ contractor_id }}{% endif %}{% if client_id %}&client_id={{ client_id }}{% endif %}" class="d-block mt-1 small fw-medium text-primary">
+            {{ day.count }} shift{{ 's' if day.count != 1 else '' }}
+          </a>
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+.schedule-month-table { font-size: 0.875rem; }
+.schedule-month-dow { width: 14%; }
+.schedule-month-cell { min-height: 60px; }
+</style>
+{% endblock %}

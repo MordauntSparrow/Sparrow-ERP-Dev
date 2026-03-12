@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, date
 from flask import (
     Blueprint, request, jsonify, render_template, current_app,
-    redirect, url_for, flash, session
+    redirect, url_for, flash, session, g
 )
 from flask_login import login_required, current_user, login_user, logout_user
 from werkzeug.security import check_password_hash
@@ -18,6 +18,13 @@ from flask_mail import Message, Mail
 from app.objects import PluginManager, AuthManager, User, get_db_connection
 from .objects import ResponseTriage, GOOGLE_MAPS_API_KEY
 import logging
+
+# JWT auth for MDT API (avoids SeaSurf CSRF issues for mobile/cross-origin clients)
+_jwt_decode = None
+try:
+    from app.auth_jwt import decode_session_token as _jwt_decode
+except ImportError:
+    pass
 from app import socketio
 
 logger = logging.getLogger('ventus_response_module')
@@ -1301,6 +1308,37 @@ internal = Blueprint(
     url_prefix='/plugin/ventus_response_module',
     template_folder=internal_template_folder
 )
+
+
+@internal.before_request
+def _mdt_api_jwt_or_session_auth():
+    """Require JWT (Bearer) or session for /api/mdt/* to avoid SeaSurf CSRF issues on mobile/cross-origin MDT clients."""
+    path = request.path or ""
+    if "/api/mdt" not in path:
+        return
+    if request.method == "OPTIONS":
+        return
+    g.mdt_user = None
+    auth = request.headers.get("Authorization")
+    if auth and auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        if token and _jwt_decode:
+            payload = _jwt_decode(token)
+            if payload:
+                g.mdt_user = {
+                    "id": payload.get("sub"),
+                    "username": payload.get("username"),
+                    "role": payload.get("role") or "",
+                }
+    if g.mdt_user:
+        return
+    if current_user.is_authenticated:
+        return
+    return jsonify({
+        "error": "Unauthorized",
+        "message": "MDT API requires session login or Authorization: Bearer <token>. Use /api/login to obtain a JWT."
+    }), 401
+
 
 # Root-level compatibility blueprint for MDT clients that still call /api/*
 # directly instead of /plugin/ventus_response_module/api/*.

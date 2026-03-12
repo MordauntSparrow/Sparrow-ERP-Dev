@@ -11,8 +11,14 @@
   <nav class="navbar navbar-dark bg-dark">
     <div class="container">
       <a class="navbar-brand" href="/">{{ config.site_settings.company_name if config and config.site_settings and config.site_settings.company_name else 'Sparrow ERP' }}</a>
-      <span class="navbar-text text-white">Scheduling – Admin</span>
-      <a href="/plugin/scheduling_module/" class="btn btn-outline-light btn-sm">Shifts</a>
+      <span class="navbar-text text-white">Scheduling</span>
+      <a href="{{ url_for('internal_scheduling.admin_index') }}" class="btn btn-outline-light btn-sm">Dashboard</a>
+      <a href="{{ url_for('internal_scheduling.admin_schedule_week') }}" class="btn btn-outline-light btn-sm">Week</a>
+      <a href="{{ url_for('internal_scheduling.admin_schedule_month') }}" class="btn btn-outline-light btn-sm">Month</a>
+      <a href="{{ url_for('internal_scheduling.admin_shifts') }}" class="btn btn-outline-light btn-sm">Shifts</a>
+      <a href="{{ url_for('internal_scheduling.admin_templates') }}" class="btn btn-outline-light btn-sm">Templates</a>
+      <a href="{{ url_for('internal_scheduling.admin_time_off') }}" class="btn btn-outline-light btn-sm">Time off</a>
+      <a href="{{ url_for('internal_scheduling.admin_swaps') }}" class="btn btn-outline-light btn-sm">Swaps</a>
     </div>
   </nav>
   <main class="container py-4">

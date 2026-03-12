@@ -76,7 +76,7 @@
 
         // Load template header info
         async function loadHeader() {
-            const r = await fetch(`{{ url_for('internal_time_billing.get_template', tpl_id='__ID__') }}`.replace('__ID__', tplId));
+            const r = await fetch(`{{ url_for('internal_time_billing.get_template', tpl_id=0) }}`.replace(/\/0$/, '/' + tplId));
             if (!r.ok) return alert('Failed to load template');
             const t = await r.json();
             $('#tpl_name').value = t.name || '';
@@ -88,7 +88,7 @@
 
         // Load template fields
         async function loadFields() {
-            const r = await fetch(`{{ url_for('internal_time_billing.get_template_fields', tpl_id='__ID__') }}`.replace('__ID__', tplId));
+            const r = await fetch(`{{ url_for('internal_time_billing.get_template_fields', tpl_id=0) }}`.replace(/\/0$/, '/' + tplId));
             if (!r.ok) return alert('Failed to load fields');
 
             const list = await r.json();
@@ -168,7 +168,7 @@
         // Add new field
         document.getElementById('btnAddField').addEventListener('click', async () => {
             const payload = { label: '', type: 'text', key: '', required: false, options_json: null };
-            const r = await fetch(`{{ url_for('internal_time_billing.add_template_field', tpl_id='__ID__') }}`.replace('__ID__', tplId), {
+            const r = await fetch(`{{ url_for('internal_time_billing.add_template_field', tpl_id=0) }}`.replace(/\/0$/, '/' + tplId), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -186,7 +186,7 @@
                 site_name: $('#tpl_site_name').value || null,
                 version: parseInt($('#tpl_version').value || '1', 10)
             };
-            const r = await fetch(`{{ url_for('internal_time_billing.update_template', tpl_id='__ID__') }}`.replace('__ID__', tplId), {
+            const r = await fetch(`{{ url_for('internal_time_billing.update_template', tpl_id=0) }}`.replace(/\/0$/, '/' + tplId), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

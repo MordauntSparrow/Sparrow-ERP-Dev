@@ -1,0 +1,27 @@
+{% extends "essentials_module/base_public.html" %}
+{% block title %}{{ document.title }}{% endblock %}
+{% block content %}
+<nav class="mb-2 small">
+  <a href="{{ url_for('public_essentials.public_index') }}">Essentials</a>
+  <span class="text-muted">/</span>
+  <span>{{ document.title }}</span>
+</nav>
+<h1 class="h5 mb-3">{{ document.title }}</h1>
+{% if document.summary %}<p class="text-muted small mb-3">{{ document.summary }}</p>{% endif %}
+{% if document.content %}
+  <div class="card card-module p-4 mb-4">
+    <div class="essentials-content">{{ document.content|safe }}</div>
+  </div>
+{% endif %}
+{% if document.file_path and document.file_name %}
+  <div class="card card-module p-3 mb-4">
+    <a href="{{ url_for('public_essentials.public_file', doc_id=document.id) }}" class="btn btn-outline-light">
+      <i class="bi bi-download me-2"></i>Download {{ document.file_name }}
+    </a>
+  </div>
+{% endif %}
+{% if not document.content and not (document.file_path and document.file_name) %}
+  <p class="text-muted small">No content or file for this document.</p>
+{% endif %}
+<a href="{{ url_for('public_essentials.public_index') }}" class="btn btn-outline-light btn-sm mt-3">Back to Essentials</a>
+{% endblock %}

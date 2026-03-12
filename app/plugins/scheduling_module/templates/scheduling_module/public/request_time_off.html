@@ -2,7 +2,7 @@
 {% block content %}
 <h1 class="h5 mb-3">Request time off</h1>
 <form method="post" action="{{ url_for('public_scheduling.request_time_off_submit') }}" class="card card-module p-3">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label class="form-label">Start date</label>
     <input type="date" name="start_date" class="form-control form-control-dark bg-dark text-light" required>

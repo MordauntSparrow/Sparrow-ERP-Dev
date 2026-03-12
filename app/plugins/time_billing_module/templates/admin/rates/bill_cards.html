@@ -25,7 +25,7 @@
         const body = document.getElementById('previewBody');
 
         async function load() {
-            const r = await fetch(`{{ url_for('internal_time_billing.get_template_fields', tpl_id='__ID__') }}`.replace('__ID__', tplId));
+            const r = await fetch(`{{ url_for('internal_time_billing.get_template_fields', tpl_id=0) }}`.replace(/\/0$/, '/' + tplId));
             const fields = await r.json();
 
             if (!fields.length) {

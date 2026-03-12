@@ -635,6 +635,7 @@ class TimesheetService:
                 SELECT 
                     e.*,
                     jt.name AS job_type_name,
+                    jt.colour_hex AS job_type_colour_hex,
                     e.client_name AS client_name,
                     e.site_name   AS site_name
                 FROM tb_timesheet_entries e
@@ -727,6 +728,52 @@ class TimesheetService:
                 "overrun_mins": int(sum((r.get("overrun_mins") or 0) for r in rows)),
             }
 
+            # ---------------------------
+            # Summaries by job type (for invoicing: wage * hours per type)
+            # ---------------------------
+            by_job: Dict[int, Dict[str, Any]] = {}
+            for r in rows:
+                jid = r.get("job_type_id")
+                if jid is None:
+                    continue
+                if jid not in by_job:
+                    by_job[jid] = {
+                        "job_type_id": jid,
+                        "job_type_name": r.get("job_type_name") or "",
+                        "job_type_colour_hex": r.get("job_type_colour_hex"),
+                        "total_hours": 0.0,
+                        "total_pay": 0.0,
+                        "entry_count": 0,
+                    }
+                by_job[jid]["total_hours"] += _to_float_hours(r.get("actual_hours"))
+                by_job[jid]["total_pay"] += _to_money(r.get("pay"))
+                by_job[jid]["entry_count"] += 1
+            summaries_by_job_type = list(by_job.values())
+
+            # Self-employed: show "Create invoice" when submitted or approved (submit invoice with timesheet for approval)
+            employment_type = "self_employed"
+            invoice_info = {}
+            try:
+                employment_type = InvoiceService.get_contractor_employment_type(user_id)
+                invoice_info = InvoiceService.get_week_invoice_info(wk["id"])
+            except Exception:
+                pass
+            status_lower = (wk.get("status") or "draft").lower()
+            current_inv = invoice_info.get("current_invoice")
+            has_sent = current_inv and current_inv.get("status") == "sent"
+            has_draft = current_inv and current_inv.get("status") == "draft"
+            can_show_invoice = (
+                status_lower in ("submitted", "approved")
+                and employment_type == "self_employed"
+                and not has_sent
+                and not has_draft
+            )
+            prompt_resend = (
+                can_show_invoice
+                and invoice_info.get("has_voided_invoice")
+            )
+            invoice_draft_pending = has_draft and status_lower == "submitted"
+
             return {
                 "week": {
                     "id": wk["id"],
@@ -740,7 +787,13 @@ class TimesheetService:
                 },
                 "entries": rows,
                 "totals": totals,
+                "summaries_by_job_type": summaries_by_job_type,
                 "is_admin": bool(is_admin),
+                "employment_type": employment_type,
+                "can_show_invoice_prompt": can_show_invoice,
+                "invoice_prompt_resend": prompt_resend,
+                "invoice_draft_pending": invoice_draft_pending,
+                "invoice_info": invoice_info,
             }
 
         finally:
@@ -1225,6 +1278,29 @@ class TimesheetService:
             """, (datetime.utcnow(), admin_id, wk["id"]))
             conn.commit()
 
+            # If there is a draft invoice for this week, mark it sent and set week to invoiced (paid)
+            week_marked_invoiced = False
+            cur.execute("""
+                SELECT id FROM contractor_invoices
+                WHERE timesheet_week_id=%s AND status='draft'
+                ORDER BY id DESC LIMIT 1
+            """, (wk["id"],))
+            draft_inv = cur.fetchone()
+            if draft_inv:
+                inv_id = draft_inv.get("id")
+                cur.execute("""
+                    UPDATE contractor_invoices
+                    SET status='sent', sent_at=%s
+                    WHERE id=%s
+                """, (datetime.utcnow(), inv_id))
+                cur.execute("""
+                    UPDATE tb_timesheet_weeks
+                    SET status='invoiced'
+                    WHERE id=%s
+                """, (wk["id"],))
+                conn.commit()
+                week_marked_invoiced = True
+
             # Generate PDF
             pdf_bytes, filename = ExportService.export_week_pdf(
                 user_id=user_id, week_id=week_id)
@@ -1238,9 +1314,14 @@ class TimesheetService:
             if not to_addr:
                 return pdf_bytes, {"ok": True, "notice": "No recipient email on file; PDF not emailed."}
 
-            subject = f"Timesheet approved – Week Ending {wk['week_ending'].strftime('%d/%m/%Y')}"
-            body = f"Hi,\n\nYour timesheet for week ending {wk['week_ending'].strftime('%d/%m/%Y')} has been approved.\nPlease find the PDF attached for your records.\n\nRegards,\nAccounts"
-            html_body = f"<p>Your timesheet for week ending {wk['week_ending'].strftime('%d/%m/%Y')} has been approved.</p><p>Please download your PDF from the portal.</p>"
+            if week_marked_invoiced:
+                subject = f"Timesheet and invoice approved – Week Ending {wk['week_ending'].strftime('%d/%m/%Y')}"
+                body = f"Hi,\n\nYour timesheet and invoice for week ending {wk['week_ending'].strftime('%d/%m/%Y')} have been approved and marked for payment.\nPlease find the PDF attached for your records.\n\nRegards,\nAccounts"
+                html_body = f"<p>Your timesheet and invoice have been approved and marked for payment.</p><p>Please download your PDF from the portal.</p>"
+            else:
+                subject = f"Timesheet approved – Week Ending {wk['week_ending'].strftime('%d/%m/%Y')}"
+                body = f"Hi,\n\nYour timesheet for week ending {wk['week_ending'].strftime('%d/%m/%Y')} has been approved.\nPlease find the PDF attached for your records.\n\nRegards,\nAccounts"
+                html_body = f"<p>Your timesheet for week ending {wk['week_ending'].strftime('%d/%m/%Y')} has been approved.</p><p>Please download your PDF from the portal.</p>"
 
             try:
                 EmailManager().send_email(subject=subject, body=body,
@@ -1258,6 +1339,7 @@ class TimesheetService:
     def reject_week(admin_id: int, user_id: int, week_id: str, reason: str) -> None:
         """
         Reject a contractor's week with a reason and optionally email them.
+        If the week had an invoice (sent), it is voided so the contractor can create a new one after re-approval.
 
         Args:
             reason: Mandatory rejection reason
@@ -1266,6 +1348,11 @@ class TimesheetService:
             raise Exception("Rejection reason is required.")
 
         wk = TimesheetService._ensure_week(user_id, week_id)
+        # Void any invoice for this week so contractor can create a new one after corrections
+        try:
+            InvoiceService.void_invoice_for_week(wk["id"], "Timesheet rejected – create new invoice after re-approval.")
+        except Exception as e:
+            print(f"[WARN] Could not void invoice for week {wk['id']}: {e}")
         conn = get_db_connection()
         cur = conn.cursor(dictionary=True)
         try:
@@ -1284,8 +1371,16 @@ class TimesheetService:
 
             if to_addr:
                 subject = f"Action required – Timesheet corrections for Week Ending {wk['week_ending'].strftime('%d/%m/%Y')}"
-                body = f"Hi,\n\nWe couldn’t approve your timesheet. Please review and fix the following:\n\n- {reason.strip()}\n\nThen resubmit.\n\nThanks."
-                html_body = f"<p>We couldn’t approve your timesheet.</p><p><strong>Reason:</strong> {reason.strip()}</p><p>Please log in to fix and resubmit.</p>"
+                body = (
+                    f"Hi,\n\nWe couldn’t approve your timesheet (and any invoice submitted with it). "
+                    f"Please review and fix the following:\n\n- {reason.strip()}\n\n"
+                    "Then resubmit your timesheet and create a new invoice for the week. We will approve or reject both together.\n\nThanks."
+                )
+                html_body = (
+                    f"<p>We couldn’t approve your timesheet (and any invoice submitted with it).</p>"
+                    f"<p><strong>What to change:</strong> {reason.strip()}</p>"
+                    "<p>Please make the corrections, resubmit your timesheet, and create a new invoice for the week. We will approve or reject both together.</p>"
+                )
 
                 try:
                     EmailManager().send_email(subject=subject, body=body,
@@ -1326,6 +1421,286 @@ class TimesheetService:
                 w.total_overrun_mins = COALESCE(agg.tovr,0)
             WHERE w.id=%s
         """, (user_id, week_pk, week_pk))
+
+    @staticmethod
+    def refresh_entries_actuals(
+        cur, conn, week_pk: int, user_id: int, work_date: date, runsheet_id: int
+    ) -> None:
+        """
+        After actual_start/actual_end are updated (e.g. from work app), recompute
+        actual_hours, labour_hours, wage_rate_used, pay (and lateness/overrun/variance)
+        for the affected timesheet entries and update the week totals.
+        Call this with the same conn/cur used for the UPDATE so it runs in the same transaction.
+        """
+        cur.execute("""
+            SELECT id, work_date, scheduled_start, scheduled_end, actual_start, actual_end,
+                   break_mins, job_type_id, client_name, site_name, source, runsheet_id,
+                   lock_job_client, notes
+            FROM tb_timesheet_entries
+            WHERE week_id=%s AND user_id=%s AND work_date=%s AND runsheet_id=%s
+        """, (week_pk, user_id, work_date, runsheet_id))
+        rows = cur.fetchall() or []
+        if not rows:
+            return
+        cur.execute(
+            "SELECT id, role_id FROM tb_contractors WHERE id=%s", (user_id,)
+        )
+        contractor_row = cur.fetchone()
+        contractor = contractor_row or {"id": user_id, "role_id": None}
+        for row in rows:
+            if row.get("actual_start") is None or row.get("actual_end") is None:
+                continue
+            entry = {
+                "work_date": row["work_date"],
+                "scheduled_start": row.get("scheduled_start"),
+                "scheduled_end": row.get("scheduled_end"),
+                "actual_start": row.get("actual_start"),
+                "actual_end": row.get("actual_end"),
+                "break_mins": row.get("break_mins") or 0,
+                "job_type_id": row["job_type_id"],
+                "client_name": row.get("client_name"),
+                "site_name": row.get("site_name"),
+                "source": row.get("source"),
+                "runsheet_id": row.get("runsheet_id"),
+                "lock_job_client": row.get("lock_job_client"),
+                "notes": row.get("notes"),
+            }
+            try:
+                computed = TimesheetService._compute_and_fill(entry, contractor)
+            except Exception:
+                continue
+            cur.execute("""
+                UPDATE tb_timesheet_entries
+                SET actual_hours=%s, labour_hours=%s, wage_rate_used=%s, pay=%s,
+                    scheduled_hours=%s, lateness_mins=%s, overrun_mins=%s, variance_mins=%s
+                WHERE id=%s
+            """, (
+                computed["actual_hours"], computed["labour_hours"],
+                computed["wage_rate_used"], computed["pay"],
+                computed["scheduled_hours"], computed["lateness_mins"],
+                computed["overrun_mins"], computed["variance_mins"],
+                row["id"],
+            ))
+        TimesheetService._refresh_week_totals(cur, user_id, week_pk)
+
+
+# ---------- Contractor Invoice Service (self-employed) ----------
+#
+# Employment type (PAYE vs self-employed) is kept in Time Billing by default so
+# you don't need to install HR (or any other module) just for invoicing. If HR
+# module is installed and later exposes get_contractor_employment_type(contractor_id),
+# we use that when present so HR can be the single place to edit.
+
+class InvoiceService:
+    """Invoicing for self-employed contractors: create invoice from approved week; void on reject."""
+
+    @staticmethod
+    def get_contractor_employment_type(contractor_id: int) -> str:
+        """
+        Return 'paye' or 'self_employed'.
+        Optional: if HR module exposes get_contractor_employment_type(contractor_id) -> str | None,
+        that value is used when present. Otherwise uses tb_contractors.employment_type.
+        Keeps Time Billing usable without HR; HR can become source of truth when installed.
+        """
+        try:
+            from app.plugins import hr_module
+            getter = getattr(hr_module, "get_contractor_employment_type", None)
+            if callable(getter):
+                val = getter(contractor_id)
+                if val in ("paye", "self_employed"):
+                    return val
+        except Exception:
+            pass
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                "SELECT employment_type FROM tb_contractors WHERE id=%s",
+                (contractor_id,),
+            )
+            row = cur.fetchone()
+            return (row.get("employment_type") or "self_employed") if row else "self_employed"
+        except Exception:
+            return "self_employed"
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def get_next_invoice_number(contractor_id: int) -> str:
+        """Suggest next invoice number: max existing numeric + 1, or '1' if none."""
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                """
+                SELECT invoice_number FROM contractor_invoices
+                WHERE contractor_id=%s AND status != 'void'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (contractor_id,),
+            )
+            row = cur.fetchone()
+            if not row or not row.get("invoice_number"):
+                return "1"
+            try:
+                num = int(str(row["invoice_number"]).strip())
+                return str(num + 1)
+            except (ValueError, TypeError):
+                return "1"
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def get_week_invoice_info(timesheet_week_id: int) -> dict:
+        """Return dict: has_voided_invoice (bool), current_invoice (id + status or None)."""
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                """
+                SELECT id, status, invoice_number, total_amount, void_reason
+                FROM contractor_invoices
+                WHERE timesheet_week_id=%s
+                ORDER BY id DESC
+                """,
+                (timesheet_week_id,),
+            )
+            rows = cur.fetchall() or []
+            has_voided = any(r.get("status") == "void" for r in rows)
+            current = None
+            for r in rows:
+                if r.get("status") in ("draft", "sent"):
+                    current = r
+                    break
+            return {"has_voided_invoice": has_voided, "current_invoice": current}
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def get_uninvoiced_entries(timesheet_week_id: int, contractor_id: int) -> List[Dict[str, Any]]:
+        """Entries for this week with no invoice_id (or invoice is void). Used to autofill invoice."""
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                """
+                SELECT e.id, e.work_date, e.client_name, e.site_name, jt.name AS job_type_name,
+                       e.actual_hours, e.labour_hours, e.pay, e.travel_parking
+                FROM tb_timesheet_entries e
+                JOIN job_types jt ON jt.id = e.job_type_id
+                WHERE e.week_id=%s AND e.user_id=%s
+                  AND (e.invoice_id IS NULL OR EXISTS (
+                    SELECT 1 FROM contractor_invoices i
+                    WHERE i.id = e.invoice_id AND i.status = 'void'
+                  ))
+                ORDER BY e.work_date, e.id
+                """,
+                (timesheet_week_id, contractor_id),
+            )
+            rows = cur.fetchall() or []
+            for r in rows:
+                if isinstance(r.get("work_date"), (date, datetime)):
+                    r["work_date"] = r["work_date"].strftime("%Y-%m-%d")
+                for k in ("actual_hours", "labour_hours", "pay", "travel_parking"):
+                    if k in r and r[k] is not None:
+                        try:
+                            r[k] = float(r[k])
+                        except (TypeError, ValueError):
+                            r[k] = 0.0
+            return rows
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def create_invoice(
+        contractor_id: int,
+        timesheet_week_id: int,
+        invoice_number: str,
+        mark_sent: bool = True,
+    ) -> dict:
+        """
+        Create invoice from uninvoiced entries for this week; link entries; set week status to invoiced.
+        Returns dict with id, invoice_number, total_amount, status.
+        """
+        if not invoice_number or not str(invoice_number).strip():
+            raise ValueError("Invoice number is required.")
+        entries = InvoiceService.get_uninvoiced_entries(timesheet_week_id, contractor_id)
+        if not entries:
+            raise ValueError("No uninvoiced entries for this week.")
+        total = sum((e.get("pay") or 0) + (e.get("travel_parking") or 0) for e in entries)
+        entry_ids = [e["id"] for e in entries]
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                """
+                INSERT INTO contractor_invoices
+                (contractor_id, timesheet_week_id, invoice_number, total_amount, status, sent_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    contractor_id,
+                    timesheet_week_id,
+                    str(invoice_number).strip(),
+                    total,
+                    "sent" if mark_sent else "draft",
+                    datetime.utcnow() if mark_sent else None,
+                ),
+            )
+            conn.commit()
+            inv_id = cur.lastrowid
+            placeholders = ",".join(["%s"] * len(entry_ids))
+            cur.execute(
+                f"UPDATE tb_timesheet_entries SET invoice_id=%s WHERE id IN ({placeholders})",
+                [inv_id] + entry_ids,
+            )
+            if mark_sent:
+                cur.execute(
+                    "UPDATE tb_timesheet_weeks SET status='invoiced' WHERE id=%s",
+                    (timesheet_week_id,),
+                )
+            conn.commit()
+            return {
+                "id": inv_id,
+                "invoice_number": str(invoice_number).strip(),
+                "total_amount": round(total, 2),
+                "status": "sent" if mark_sent else "draft",
+            }
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def void_invoice_for_week(timesheet_week_id: int, reason: str) -> None:
+        """Void any non-void invoice for this week; clear invoice_id on entries; do not change week status (caller sets rejected)."""
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                "SELECT id FROM contractor_invoices WHERE timesheet_week_id=%s AND status != 'void'",
+                (timesheet_week_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return
+            inv_id = row["id"]
+            cur.execute(
+                """
+                UPDATE contractor_invoices
+                SET status='void', voided_at=%s, void_reason=%s
+                WHERE id=%s
+                """,
+                (datetime.utcnow(), (reason or "")[:255], inv_id),
+            )
+            cur.execute("UPDATE tb_timesheet_entries SET invoice_id=NULL WHERE invoice_id=%s", (inv_id,))
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
 
 
 # ---------- Runsheet Service ----------
@@ -1392,6 +1767,7 @@ class RunsheetService:
                 s.name AS site_name,
                 r.job_type_id,
                 jt.name AS job_type_name,
+                jt.colour_hex AS job_type_colour_hex,
                 (SELECT COUNT(1)
                     FROM runsheet_assignments ra
                     WHERE ra.runsheet_id = r.id) AS assignees
@@ -1423,10 +1799,25 @@ class RunsheetService:
     @staticmethod
     def create_runsheet(data: Dict[str, Any]) -> int:
         """
-        Create a new runsheet record.
+        Create a new runsheet record. Uses client_id, site_id (FKs).
         """
-        required = ["client_name", "job_type_id", "work_date"]
+        # Accept client_id or legacy client_name (treated as id if numeric)
+        client_id = data.get("client_id")
+        if client_id is None and data.get("client_name") is not None:
+            try:
+                client_id = int(data["client_name"])
+            except (TypeError, ValueError):
+                client_id = None
+        site_id = data.get("site_id")
+        if site_id is None and data.get("site_name") is not None:
+            try:
+                site_id = int(data["site_name"])
+            except (TypeError, ValueError):
+                site_id = None
+        required = ["job_type_id", "work_date"]
         missing = [k for k in required if not data.get(k)]
+        if not client_id:
+            missing.append("client_id")
         if missing:
             raise Exception(f"Missing fields: {', '.join(missing)}")
 
@@ -1434,14 +1825,12 @@ class RunsheetService:
         cur = conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO runsheets (client_name, site_name, job_type_id, work_date,
+                INSERT INTO runsheets (client_id, site_id, job_type_id, work_date,
                                        window_start, window_end, template_id, template_version,
                                        payload_json, mapping_json, lead_user_id, status, notes)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)
             """, (
-                data["client_name"], data.get(
-                    "site_name"), data["job_type_id"],
-                data["work_date"],
+                client_id, site_id, data["job_type_id"], data["work_date"],
                 data.get("window_start"), data.get("window_end"),
                 data.get("template_id"), data.get("template_version"),
                 json.dumps(data.get("payload") or {}),
@@ -1464,7 +1853,8 @@ class RunsheetService:
         cur = conn.cursor(dictionary=True)
         try:
             cur.execute("""
-                SELECT r.*, c.name AS client_name, s.name AS site_name, jt.name AS job_type_name
+                SELECT r.*, c.name AS client_name, s.name AS site_name,
+                       jt.name AS job_type_name, jt.colour_hex AS job_type_colour_hex
                 FROM runsheets r
                 JOIN clients c ON c.id=r.client_id
                 LEFT JOIN sites s ON s.id=r.site_id
@@ -1482,6 +1872,9 @@ class RunsheetService:
                 ORDER BY ra.id ASC
             """, (rs_id,))
             rs["assignments"] = cur.fetchall() or []
+            # Expose contractor_id for edit form (same as user_id)
+            for a in rs["assignments"]:
+                a["contractor_id"] = a.get("user_id")
             return rs
         finally:
             cur.close()
@@ -1491,41 +1884,53 @@ class RunsheetService:
     def update_runsheet(rs_id: int, data: Dict[str, Any]) -> None:
         """
         Update runsheet header and optionally its assignments.
+        Header uses client_id, site_id (FKs). Assignments use user_id (or contractor_id).
         """
         conn = get_db_connection()
         cur = conn.cursor()
         try:
-            # Update header
-            fields = []
-            params = {}
-            for k in ("client_name", "site_name", "job_type_id", "work_date", "window_start",
+            # Map client_name/site_name to client_id/site_id for UPDATE
+            header_updates = {}
+            for k in ("client_id", "site_id", "job_type_id", "work_date", "window_start",
                       "window_end", "template_id", "template_version", "lead_user_id", "status", "notes"):
                 if k in data:
-                    fields.append(f"{k}=%({k})s")
-                    params[k] = data[k]
+                    header_updates[k] = data[k]
+            if "client_name" in data and data["client_name"] is not None and "client_id" not in data:
+                try:
+                    header_updates["client_id"] = int(data["client_name"])
+                except (TypeError, ValueError):
+                    pass
+            if "site_name" in data and data["site_name"] is not None and "site_id" not in data:
+                try:
+                    header_updates["site_id"] = int(data["site_name"])
+                except (TypeError, ValueError):
+                    pass
+            if header_updates:
+                fields = [f"{k}=%s" for k in header_updates]
+                params = list(header_updates.values()) + [rs_id]
+                cur.execute(f"UPDATE runsheets SET {', '.join(fields)} WHERE id=%s", params)
             if "payload" in data:
-                fields.append("payload_json=%(payload_json)s")
-                params["payload_json"] = json.dumps(data["payload"])
+                cur.execute("UPDATE runsheets SET payload_json=%s WHERE id=%s",
+                            (json.dumps(data["payload"]), rs_id))
             if "mapping" in data:
-                fields.append("mapping_json=%(mapping_json)s")
-                params["mapping_json"] = json.dumps(data["mapping"])
-            if fields:
-                sql = f"UPDATE runsheets SET {', '.join(fields)} WHERE id=%(id)s"
-                params["id"] = rs_id
-                cur.execute(sql, params)
+                cur.execute("UPDATE runsheets SET mapping_json=%s WHERE id=%s",
+                            (json.dumps(data["mapping"]), rs_id))
 
-            # Handle assignments (delete and reinsert)
+            # Handle assignments (delete and reinsert). Accept user_id or contractor_id.
             if "assignments" in data and isinstance(data["assignments"], list):
                 cur.execute(
                     "DELETE FROM runsheet_assignments WHERE runsheet_id=%s", (rs_id,))
                 for a in data["assignments"]:
+                    user_id = a.get("user_id") or a.get("contractor_id")
+                    if not user_id:
+                        continue
                     cur.execute("""
                         INSERT INTO runsheet_assignments
                         (runsheet_id, user_id, scheduled_start, scheduled_end, actual_start, actual_end,
                          break_mins, travel_parking, notes)
                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """, (
-                        rs_id, a["user_id"],
+                        rs_id, user_id,
                         a.get("scheduled_start"), a.get("scheduled_end"),
                         a.get("actual_start"), a.get("actual_end"),
                         int(a.get("break_mins") or 0),
@@ -1602,10 +2007,8 @@ class RunsheetService:
                 row = cur.fetchone()
 
                 payload = {
-                    "client_name": rs["client_name"],
+                    "client_name": rs.get("client_name"),
                     "site_name": rs.get("site_name"),
-                    "client_name": rs.get("client_name"),  # may be None
-                    "site_name": rs.get("site_name"),      # may be None
                     "job_type_id": rs["job_type_id"],
                     "work_date": rs["work_date"],
                     "scheduled_start": scheduled_start,
@@ -1627,8 +2030,6 @@ class RunsheetService:
                 if row:
                     updated += 1
                     set_clause = ", ".join([
-                        "client_name=%(client_name)s",
-                        "site_name=%(site_name)s",
                         "client_name=%(client_name)s",
                         "site_name=%(site_name)s",
                         "job_type_id=%(job_type_id)s",
@@ -1659,7 +2060,6 @@ class RunsheetService:
                 else:
                     cols = [
                         "week_id", "user_id",
-                        "client_name", "site_name",
                         "client_name", "site_name",
                         "job_type_id", "work_date",
                         "scheduled_start", "scheduled_end",
@@ -1764,7 +2164,7 @@ class TemplateService:
         cur = conn.cursor(dictionary=True)
         try:
             cur.execute(
-                "SELECT id, name, code, active FROM job_types ORDER BY name")
+                "SELECT id, name, code, active, colour_hex FROM job_types ORDER BY name")
             return cur.fetchall() or []
         finally:
             cur.close()
@@ -1779,8 +2179,8 @@ class TemplateService:
         cur = conn.cursor()
         try:
             cur.execute(
-                "INSERT INTO job_types (name, code, active) VALUES (%s,%s,%s)",
-                (data["name"], data.get("code"), int(data.get("active", 1)))
+                "INSERT INTO job_types (name, code, active, colour_hex) VALUES (%s,%s,%s,%s)",
+                (data["name"], data.get("code"), int(data.get("active", 1)), data.get("colour_hex") or None)
             )
             conn.commit()
             return cur.lastrowid
@@ -1794,7 +2194,7 @@ class TemplateService:
         if not data.get("id"):
             raise Exception("id required")
         fields, params = [], {}
-        for k in ("name", "code", "active"):
+        for k in ("name", "code", "active", "colour_hex"):
             if k in data:
                 fields.append(f"{k}=%({k})s")
                 params[k] = data[k]
@@ -1807,6 +2207,45 @@ class TemplateService:
         try:
             cur.execute(
                 f"UPDATE job_types SET {', '.join(fields)} WHERE id=%(id)s", params)
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def delete_job_type(job_type_id: int) -> None:
+        """
+        Delete a job type. Removes all wage and bill rate rows for this job type (DB CASCADE).
+        Contractor overrides, policies, and runsheet templates that reference it will have
+        job_type_id set to NULL (DB SET NULL). Fails if the job type is used in any
+        timesheet entries or runsheets (RESTRICT); use the returned error message to tell the user.
+        """
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM tb_timesheet_entries WHERE job_type_id=%s",
+                (job_type_id,),
+            )
+            row = cur.fetchone()
+            entries_count = (row[0] if row else 0) or 0
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM runsheets WHERE job_type_id=%s",
+                (job_type_id,),
+            )
+            row2 = cur.fetchone()
+            runsheets_count = (row2[0] if row2 else 0) or 0
+            if entries_count or runsheets_count:
+                parts = []
+                if entries_count:
+                    parts.append(f"{entries_count} timesheet entries")
+                if runsheets_count:
+                    parts.append(f"{runsheets_count} runsheets")
+                raise Exception(
+                    f"Cannot delete: this job type is used by {', '.join(parts)}. "
+                    "Reassign or remove those first."
+                )
+            cur.execute("DELETE FROM job_types WHERE id=%s", (job_type_id,))
             conn.commit()
         finally:
             cur.close()

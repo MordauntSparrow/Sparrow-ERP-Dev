@@ -147,7 +147,9 @@
       <h5 class="card-title d-flex align-items-center mb-3">
         <i class="bi bi-clock me-2"></i> Recent Weeks
       </h5>
-      <div class="table-responsive">
+
+      <!-- Desktop: table -->
+      <div class="d-none d-md-block table-responsive">
         <table class="table table-sm align-middle">
           <thead>
             <tr>
@@ -197,18 +199,6 @@
                     >
                       View
                     </a>
-                    <!-- <a
-                      class="btn btn-outline-dark"
-                      href="{{ url_for('public_time_billing.api_public_export_csv', week_id=w.week_id) }}"
-                    >
-                      CSV
-                    </a>
-                    <a
-                      class="btn btn-outline-dark"
-                      href="{{ url_for('public_time_billing.api_public_export_pdf', week_id=w.week_id) }}"
-                    >
-                      PDF
-                    </a> -->
                   </div>
                 </td>
               </tr>
@@ -223,7 +213,53 @@
         </table>
       </div>
 
-      <div class="d-flex justify-content-end">
+      <!-- Mobile: cards (staff often use phone) -->
+      <div class="d-md-none">
+        {% for w in recent_weeks %}
+          <div class="card mb-2">
+            <div class="card-body py-3">
+              <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                  <strong>Week {{ w.week_id }}</strong>
+                  <span class="text-muted small d-block js-week-ending" data-iso="{{ w.week_ending }}">{{ w.week_ending }}</span>
+                </div>
+                <div>
+                  {% if w.status == 'approved' %}
+                    <span class="badge bg-success">Approved</span>
+                  {% elif w.status == 'submitted' %}
+                    <span class="badge bg-primary">Submitted</span>
+                  {% elif w.status == 'rejected' %}
+                    <span class="badge bg-danger">Rejected</span>
+                  {% else %}
+                    <span class="badge bg-secondary">Draft</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="small text-muted mb-2">
+                {{ '{:.2f}'.format(w.total_hours or 0) }}h &bull; £{{ '{:,.2f}'.format(w.total_pay or 0) }}
+              </div>
+              <div class="d-flex gap-2">
+                <a
+                  class="btn btn-sm btn-primary flex-grow-1 {% if w.status != 'draft' and w.status != 'rejected' %} disabled {% endif %}"
+                  href="{{ url_for('public_time_billing.public_week_page', week_id=w.week_id) }}"
+                >
+                  Edit
+                </a>
+                <a
+                  class="btn btn-sm btn-outline-secondary flex-grow-1"
+                  href="{{ url_for('public_time_billing.public_week_readonly', week_id=w.week_id) }}"
+                >
+                  View
+                </a>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <p class="text-center text-muted py-4 mb-0">No recent weeks yet.</p>
+        {% endfor %}
+      </div>
+
+      <div class="d-flex justify-content-end mt-2">
         <a
           href="{{ url_for('public_time_billing.public_week_page', week_id=latest_week_id or example_week_id) }}"
           class="btn btn-primary btn-sm"

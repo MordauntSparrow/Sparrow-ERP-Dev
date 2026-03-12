@@ -255,8 +255,20 @@ def create_app():
                     if view and not getattr(view, "_csrf_exempt", False):
                         csrf.exempt(view)
                         view._csrf_exempt = True
+            # Exempt Ventus MDT API routes so JWT Bearer auth works (no CSRF cookie from mobile/cross-origin MDT clients)
+            for rule in app.url_map.iter_rules():
+                if rule.rule.startswith("/plugin/ventus_response_module/api/"):
+                    view = app.view_functions.get(rule.endpoint)
+                    if view and not getattr(view, "_csrf_exempt", False):
+                        csrf.exempt(view)
+                        view._csrf_exempt = True
         except Exception as e:
             print(f"[WARN] SeaSurf init failed: {e}")
+    # Ensure csrf_token() exists in Jinja so templates never raise UndefinedError (e.g. when SeaSurf not installed or init failed)
+    if "csrf_token" not in app.jinja_env.globals:
+        def _csrf_token():
+            return ""
+        app.jinja_env.globals["csrf_token"] = _csrf_token
 
     # Basic rate limiting
     if Limiter:

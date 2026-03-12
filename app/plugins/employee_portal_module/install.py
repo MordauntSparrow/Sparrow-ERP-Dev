@@ -18,7 +18,16 @@ for p in (str(PROJECT_ROOT), str(APP_ROOT), str(PLUGIN_DIR)):
 from app.objects import get_db_connection  # noqa: E402
 
 MIGRATIONS_TABLE = "ep_migrations"
-MODULE_TABLES = [MIGRATIONS_TABLE, "ep_messages", "ep_todos"]
+SQL_CREATE_EP_SETTINGS = """
+CREATE TABLE IF NOT EXISTS ep_settings (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  setting_key VARCHAR(128) NOT NULL UNIQUE,
+  setting_value TEXT,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+MODULE_TABLES = [MIGRATIONS_TABLE, "ep_messages", "ep_todos", "ep_settings"]
 
 # Full CREATE TABLE statements (all in this file)
 SQL_CREATE_MIGRATIONS = """
@@ -62,7 +71,7 @@ CREATE TABLE IF NOT EXISTS ep_todos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-CREATES = [SQL_CREATE_MIGRATIONS, SQL_CREATE_EP_MESSAGES, SQL_CREATE_EP_TODOS]
+CREATES = [SQL_CREATE_MIGRATIONS, SQL_CREATE_EP_MESSAGES, SQL_CREATE_EP_TODOS, SQL_CREATE_EP_SETTINGS]
 
 
 def _run_sql(conn, sql):
@@ -75,9 +84,48 @@ def _run_sql(conn, sql):
     conn.commit()
 
 
+def _column_exists(conn, table, column):
+    cur = conn.cursor()
+    try:
+        cur.execute("SHOW COLUMNS FROM `{}` LIKE %s".format(table), (column,))
+        return bool(cur.fetchone())
+    finally:
+        cur.close()
+
+
+def _ensure_audit_columns(conn):
+    """Add sent_by_user_id, updated_at to ep_messages; created_by_user_id, updated_at to ep_todos."""
+    cur = conn.cursor()
+    try:
+        if not _column_exists(conn, "ep_messages", "sent_by_user_id"):
+            cur.execute(
+                "ALTER TABLE ep_messages ADD COLUMN sent_by_user_id INT NULL DEFAULT NULL AFTER read_at"
+            )
+        if not _column_exists(conn, "ep_messages", "updated_at"):
+            cur.execute(
+                "ALTER TABLE ep_messages ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP AFTER created_at"
+            )
+        if not _column_exists(conn, "ep_todos", "created_by_user_id"):
+            cur.execute(
+                "ALTER TABLE ep_todos ADD COLUMN created_by_user_id INT NULL DEFAULT NULL AFTER contractor_id"
+            )
+        if not _column_exists(conn, "ep_todos", "updated_at"):
+            cur.execute(
+                "ALTER TABLE ep_todos ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP AFTER created_at"
+            )
+        if not _column_exists(conn, "ep_messages", "deleted_at"):
+            cur.execute(
+                "ALTER TABLE ep_messages ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL AFTER updated_at"
+            )
+        conn.commit()
+    finally:
+        cur.close()
+
+
 def ensure_tables(conn):
     for sql in CREATES:
         _run_sql(conn, sql)
+    _ensure_audit_columns(conn)
 
 
 def install():

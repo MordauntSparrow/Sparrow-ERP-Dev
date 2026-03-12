@@ -509,6 +509,38 @@ def website_static(filename):
 
 
 # ----------------------------
+# PWA (Employee Portal cluster: installable app)
+# ----------------------------
+
+@website_public_routes.route('/manifest.webmanifest')
+def pwa_manifest():
+    """Web app manifest for Add to home screen (employee portal, time-billing, work)."""
+    static_folder = current_app.static_folder
+    pwa_path = os.path.join(static_folder, 'pwa', 'manifest.webmanifest')
+    if not os.path.isfile(pwa_path):
+        return Response('{}', status=404, mimetype='application/json')
+    return send_from_directory(
+        os.path.join(static_folder, 'pwa'),
+        'manifest.webmanifest',
+        mimetype='application/manifest+json'
+    )
+
+
+@website_public_routes.route('/sw.js')
+def pwa_sw():
+    """Service worker at root so scope is / (covers portal, time-billing, work)."""
+    static_folder = current_app.static_folder
+    pwa_path = os.path.join(static_folder, 'pwa', 'sw.js')
+    if not os.path.isfile(pwa_path):
+        return Response('// no-op', status=404, mimetype='application/javascript')
+    return send_from_directory(
+        os.path.join(static_folder, 'pwa'),
+        'sw.js',
+        mimetype='application/javascript'
+    )
+
+
+# ----------------------------
 # Admin blueprint + builder (unchanged except minor hygiene)
 # ----------------------------
 

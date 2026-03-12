@@ -1,0 +1,37 @@
+{% extends "scheduling_module/base_public.html" %}
+{% block content %}
+<h1 class="h5 mb-3">{{ 'Edit availability' if avail else 'Add availability window' }}</h1>
+<form method="post" action="{{ url_for('public_scheduling.availability_edit', avail_id=avail.id) if avail else url_for('public_scheduling.availability_add') }}" class="card card-module p-3">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label class="form-label">Day of week</label>
+    <select name="day_of_week" class="form-select form-control-dark bg-dark text-light" required>
+      <option value="0" {{ 'selected' if avail and avail.day_of_week == 0 else '' }}>Monday</option>
+      <option value="1" {{ 'selected' if avail and avail.day_of_week == 1 else '' }}>Tuesday</option>
+      <option value="2" {{ 'selected' if avail and avail.day_of_week == 2 else '' }}>Wednesday</option>
+      <option value="3" {{ 'selected' if avail and avail.day_of_week == 3 else '' }}>Thursday</option>
+      <option value="4" {{ 'selected' if avail and avail.day_of_week == 4 else '' }}>Friday</option>
+      <option value="5" {{ 'selected' if avail and avail.day_of_week == 5 else '' }}>Saturday</option>
+      <option value="6" {{ 'selected' if avail and avail.day_of_week == 6 else '' }}>Sunday</option>
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Start time</label>
+    <input type="time" name="start_time" class="form-control form-control-dark bg-dark text-light" value="{{ avail.start_time_str if avail else '' }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">End time</label>
+    <input type="time" name="end_time" class="form-control form-control-dark bg-dark text-light" value="{{ avail.end_time_str if avail else '' }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Effective from</label>
+    <input type="date" name="effective_from" class="form-control form-control-dark bg-dark text-light" value="{{ avail.effective_from_iso if avail else '' }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Effective to (optional)</label>
+    <input type="date" name="effective_to" class="form-control form-control-dark bg-dark text-light" value="{{ avail.effective_to_iso if avail else '' }}">
+  </div>
+  <button type="submit" class="btn btn-primary">Save</button>
+  <a href="{{ url_for('public_scheduling.my_availability') }}" class="btn btn-outline-light ms-2">Cancel</a>
+</form>
+{% endblock %}

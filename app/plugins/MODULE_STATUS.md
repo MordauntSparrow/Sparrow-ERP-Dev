@@ -10,13 +10,13 @@
 
 | Module | Purpose | Public (staff) | Admin (internal) | DB / install | Auth |
 |--------|---------|----------------|------------------|--------------|------|
-| **employee_portal_module** | Hub: login, dashboard, messages, todos, module links | ✅ Login, dashboard, messages, todos | Redirect only | ep_* tables, install.py | session `tb_user` |
+| **employee_portal_module** | Hub: login, dashboard, messages, todos, module links, AI summary/assistant | ✅ Login, dashboard, at-a-glance, messages, todos, optional AI | ✅ Messages, todos, contractors, reports, settings | ep_* tables, install.py | session `tb_user` |
 | **time_billing_module** | Timesheets, runsheets, contractors, rates, pay | ✅ Login, dashboard, week view | ✅ Full (contractors, runsheets, rates, policies) | 001 + 002–004, install.py | `tb_user`; role from DB; **admin_required_tb enforced** ✅ |
 | **hr_module** | Profile, document requests, uploads | ✅ Profile, requests, upload | Redirect only | hr_* tables, install.py | `tb_user` |
-| **compliance_module** | Policies, view & acknowledge | ✅ List policies, view, sign | Redirect only | compliance_* tables, install.py | `tb_user` |
+| **compliance_module** | Policies, view & acknowledge | ✅ List policies, view, sign | ✅ Policies CRUD, acknowledgements | compliance_* tables, install.py | `tb_user` |
 | **scheduling_module** | Shifts, time off, sickness | ✅ My day, request time off, report sickness | ✅ Shifts list + API | schedule_* tables, install.py | Public: `tb_user`; **admin: _admin_required_scheduling** ✅ |
 | **work_module** | My day, record times/notes/photos → timesheet | ✅ Stops, record, photos | None | work_photos, install.py | `tb_user` |
-| **training_module** | Training & mandatory completion | Stub page only | Redirect only | **No schema** | `tb_user` |
+| **training_module** | Training & mandatory completion | ✅ My training, view, complete | ✅ Items, assignments, completions | training_* tables, install.py | `tb_user` |
 
 ---
 
@@ -63,10 +63,10 @@
    ~~Time Billing and Scheduling admin routes were open.~~ **Done:** Role is loaded from DB on login (`tb_contractor_roles` + `role_id` → `roles.name`); `admin_required_tb` and `_admin_required_scheduling` require role in (`admin`, `superuser`).
 
 2. **High – Training module is stub**  
-   No schema, no install, no “my training” or completions. Blocks universal “everyone uses” story.
+   ~~No schema, no install.~~ **Done:** Training has schema, install, public “my training” + view/complete, admin items/assignments/completions, and portal quick action.
 
 3. **Medium – Admin UIs for universal modules**  
-   Compliance (create policies, view acknowledgements), HR (create document requests, view uploads), Portal (manage messages/todos) have no admin screens.
+   **Compliance:** ~~create policies, view acknowledgements~~ **Done:** Admin policies CRUD and acknowledgements list at `/plugin/compliance_module`. HR (create document requests, view uploads) and Portal (manage messages/todos) already have admin screens.
 
 4. **Medium – Single source of truth for “is admin”**  
    Unify how admin is determined (e.g. main app user vs `tb_contractors` role) so all plugin admin routes use the same check.
@@ -83,4 +83,4 @@
 
 **Granting admin (port 82):** Admin and scheduling plugin routes run on the **admin app** and use **core users** (Flask-Login). Grant access by creating a core user in the `users` table with `role` = `'admin'` or `'superuser'` and logging in on the admin app (port 82). Contractors (`tb_contractors`) do not log in there; they use the website app (port 80).
 
-**Next focus (pick one):** **Training module (schema + minimal flow)** for universal completeness, or **Admin UIs for Compliance/HR** for operational use.
+**Next focus:** Training and Compliance admin are done. **Portal:** Admin (messages, todos, contractors, reports) exists. Dashboard is now a **directory/summary**: "At a glance" card (policies, training, HR, todos, messages), optional **AI one-line summary** and **Portal assistant** (chat with get_my_summary tool) when `OPENAI_API_KEY` is set. Scheduling module already has its own AI chat for availability/shifts.

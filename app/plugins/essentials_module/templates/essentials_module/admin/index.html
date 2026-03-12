@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ module_name }} – Admin{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <h1 class="mb-3">{{ module_name }}</h1>
+  <p class="text-muted">{{ module_description }}</p>
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">Manage essentials</h5>
+      <p class="card-text small text-muted">Add documents by pasting raw text (e.g. PRD, markdown) or uploading a file. Staff see them on the Employee Portal under Essentials.</p>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <a href="{{ url_for('internal_essentials.admin_documents') }}" class="btn btn-primary btn-sm">Documents</a>
+        <a href="{{ url_for('internal_essentials.admin_document_new') }}" class="btn btn-outline-primary btn-sm">New document</a>
+        <a href="{{ url_for('routes.dashboard') }}" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

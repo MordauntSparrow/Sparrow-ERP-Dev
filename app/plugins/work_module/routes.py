@@ -1,6 +1,8 @@
 import os
 import uuid
-from datetime import datetime
+import csv
+import io
+from datetime import date, datetime, time, timedelta
 from functools import wraps
 from flask import (
     Blueprint,
@@ -10,7 +12,11 @@ from flask import (
     redirect,
     session,
     current_app,
+    flash,
+    url_for,
+    Response,
 )
+from flask_login import current_user, login_required
 from app.objects import PluginManager
 from . import services as work_services
 
@@ -66,6 +72,297 @@ def _current_contractor_id():
     return int(u["id"])
 
 
+def _admin_required_work(view):
+    """For admin app: require core user with role admin/superuser (Flask-Login)."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("routes.login"))
+        role = (getattr(current_user, "role", None) or "").lower()
+        if role not in ("admin", "superuser"):
+            flash("Admin access required.", "error")
+            return redirect(url_for("routes.dashboard"))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+# ---------- Internal (admin) ----------
+
+
+@internal_bp.get("/")
+@login_required
+@_admin_required_work
+def admin_index():
+    return render_template(
+        "admin/index.html",
+        module_name="Work",
+        module_description="Recorded stops, gaps, photos, and reporting.",
+        plugin_system_name="work_module",
+        config=_core_manifest,
+    )
+
+
+# ---------- Admin: Recorded stops ----------
+
+
+@internal_bp.get("/stops")
+@login_required
+@_admin_required_work
+def admin_stops():
+    contractor_id = request.args.get("contractor_id", type=int)
+    client_id = request.args.get("client_id", type=int)
+    date_from_s = request.args.get("date_from")
+    date_to_s = request.args.get("date_to")
+    date_from = date.fromisoformat(date_from_s) if date_from_s else None
+    date_to = date.fromisoformat(date_to_s) if date_to_s else None
+    if not date_from:
+        date_from = date.today() - timedelta(days=6)
+    if not date_to:
+        date_to = date.today()
+    stops = work_services.list_stops_admin(
+        contractor_id=contractor_id,
+        client_id=client_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    contractors = _get_contractors()
+    clients = _get_clients()
+    return render_template(
+        "admin/stops.html",
+        stops=stops,
+        contractors=contractors,
+        clients=clients,
+        contractor_id=contractor_id,
+        client_id=client_id,
+        date_from=date_from,
+        date_to=date_to,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.get("/stops/<int:shift_id>")
+@login_required
+@_admin_required_work
+def admin_stop_detail(shift_id):
+    shift = work_services.get_shift_for_admin(shift_id)
+    if not shift:
+        flash("Shift not found.", "error")
+        return redirect(url_for("internal_work.admin_stops"))
+    photos = work_services.list_photos_for_shift(shift_id)
+    return render_template(
+        "admin/stop_detail.html",
+        shift=shift,
+        photos=photos,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.post("/stops/<int:shift_id>/override")
+@login_required
+@_admin_required_work
+def admin_stop_override(shift_id):
+    actual_start_s = request.form.get("actual_start")
+    actual_end_s = request.form.get("actual_end")
+    notes = (request.form.get("notes") or "").strip() or None
+    actual_start = _parse_time(actual_start_s) if actual_start_s else None
+    actual_end = _parse_time(actual_end_s) if actual_end_s else None
+    work_services.update_shift_times_admin(shift_id, actual_start=actual_start, actual_end=actual_end, notes=notes)
+    flash("Times updated and synced to Time Billing.", "success")
+    return redirect(url_for("internal_work.admin_stop_detail", shift_id=shift_id))
+
+
+def _parse_time(s):
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        parts = s.strip()[:8].split(":")
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+        sec = int(parts[2]) if len(parts) > 2 else 0
+        return time(h, m, sec)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_contractors():
+    try:
+        from app.plugins.scheduling_module.services import ScheduleService
+        return ScheduleService.list_contractors()
+    except Exception:
+        return []
+
+
+def _get_clients():
+    try:
+        from app.plugins.scheduling_module.services import ScheduleService
+        c, _ = ScheduleService.list_clients_and_sites()
+        return c
+    except Exception:
+        return []
+
+
+# ---------- Admin: Gaps report ----------
+
+
+def _notify_contractor_work(contractor_id: int, subject: str, body: str = ""):
+    try:
+        from app.plugins.employee_portal_module.services import admin_send_message
+        from flask_login import current_user
+        admin_send_message(
+            [contractor_id],
+            subject[:255],
+            (body or "")[:65535],
+            source_module="work_module",
+            sent_by_user_id=getattr(current_user, "id", None),
+        )
+    except Exception:
+        pass
+
+
+@internal_bp.get("/gaps")
+@login_required
+@_admin_required_work
+def admin_gaps():
+    date_from_s = request.args.get("date_from")
+    date_to_s = request.args.get("date_to")
+    contractor_id = request.args.get("contractor_id", type=int)
+    date_from = date.fromisoformat(date_from_s) if date_from_s else (date.today() - timedelta(days=6))
+    date_to = date.fromisoformat(date_to_s) if date_to_s else date.today()
+    gaps = work_services.list_gaps(date_from=date_from, date_to=date_to, contractor_id=contractor_id)
+    contractors = _get_contractors()
+    return render_template(
+        "admin/gaps.html",
+        gaps=gaps,
+        contractors=contractors,
+        contractor_id=contractor_id,
+        date_from=date_from,
+        date_to=date_to,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.post("/gaps/remind/<int:shift_id>")
+@login_required
+@_admin_required_work
+def admin_gaps_remind(shift_id):
+    shift = work_services.get_shift_for_admin(shift_id)
+    if not shift:
+        flash("Shift not found.", "error")
+        return redirect(url_for("internal_work.admin_gaps"))
+    cid = shift.get("contractor_id")
+    if cid:
+        _notify_contractor_work(
+            cid,
+            "Please record your times",
+            "You have a shift with no clock-in or clock-out recorded. Please record your times in the Work app.",
+        )
+        flash("Reminder sent.", "success")
+    return redirect(url_for("internal_work.admin_gaps"))
+
+
+# ---------- Admin: Photo gallery ----------
+
+
+@internal_bp.get("/photos")
+@login_required
+@_admin_required_work
+def admin_photos():
+    contractor_id = request.args.get("contractor_id", type=int)
+    shift_id = request.args.get("shift_id", type=int)
+    date_from_s = request.args.get("date_from")
+    date_to_s = request.args.get("date_to")
+    date_from = date.fromisoformat(date_from_s) if date_from_s else None
+    date_to = date.fromisoformat(date_to_s) if date_to_s else None
+    photos = work_services.list_photos_admin(
+        contractor_id=contractor_id,
+        shift_id=shift_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    contractors = _get_contractors()
+    return render_template(
+        "admin/photos.html",
+        photos=photos,
+        contractors=contractors,
+        contractor_id=contractor_id,
+        shift_id=shift_id,
+        date_from=date_from,
+        date_to=date_to,
+        config=_core_manifest,
+    )
+
+
+# ---------- Admin: Reporting ----------
+
+
+@internal_bp.get("/report")
+@login_required
+@_admin_required_work
+def admin_report():
+    date_from_s = request.args.get("date_from")
+    date_to_s = request.args.get("date_to")
+    contractor_id = request.args.get("contractor_id", type=int)
+    client_id = request.args.get("client_id", type=int)
+    date_from = date.fromisoformat(date_from_s) if date_from_s else (date.today() - timedelta(days=6))
+    date_to = date.fromisoformat(date_to_s) if date_to_s else date.today()
+    rows = work_services.report_hours(
+        date_from=date_from,
+        date_to=date_to,
+        contractor_id=contractor_id,
+        client_id=client_id,
+    )
+    contractors = _get_contractors()
+    clients = _get_clients()
+    return render_template(
+        "admin/report.html",
+        rows=rows,
+        contractors=contractors,
+        clients=clients,
+        contractor_id=contractor_id,
+        client_id=client_id,
+        date_from=date_from,
+        date_to=date_to,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.get("/report/export")
+@login_required
+@_admin_required_work
+def admin_report_export():
+    date_from_s = request.args.get("date_from")
+    date_to_s = request.args.get("date_to")
+    contractor_id = request.args.get("contractor_id", type=int)
+    client_id = request.args.get("client_id", type=int)
+    date_from = date.fromisoformat(date_from_s) if date_from_s else (date.today() - timedelta(days=6))
+    date_to = date.fromisoformat(date_to_s) if date_to_s else date.today()
+    rows = work_services.report_hours(
+        date_from=date_from,
+        date_to=date_to,
+        contractor_id=contractor_id,
+        client_id=client_id,
+    )
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Date", "Contractor", "Client", "Site", "Start", "End", "Hours", "Notes"])
+    for r in rows:
+        wd = r.get("work_date")
+        wd_str = wd.isoformat() if hasattr(wd, "isoformat") else str(wd)
+        start = r.get("actual_start")
+        end = r.get("actual_end")
+        w.writerow([
+            wd_str,
+            r.get("contractor_name") or "",
+            r.get("client_name") or "",
+            r.get("site_name") or "",
+            r.get("actual_start_str") or "",
+            r.get("actual_end_str") or "",
+            r.get("hours") or "",
+            (r.get("notes") or "")[:200],
+        ])
+    return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=work_hours.csv"})
+
+
 # ---------- Public: My day (list of stops from scheduling) ----------
 
 
@@ -76,6 +373,9 @@ def index():
     if not cid:
         return redirect("/employee-portal/login?next=/work/")
     stops = work_services.get_my_stops_for_today(cid)
+    # Enrich each stop with photo count for planner view
+    for s in stops:
+        s["photo_count"] = len(work_services.list_photos_for_shift(s["id"]))
     return render_template(
         "work_module/public/index.html",
         stops=stops,
