@@ -42,7 +42,44 @@
           <label class="muted" for="additionalDetails">Additional Details</label>
           <textarea id="additionalDetails" rows="3"></textarea>
         </div>
-        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-top:10px;">
+        <h3 style="margin:14px 0 6px 0;font-size:14px;">Patient &amp; Caller</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div><label class="muted" for="patientFirstName">First Name</label><input id="patientFirstName"></div>
+          <div><label class="muted" for="patientMiddleName">Middle Name</label><input id="patientMiddleName"></div>
+          <div><label class="muted" for="patientLastName">Last Name</label><input id="patientLastName"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+          <div><label class="muted" for="patientDob">DOB</label><input id="patientDob" type="date"></div>
+          <div><label class="muted" for="patientAge">Age</label><input id="patientAge" type="text" inputmode="numeric" placeholder="Auto from DOB"></div>
+          <div>
+            <label class="muted" for="patientGender">Gender</label>
+            <select id="patientGender">
+              <option value="">Unknown</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div><label class="muted" for="patientPhone">Patient Phone</label><input id="patientPhone"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label class="muted" for="patientAlone">Patient Alone?</label>
+            <select id="patientAlone">
+              <option value="">Unknown</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          <div><label class="muted" for="callerName">Caller Name</label><input id="callerName"></div>
+          <div><label class="muted" for="callerPhone">Caller Phone</label><input id="callerPhone"></div>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="muted" for="onsetDatetime">Onset Date &amp; Time</label>
+          <input id="onsetDatetime" type="datetime-local">
+        </div>
+        <h3 style="margin:14px 0 6px 0;font-size:14px;">Location</h3>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;">
           <div>
             <label class="muted" for="incidentAddress">Address</label>
             <textarea id="incidentAddress" rows="2"></textarea>
@@ -113,7 +150,18 @@ const editableFieldIds = [
   'incidentAddress',
   'incidentPostcode',
   'incidentW3w',
-  'callPriority'
+  'callPriority',
+  'patientFirstName',
+  'patientMiddleName',
+  'patientLastName',
+  'patientDob',
+  'patientAge',
+  'patientGender',
+  'patientPhone',
+  'patientAlone',
+  'callerName',
+  'callerPhone',
+  'onsetDatetime'
 ];
 let dynamicFormKeys = [];
 let dynamicFormSignature = '';
@@ -215,7 +263,9 @@ function buildDynamicFieldSpec(triage) {
     if (!k || INTERNAL_TRIAGE_KEYS.has(k)) return;
     if ([
       'reason_for_call', 'additional_details', 'address', 'postcode', 'what3words',
-      'call_priority', 'priority', 'acuity'
+      'call_priority', 'priority', 'acuity',
+      'first_name', 'middle_name', 'last_name', 'patient_dob', 'patient_age', 'age',
+      'patient_gender', 'phone_number', 'patient_alone', 'caller_name', 'caller_phone', 'onset_datetime'
     ].includes(k)) return;
     if (Object.prototype.hasOwnProperty.call(answers, k)) return;
     const v = t[k];
@@ -300,6 +350,37 @@ function clearDirtyFlags() {
   });
 }
 
+function ageFromDob(dobStr) {
+  if (!dobStr) return null;
+  const s = String(dobStr).trim().split('T')[0];
+  if (!s) return null;
+  const d = new Date(s + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const monthDelta = now.getMonth() - d.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function formatDobForInput(v) {
+  if (v == null || v === '') return '';
+  const s = String(v).trim().split('T')[0];
+  return s && s.length >= 10 ? s.substring(0, 10) : '';
+}
+
+function formatOnsetForInput(v) {
+  if (v == null || v === '') return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
 async function loadJob() {
   const res = await fetch(`/plugin/ventus_response_module/job/${CAD}`);
   if (!res.ok) throw new Error('Job not found');
@@ -313,6 +394,19 @@ async function loadJob() {
   setFieldValueIfClean('incidentPostcode', triage.postcode || '');
   setFieldValueIfClean('incidentW3w', triage.what3words || '');
   setFieldValueIfClean('callPriority', triage.call_priority || triage.priority || triage.acuity || '');
+  setFieldValueIfClean('patientFirstName', triage.first_name || '');
+  setFieldValueIfClean('patientMiddleName', triage.middle_name || '');
+  setFieldValueIfClean('patientLastName', triage.last_name || '');
+  setFieldValueIfClean('patientDob', formatDobForInput(triage.patient_dob));
+  const ageVal = triage.patient_age != null ? String(triage.patient_age) : (triage.age != null ? String(triage.age) : '');
+  const ageFromDobVal = ageFromDob(triage.patient_dob);
+  setFieldValueIfClean('patientAge', ageVal || (ageFromDobVal != null ? String(ageFromDobVal) : ''));
+  setFieldValueIfClean('patientGender', triage.patient_gender || '');
+  setFieldValueIfClean('patientPhone', triage.phone_number || '');
+  setFieldValueIfClean('patientAlone', triage.patient_alone || '');
+  setFieldValueIfClean('callerName', triage.caller_name || '');
+  setFieldValueIfClean('callerPhone', triage.caller_phone || '');
+  setFieldValueIfClean('onsetDatetime', formatOnsetForInput(triage.onset_datetime));
   renderDynamicFormFields(triage);
 
   const units = Array.isArray(job.assigned_units) ? job.assigned_units : [];
@@ -332,6 +426,17 @@ async function saveIncidentDetails() {
     what3words: document.getElementById('incidentW3w').value,
     call_priority: document.getElementById('callPriority').value || null,
     priority_source: document.getElementById('callPriority').value ? 'manual' : null,
+    first_name: (document.getElementById('patientFirstName') && document.getElementById('patientFirstName').value) || '',
+    middle_name: (document.getElementById('patientMiddleName') && document.getElementById('patientMiddleName').value) || '',
+    last_name: (document.getElementById('patientLastName') && document.getElementById('patientLastName').value) || '',
+    patient_dob: (document.getElementById('patientDob') && document.getElementById('patientDob').value) || '',
+    patient_age: (document.getElementById('patientAge') && document.getElementById('patientAge').value.trim()) || null,
+    patient_gender: (document.getElementById('patientGender') && document.getElementById('patientGender').value) || '',
+    phone_number: (document.getElementById('patientPhone') && document.getElementById('patientPhone').value) || '',
+    patient_alone: (document.getElementById('patientAlone') && document.getElementById('patientAlone').value) || '',
+    caller_name: (document.getElementById('callerName') && document.getElementById('callerName').value) || '',
+    caller_phone: (document.getElementById('callerPhone') && document.getElementById('callerPhone').value) || '',
+    onset_datetime: (document.getElementById('onsetDatetime') && document.getElementById('onsetDatetime').value) || '',
     sender_portal: 'response_centre',
     form_answers: {}
   };
@@ -438,8 +543,17 @@ async function tick() {
   }
 }
 
+function updateAgeFromDob() {
+  const dobEl = document.getElementById('patientDob');
+  const ageEl = document.getElementById('patientAge');
+  if (!dobEl || !ageEl || ageEl.dataset.dirty === '1') return;
+  const a = ageFromDob(dobEl.value);
+  ageEl.value = a != null ? String(a) : '';
+}
 tick();
 setupDirtyTracking();
+document.getElementById('patientDob')?.addEventListener('change', updateAgeFromDob);
+document.getElementById('patientDob')?.addEventListener('input', updateAgeFromDob);
 setInterval(tick, 7000);
 </script>
 {% endblock %}

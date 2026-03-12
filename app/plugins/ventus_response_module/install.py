@@ -818,6 +818,22 @@ def install(seed_demo: bool = False):
             except Exception:
                 pass
 
+        # mdt_crew_profiles: per-username crew profile for CAD (all from MySQL: gender, skills, qualifications, profile pic)
+        create_table(
+            conn,
+            "mdt_crew_profiles",
+            """
+            username VARCHAR(120) NOT NULL PRIMARY KEY,
+            contractor_id INT NULL,
+            gender VARCHAR(24) NULL COMMENT 'male, female, other - for danger/warning display',
+            skills_json JSON NULL COMMENT 'Main skills e.g. Paramedic, ECA',
+            qualifications_json JSON NULL COMMENT 'Additional sign-offs e.g. Intubation, Paediatric training',
+            profile_picture_path VARCHAR(512) NULL COMMENT 'Relative path for profile image (or use contractor via contractor_id)',
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_crew_profiles_contractor (contractor_id)
+            """,
+        )
+
         print("Ventus response module: install complete.")
     finally:
         conn.close()
@@ -840,6 +856,7 @@ def uninstall(drop_data: bool = False):
         try:
             cur.execute("SET FOREIGN_KEY_CHECKS=0")
             tables = [
+                "mdt_crew_profiles",
                 "standby_locations",
                 "messages",
                 "mdt_locations",

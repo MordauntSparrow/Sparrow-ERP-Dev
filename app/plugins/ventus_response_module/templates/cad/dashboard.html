@@ -48,9 +48,9 @@
 .drop-target-job-hint {
   display: none;
   position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
   padding: 4px 10px;
   background: rgba(59, 130, 246, 0.95);
   color: #fff;
@@ -1191,6 +1191,19 @@ function renderUnitMapQuickPreview(unit) {
   const breakDue = !!(unit && unit.break_due);
   const breakDueIn = (unit && unit.break_due_in_minutes !== undefined && unit.break_due_in_minutes !== null) ? Number(unit.break_due_in_minutes) : null;
   const shiftRemaining = (unit && unit.shift_remaining_minutes !== undefined && unit.shift_remaining_minutes !== null) ? Number(unit.shift_remaining_minutes) : null;
+  const onMealBreak = !!(unit && unit.meal_break_active);
+  const shiftHours = (unit && unit.shift_duration_minutes != null) ? (Number(unit.shift_duration_minutes) / 60).toFixed(1) : null;
+  const breakAfter = (unit && unit.break_due_after_minutes != null) ? Number(unit.break_due_after_minutes) : null;
+  const crewGradesPopover = (() => {
+    const raw = unit && unit.crew;
+    if (!raw) return '';
+    try {
+      const arr = typeof raw === 'string' ? (JSON.parse(raw) || []) : (Array.isArray(raw) ? raw : []);
+      const list = [];
+      arr.forEach((m) => { if (m && typeof m === 'object' && (m.grade || m.role)) list.push((m.grade || m.role).trim()); });
+      return list.length ? [...new Set(list)].join(', ') : '';
+    } catch (e) { return ''; }
+  })();
   const target = Number.isFinite(assignedCad) && assignedCad > 0
     ? `Assigned CAD #${assignedCad}`
     : (standbyName ? `Standby: ${standbyName}` : 'No target');
@@ -1199,8 +1212,11 @@ function renderUnitMapQuickPreview(unit) {
       <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(cs)}</div>
       <div class="meta" style="margin-bottom:4px;">Status: ${escapeHtml(prettyStatus(status))}</div>
       <div class="meta" style="margin-bottom:4px;">Division: ${escapeHtml(division)}</div>
+      ${crewGradesPopover ? `<div class="meta" style="margin-bottom:4px;">Crew: ${escapeHtml(crewGradesPopover)}</div>` : ''}
+      ${onMealBreak ? `<div class="meta" style="margin-bottom:4px;color:#fbbf24;">On meal break</div>` : ''}
       ${breakBlocked ? `<div class="meta" style="margin-bottom:4px;color:#fca5a5;">Break due: not job-ready</div>` : ''}
       ${(!breakBlocked && breakDue) ? `<div class="meta" style="margin-bottom:4px;color:#fde68a;">Break due soon${breakDueIn !== null ? ` (${escapeHtml(String(breakDueIn))}m)` : ''}</div>` : ''}
+      ${shiftHours != null ? `<div class="meta" style="margin-bottom:4px;">${escapeHtml(shiftHours)}h shift${breakAfter != null ? ` · break after ${escapeHtml(String(breakAfter))}m` : ''}</div>` : ''}
       ${(shiftRemaining !== null) ? `<div class="meta" style="margin-bottom:4px;">Shift remaining: ${escapeHtml(String(shiftRemaining))}m</div>` : ''}
       <div class="meta" style="margin-bottom:8px;">${escapeHtml(target)}</div>
       <button type="button" class="unit-open-detail-btn" data-callsign="${escapeHtml(cs)}" style="width:100%;padding:6px 8px;font-size:12px;background:var(--primary-light,#3b82f6);color:#fff;border:none;border-radius:6px;cursor:pointer;">Open Unit Detail</button>
@@ -1383,9 +1399,9 @@ function pollDispatcherAlerts() {
     .catch(() => {});
 
   fetch('/plugin/ventus_response_module/job-comms/recent?limit=60')
-    .then(r => (r.ok ? r.json() : []))
-    .then((rows) => {
-      const items = Array.isArray(rows) ? rows : [];
+    .then(r => (r.ok ? r.json() : {}))
+    .then((data) => {
+      const items = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : []);
       if (!commSnapshotInitialized) {
         items.forEach((m) => { if (m && m.id != null) seenCommIds.add(Number(m.id)); });
         commSnapshotInitialized = true;
@@ -1428,6 +1444,12 @@ function loadKPIPanel(contentEl) {
         <span id="kpiClearedToday"></span>
         <span id="kpiAvgResp"></span>
       </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <span id="kpiUnitsNearBreak" style="color:var(--text-secondary);" title="Units within meal break window (due soon)"></span>
+        <span id="kpiUnitsOnMealBreak" style="color:#fbbf24;" title="Units currently on meal break"></span>
+        <span id="kpiUnitsOverdueBreak" style="color:#fca5a5;" title="Units overdue for meal break"></span>
+        <span id="kpiUnitsFinishingSoon" style="color:#93c5fd;" title="Units with &lt;30m shift remaining"></span>
+      </div>
       <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;">
         <span id="kpiAvgWaitAssign"></span>
@@ -1448,6 +1470,10 @@ function refreshKPIs() {
     if (el('kpiUnitsAvail')) el('kpiUnitsAvail').textContent = `🚑 ${k.units_available} Available`;
     if (el('kpiClearedToday')) el('kpiClearedToday').textContent = `✅ ${k.cleared_today} Cleared`;
     if (el('kpiAvgResp')) el('kpiAvgResp').textContent = `⏱ Avg Cycle Today ${k.avg_response_time || '--'}`;
+    if (el('kpiUnitsNearBreak')) el('kpiUnitsNearBreak').textContent = `🕐 ${k.units_near_break ?? 0} near break`;
+    if (el('kpiUnitsOnMealBreak')) el('kpiUnitsOnMealBreak').textContent = `🍽 ${k.units_on_meal_break ?? 0} on meal break`;
+    if (el('kpiUnitsOverdueBreak')) el('kpiUnitsOverdueBreak').textContent = `⚠ ${k.units_overdue_break ?? 0} overdue break`;
+    if (el('kpiUnitsFinishingSoon')) el('kpiUnitsFinishingSoon').textContent = `🏁 ${k.units_finishing_soon ?? 0} finishing soon`;
     const stage = (k && k.stage_averages) || {};
     if (el('kpiAvgWaitAssign')) el('kpiAvgWaitAssign').textContent = `Wait->Assign ${stage.wait_to_assigned || '--'}`;
     if (el('kpiAvgMobileScene')) el('kpiAvgMobileScene').textContent = `Mobile->Scene ${stage.mobile_to_scene || '--'}`;
@@ -1885,6 +1911,25 @@ function renderUnitsList(units, contentEl) {
     const breakDue = !!u.break_due;
     const breakDueIn = (u.break_due_in_minutes !== undefined && u.break_due_in_minutes !== null) ? Number(u.break_due_in_minutes) : null;
     const shiftRemaining = (u.shift_remaining_minutes !== undefined && u.shift_remaining_minutes !== null) ? Number(u.shift_remaining_minutes) : null;
+    const shiftDurationMins = (u.shift_duration_minutes !== undefined && u.shift_duration_minutes !== null) ? Number(u.shift_duration_minutes) : null;
+    const breakDueAfterMins = (u.break_due_after_minutes !== undefined && u.break_due_after_minutes !== null) ? Number(u.break_due_after_minutes) : null;
+    const onMealBreak = !!u.meal_break_active;
+    const crewGradesSummary = (() => {
+      const raw = u.crew;
+      if (!raw) return '';
+      let list = [];
+      try {
+        const arr = typeof raw === 'string' ? (JSON.parse(raw) || []) : (Array.isArray(raw) ? raw : []);
+        arr.forEach((m) => {
+          if (m && typeof m === 'object' && (m.username || m.user)) {
+            const grade = (m.grade || m.role || '').trim();
+            if (grade) list.push(grade);
+          }
+        });
+      } catch (e) {}
+      if (!list.length) return '';
+      return [...new Set(list)].join(', ');
+    })();
     const statusColor = (st === 'on_standby' || st === 'on_station' || st === 'at_station' || st === 'available')
       ? 'var(--accent-success)'
       : 'var(--accent-warning)';
@@ -1903,8 +1948,12 @@ function renderUnitsList(units, contentEl) {
           <div style="font-weight:600;">${callsign}</div>
           <div class="meta">${u.station || 'Mobile'} - ${prettyStatus(u.status)}</div>
           <div class="meta">Division: ${escapeHtml(u.division || 'general')}${u.is_external ? ' (external)' : ''}</div>
+          ${crewGradesSummary ? `<div class="meta">Crew grades: ${escapeHtml(crewGradesSummary)}</div>` : ''}
+          ${onMealBreak ? `<div class="meta" style="color:#fbbf24;">On meal break</div>` : ''}
           ${breakBlocked ? `<div class="meta" style="color:#fca5a5;">Break due: hold from new low-priority jobs</div>` : ''}
           ${(!breakBlocked && breakDue) ? `<div class="meta" style="color:#fde68a;">Break due soon${breakDueIn !== null ? ` (${escapeHtml(String(breakDueIn))}m)` : ''}</div>` : ''}
+          ${shiftDurationMins != null ? `<div class="meta">${escapeHtml(String(Math.round(shiftDurationMins / 60 * 10) / 10))}h shift${breakDueAfterMins != null ? ` · break after ${escapeHtml(String(breakDueAfterMins))}m` : ''}</div>` : ''}
+          ${(shiftDurationMins == null && breakDueAfterMins != null) ? `<div class="meta">Break after ${escapeHtml(String(breakDueAfterMins))}m</div>` : ''}
           ${shiftRemaining !== null ? `<div class="meta">Shift remaining: ${escapeHtml(String(shiftRemaining))}m</div>` : ''}
         </span>
         ${externalActions}
@@ -1944,9 +1993,12 @@ function loadMsgPanel(contentEl) {
         <ul id="dispatcherInboxList" style="list-style:none;padding:0;margin:0;max-height:170px;overflow:auto;${dispatchMsgUI.collapsed.inbox ? 'display:none;' : ''}"></ul>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
           <div style="font-weight:700;">Conversations <span id="msgConversationCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(16,185,129,0.22);color:#a7f3d0;">0</span></div>
-          <button class="btn" id="toggleConversationsPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" id="clearConversationsBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);font-size:11px;" title="Clear conversation count">Clear</button>
+            <button class="btn" id="toggleConversationsPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          </div>
         </div>
         <div id="conversationBlock" style="${dispatchMsgUI.collapsed.conversations ? 'display:none;' : ''}">
           <div id="msgRecipientChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
@@ -1960,9 +2012,12 @@ function loadMsgPanel(contentEl) {
         </div>
       </div>
       <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(2,6,23,0.45);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
           <div style="font-weight:700;">Cross-Division Assist Requests <span id="msgAssistCount" class="msg-section-badge" style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(245,158,11,0.22);color:#fde68a;">0</span></div>
-          <button class="btn" id="toggleAssistPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" id="clearAssistBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);font-size:11px;" title="Clear assist request count">Clear</button>
+            <button class="btn" id="toggleAssistPanelBtn" type="button" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);">Minimise</button>
+          </div>
         </div>
         <ul id="dispatcherAssistList" style="list-style:none;padding:0;margin:0;max-height:150px;overflow:auto;${dispatchMsgUI.collapsed.assist ? 'display:none;' : ''}"></ul>
       </div>
@@ -2004,9 +2059,28 @@ function loadMsgPanel(contentEl) {
   toggleLabel(toggleMotdBtn, dispatchMsgUI.collapsed.motd);
   toggleInboxBtn?.addEventListener('click', () => toggleSection('inbox', inboxListEl, toggleInboxBtn));
   contentEl.querySelector('#clearInboxNotificationsBtn')?.addEventListener('click', () => {
-    clearMessageBadge();
-    if (msgInboxCount) setSectionCount(msgInboxCount, 0);
-    showNotification('success', 'Notifications', 'Count cleared');
+    fetch('/plugin/ventus_response_module/job-comms/inbox-cleared', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : {})
+      .then(() => {
+        clearMessageBadge();
+        if (msgInboxCount) setSectionCount(msgInboxCount, 0);
+        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', 0);
+        showNotification('success', 'Notifications', 'Count cleared');
+        loadDispatcherInbox();
+      })
+      .catch(() => {
+        clearMessageBadge();
+        if (msgInboxCount) setSectionCount(msgInboxCount, 0);
+        showNotification('success', 'Notifications', 'Count cleared');
+      });
+  });
+  contentEl.querySelector('#clearConversationsBtn')?.addEventListener('click', () => {
+    if (msgConversationCount) setSectionCount(msgConversationCount, 0);
+    showNotification('success', 'Conversations', 'Count cleared');
+  });
+  contentEl.querySelector('#clearAssistBtn')?.addEventListener('click', () => {
+    if (msgAssistCount) setSectionCount(msgAssistCount, 0);
+    showNotification('success', 'Assist requests', 'Count cleared');
   });
   toggleConvoBtn?.addEventListener('click', () => toggleSection('conversations', convoBlockEl, toggleConvoBtn));
   toggleAssistBtn?.addEventListener('click', () => toggleSection('assist', assistListEl, toggleAssistBtn));
@@ -2174,11 +2248,12 @@ function loadMsgPanel(contentEl) {
 
   const loadDispatcherInbox = () =>
     fetch('/plugin/ventus_response_module/job-comms/recent?limit=80')
-      .then(r => r.ok ? r.json() : [])
-      .then(rows => {
-        const list = (Array.isArray(rows) ? rows : []);
-        setSectionCount(msgInboxCount, list.length);
-        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', list.length);
+      .then(r => r.ok ? r.json() : {})
+      .then(data => {
+        const list = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : []);
+        const unreadCount = (data && typeof data.unread_count === 'number') ? data.unread_count : list.length;
+        setSectionCount(msgInboxCount, unreadCount);
+        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', unreadCount);
         if (!list.length) {
           dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No incident messages yet.</li>';
           return;
@@ -2451,24 +2526,77 @@ window.loadUnitDetail = function(callsign) {
     const presetOptions = (Array.isArray(presets) ? presets : []).map(p =>
       `<option value="${escapeHtml(JSON.stringify({ name: p.name, lat: p.lat, lng: p.lng }))}">${escapeHtml(p.name)} (${escapeHtml(p.lat)}, ${escapeHtml(p.lng)})</option>`
     ).join('');
+    const crewList = Array.isArray(detail.crew) ? detail.crew : [];
+    const crewDisplay = (() => {
+      if (!crewList.length) return '<span class="meta">--</span>';
+      return `
+        <div class="meta" style="margin-bottom:4px;">Crew:</div>
+        <div class="crew-list" style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;">
+          ${crewList.map((c, idx) => {
+            const name = (c && typeof c === 'object' && c.username) ? c.username : String(c || '');
+            const grade = (c && typeof c === 'object' && c.grade) ? c.grade : '';
+            const at = (c && typeof c === 'object' && c.signedOnAt) ? c.signedOnAt : '';
+            const gradePart = grade ? ` · ${escapeHtml(grade)}` : '';
+            const timePart = at ? ` (${escapeHtml(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))})` : '';
+            const skills = Array.isArray(c.skills) ? c.skills : [];
+            const qualifications = Array.isArray(c.qualifications) ? c.qualifications : [];
+            const gender = (c && typeof c === 'object' && c.gender) ? String(c.gender).trim() : '';
+            const genderLabel = gender ? (gender.toLowerCase() === 'female' ? 'Female' : gender.toLowerCase() === 'male' ? 'Male' : escapeHtml(gender)) : '';
+            const photoUrl = (c && typeof c === 'object' && c.profile_picture_url) ? c.profile_picture_url : '';
+            const skillsHtml = skills.length ? `<ul style="margin:4px 0 0 0;padding-left:18px;">${skills.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : '<div class="meta">No skills listed.</div>';
+            const qualsHtml = qualifications.length ? `<ul style="margin:4px 0 0 0;padding-left:18px;">${qualifications.map(q => `<li>${escapeHtml(String(q))}</li>`).join('')}</ul>` : '<div class="meta">No additional qualifications.</div>';
+            return `
+              <div class="crew-member-wrap" style="position:relative;">
+                <button type="button" class="crew-name-trigger" data-crew-index="${idx}" style="background:transparent;border:1px solid var(--border-color);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:var(--text-color);text-align:left;">${escapeHtml(name)}${gradePart}${timePart}</button>
+                <div class="crew-member-dropdown" data-crew-index="${idx}" style="display:none;position:absolute;left:0;top:100%;margin-top:4px;min-width:220px;max-width:320px;background:var(--panel-bg);border:1px solid var(--border-color);border-radius:8px;padding:10px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:60;">
+                  <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
+                    ${photoUrl ? `<img src="${escapeHtml(photoUrl)}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0;">` : ''}
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-weight:600;">${escapeHtml(name)}</div>
+                      ${grade ? `<div class="meta">Grade: ${escapeHtml(grade)}</div>` : ''}
+                      ${genderLabel ? `<div class="meta">Gender: ${genderLabel}</div>` : ''}
+                    </div>
+                  </div>
+                  <div style="font-size:11px;font-weight:600;margin-bottom:4px;">Skills / role</div>
+                  ${skillsHtml}
+                  <div style="font-size:11px;font-weight:600;margin-top:8px;margin-bottom:4px;">Additional qualifications / sign-offs</div>
+                  ${qualsHtml}
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    })();
+    const shiftStartLabel = (detail.shift_start ? new Date(detail.shift_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null);
+    const shiftEndLabel = (detail.shift_end ? new Date(detail.shift_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null);
+    const shiftRange = (shiftStartLabel && shiftEndLabel) ? `${shiftStartLabel} – ${shiftEndLabel}` : (detail.shift_hours != null ? `${escapeHtml(String(detail.shift_hours))}h shift` : '--');
+    const breakPolicyLabel = (detail.break_due_after_minutes != null) ? `Break due after ${escapeHtml(String(detail.break_due_after_minutes))}m` : '--';
+    const breakDueInLabel = (detail.break_due_in_minutes != null)
+      ? (detail.break_due ? `<span style="color:#fca5a5;">Overdue ${escapeHtml(String(Math.abs(detail.break_due_in_minutes)))}m</span>` : `${escapeHtml(String(detail.break_due_in_minutes))}m`)
+      : '--';
     bodyEl.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
+          <div style="font-weight:600;margin-bottom:6px;">Shift &amp; break (from MDT sign-on)</div>
+          <div class="meta">Sign-on: ${detail.sign_on_time ? escapeHtml(new Date(detail.sign_on_time).toLocaleString()) : '--'}</div>
+          <div class="meta">Shift: ${shiftRange}${detail.shift_duration_minutes != null ? ` (${escapeHtml(String(detail.shift_duration_minutes))}m)` : ''}</div>
+          <div class="meta">Break policy: ${breakPolicyLabel}</div>
+          <div class="meta">Elapsed: ${detail.shift_elapsed_minutes != null ? `${escapeHtml(String(detail.shift_elapsed_minutes))}m` : '--'} · Remaining: ${detail.shift_remaining_minutes != null ? `${escapeHtml(String(detail.shift_remaining_minutes))}m` : '--'}</div>
+          <div class="meta">Break due: ${detail.break_due ? '<span style="color:#fca5a5;">Due</span>' : (detail.near_break ? '<span style="color:#fde68a;">Soon</span>' : 'OK')} ${breakDueInLabel !== '--' ? `(${breakDueInLabel})` : ''}</div>
+          ${detail.meal_break_active ? `<div class="meta" style="color:#fbbf24;">Meal break: ${escapeHtml(formatAgo(detail.meal_break_remaining_seconds || 0))} remaining</div>` : ''}
+          ${detail.meal_break_until && !detail.meal_break_active ? `<div class="meta" style="color:#94a3b8;">Meal break until ${escapeHtml(String(detail.meal_break_until))}</div>` : ''}
+          ${detail.meal_break_taken_at ? `<div class="meta" style="color:#94a3b8;">Meal break taken at ${escapeHtml(String(detail.meal_break_taken_at))}</div>` : ''}
+          ${detail.break_blocked_for_new_jobs ? `<div class="meta" style="color:#fca5a5;">Hold from new low-priority jobs (break due)</div>` : ''}
+          <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">
           <div style="font-weight:600;margin-bottom:6px;">Live Status</div>
           <div class="meta">Status: <b>${escapeHtml(prettyStatus(detail.status || '--'))}</b></div>
           <div class="meta">Division: <b>${escapeHtml(detail.division || 'general')}</b></div>
           <div class="meta">Last Ping: <b>${escapeHtml(formatAgo(detail.last_ping_seconds))}</b></div>
           <div class="meta">Last Seen: ${escapeHtml(detail.last_seen_at || '--')}</div>
           <div class="meta">Coordinates: ${detail.last_lat != null ? escapeHtml(String(detail.last_lat)) : '--'}, ${detail.last_lng != null ? escapeHtml(String(detail.last_lng)) : '--'}</div>
-          <div class="meta">Crew: ${escapeHtml((Array.isArray(detail.crew) ? detail.crew.join(', ') : '') || '--')}</div>
+          <div id="unitDetailCrewWrap">${crewDisplay}</div>
           <div class="meta">Destination Type: ${escapeHtml(destinationTypeLabel)}</div>
           <div class="meta">Destination State: ${escapeHtml(destinationStateLabel)}</div>
           <div class="meta">Activation Mode: ${escapeHtml(standby ? (standby.activation_mode || '--') : '--')}</div>
-          <div class="meta">Shift Elapsed: ${detail.shift_elapsed_minutes != null ? `${escapeHtml(String(detail.shift_elapsed_minutes))}m` : '--'}</div>
-          <div class="meta">Shift Remaining: ${detail.shift_remaining_minutes != null ? `${escapeHtml(String(detail.shift_remaining_minutes))}m` : '--'}</div>
-          <div class="meta">Break Policy: ${detail.break_due ? '<span style="color:#fca5a5;">Break due</span>' : (detail.near_break ? '<span style="color:#fde68a;">Break due soon</span>' : 'OK')}</div>
-          <div class="meta">Break Due In: ${detail.break_due_in_minutes != null ? `${escapeHtml(String(detail.break_due_in_minutes))}m` : '--'}</div>
-          ${detail.meal_break_active ? `<div class="meta" style="color:#fbbf24;">Meal break remaining: ${escapeHtml(formatAgo(detail.meal_break_remaining_seconds || 0))}</div>` : ''}
           <div style="margin-top:8px;padding-top:8px;border-top:2px solid var(--border-light);">
             <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Crew Changes</div>
             ${crewRemovals.length ? `
@@ -2482,7 +2610,6 @@ window.loadUnitDetail = function(callsign) {
               </div>
             ` : '<div class="meta">No crew removal events this shift.</div>'}
           </div>
-          ${detail.meal_break_until ? `<div class="meta" style="color:#fbbf24;">Meal break until ${escapeHtml(detail.meal_break_until)}</div>` : ''}
         </div>
         <div style="border:1px solid var(--border-color);border-radius:10px;padding:10px;">
           <div style="font-weight:600;margin-bottom:6px;">Workload</div>
@@ -2695,6 +2822,30 @@ window.loadUnitDetail = function(callsign) {
         loadJobDetail(currentJob.cad);
       }
     });
+    const crewWrap = bodyEl.querySelector('#unitDetailCrewWrap');
+    if (crewWrap) {
+      crewWrap.addEventListener('click', (ev) => {
+        const trigger = ev.target.closest('.crew-name-trigger');
+        if (!trigger) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const idx = trigger.getAttribute('data-crew-index');
+        const dropdowns = crewWrap.querySelectorAll('.crew-member-dropdown');
+        const targetDrop = crewWrap.querySelector(`.crew-member-dropdown[data-crew-index="${idx}"]`);
+        const wasOpen = targetDrop && targetDrop.style.display === 'block';
+        dropdowns.forEach(d => { d.style.display = 'none'; });
+        if (targetDrop && !wasOpen) {
+          targetDrop.style.display = 'block';
+          setTimeout(() => {
+            document.addEventListener('click', function closeCrewDropdown(e2) {
+              if (crewWrap.contains(e2.target)) return;
+              crewWrap.querySelectorAll('.crew-member-dropdown').forEach(d => { d.style.display = 'none'; });
+              document.removeEventListener('click', closeCrewDropdown);
+            });
+          }, 0);
+        }
+      });
+    }
     bodyEl.querySelector('#unitStandbyPreset')?.addEventListener('change', (ev) => {
       const raw = ev.target.value || '';
       if (!raw) return;

@@ -37,6 +37,7 @@ _schema_bootstrap_state = {
     "mdts_signed_on": False,
     "response_log": False,
     "crew_removal_log": False,
+    "crew_profiles": False,
 }
 
 
@@ -1313,10 +1314,13 @@ internal = Blueprint(
 @internal.before_request
 def _mdt_api_jwt_or_session_auth():
     """Require JWT (Bearer) or session for /api/mdt/* to avoid SeaSurf CSRF issues on mobile/cross-origin MDT clients."""
-    path = request.path or ""
+    path = (request.path or "").rstrip("/")
     if "/api/mdt" not in path:
         return
     if request.method == "OPTIONS":
+        return
+    # GET /api/mdt/divisions is used on login screen before sign-on; no auth required
+    if request.method == "GET" and path.endswith("api/mdt/divisions"):
         return
     g.mdt_user = None
     auth = request.headers.get("Authorization")
@@ -1909,6 +1913,23 @@ def units():
         conn.close()
 
 
+@internal.route('/crew-grades', methods=['GET'])
+@login_required
+def crew_grades():
+    """Return list of crew grades/roles (e.g. paramedic, AAP, ECA) for MDT and CAD dropdowns."""
+    allowed = ["dispatcher", "admin", "superuser", "clinical_lead", "controller", "crew", "call_taker", "call_handler"]
+    if not hasattr(current_user, 'role') or current_user.role.lower() not in allowed:
+        return jsonify({'error': 'Unauthorised'}), 403
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        grades = _list_crew_grades(cur)
+        return _jsonify_safe({"grades": grades}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
 @internal.route('/job/<int:cad>/update-details', methods=['POST'])
 @login_required
 def update_job_details(cad):
@@ -1937,7 +1958,7 @@ def update_job_details(cad):
 
         editable_fields = [
             'reason_for_call', 'address', 'postcode', 'what3words',
-            'first_name', 'middle_name', 'last_name', 'patient_dob',
+            'first_name', 'middle_name', 'last_name', 'patient_dob', 'patient_age',
             'phone_number', 'patient_gender', 'caller_name', 'caller_phone',
             'additional_details', 'onset_datetime', 'patient_alone',
             'call_priority', 'priority_source', 'division'
@@ -1950,6 +1971,14 @@ def update_job_details(cad):
                     val = val.strip()
                 if key == 'patient_gender':
                     val = _normalize_patient_gender(val)
+                if key == 'patient_age' and val is not None and val != '':
+                    try:
+                        n = int(float(val))
+                        val = str(n) if n >= 0 else None
+                    except (TypeError, ValueError):
+                        val = None
+                elif key == 'patient_age' and (val is None or val == ''):
+                    val = None
                 data[key] = val
                 changed[key] = val
 
@@ -2213,7 +2242,7 @@ def job_comms(cad):
 @internal.route('/job-comms/recent', methods=['GET'])
 @login_required
 def recent_job_comms():
-    """Recent CAD comms feed for dispatcher notifications fallback (polling)."""
+    """Recent CAD comms feed for dispatcher notifications. Returns items and unread_count (persisted per user after Clear)."""
     if not _user_has_role("dispatcher", "admin", "superuser", "clinical_lead", "controller"):
         return jsonify({"error": "Unauthorised access"}), 403
 
@@ -2227,6 +2256,18 @@ def recent_job_comms():
     cur = conn.cursor(dictionary=True)
     try:
         _ensure_job_comms_table(cur)
+        _ensure_dispatcher_inbox_cleared_table(cur)
+        username = (getattr(current_user, 'username', None) or '').strip()
+        cleared_at = None
+        if username:
+            cur.execute(
+                "SELECT cleared_at FROM dispatcher_inbox_cleared WHERE username = %s LIMIT 1",
+                (username,)
+            )
+            r = cur.fetchone()
+            if r and r.get('cleared_at'):
+                cleared_at = r.get('cleared_at')
+
         cur.execute("""
             SELECT c.id, c.cad, c.message_type, c.sender_role, c.sender_user, c.message_text, c.created_at
             FROM mdt_job_comms c
@@ -2237,7 +2278,46 @@ def recent_job_comms():
         """, (limit,))
         rows = cur.fetchall() or []
         rows.reverse()
-        return jsonify(rows)
+
+        if cleared_at is not None:
+            try:
+                unread_count = sum(1 for row in rows if (row.get('created_at') or datetime.min) > cleared_at)
+            except (TypeError, ValueError):
+                unread_count = len(rows)
+        else:
+            unread_count = len(rows)
+
+        return jsonify({"items": rows, "unread_count": unread_count})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/job-comms/inbox-cleared', methods=['POST'])
+@login_required
+def job_comms_inbox_cleared():
+    """Mark the dispatcher incident inbox as cleared for the current user (persists across refresh)."""
+    if not _user_has_role("dispatcher", "admin", "superuser", "clinical_lead", "controller"):
+        return jsonify({"error": "Unauthorised access"}), 403
+
+    username = (getattr(current_user, 'username', None) or '').strip()
+    if not username:
+        return jsonify({"error": "User not identified"}), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        _ensure_dispatcher_inbox_cleared_table(cur)
+        cur.execute("""
+            INSERT INTO dispatcher_inbox_cleared (username, cleared_at)
+            VALUES (%s, NOW())
+            ON DUPLICATE KEY UPDATE cleared_at = NOW()
+        """, (username,))
+        conn.commit()
+        return jsonify({"success": True, "message": "Inbox cleared"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
     finally:
         cur.close()
         conn.close()
@@ -2538,15 +2618,17 @@ def unit_detail(callsign):
         if not row:
             return jsonify({'error': 'Unit not found'}), 404
 
-        crew = []
+        raw_crew_list = []
         try:
             raw_crew = row.get('crew')
             if isinstance(raw_crew, str):
-                crew = json.loads(raw_crew) if raw_crew else []
+                raw_crew_list = json.loads(raw_crew) if raw_crew else []
             elif isinstance(raw_crew, list):
-                crew = raw_crew
+                raw_crew_list = raw_crew
         except Exception:
-            crew = []
+            raw_crew_list = []
+        crew = _normalize_crew_to_objects(raw_crew_list, row.get('signOnTime'))
+        crew = _enrich_crew_with_profiles(cur, crew)
 
         current_job = None
         cad = row.get('assignedIncident')
@@ -2653,6 +2735,10 @@ def unit_detail(callsign):
             standby = None
 
         shift_state = _compute_shift_break_state(row)
+        shift_start_at = shift_state.get('shift_start_at')
+        shift_end_at = shift_state.get('shift_end_at')
+        shift_duration_minutes = shift_state.get('shift_duration_minutes')
+        shift_hours = (float(shift_duration_minutes) / 60.0) if shift_duration_minutes is not None else None
 
         return _jsonify_safe({
             'callsign': callsign,
@@ -2671,12 +2757,15 @@ def unit_detail(callsign):
             'meal_break_taken_at': row.get('mealBreakTakenAt'),
             'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
             'meal_break_active': shift_state.get('meal_break_active'),
-            'shift_start_at': shift_state.get('shift_start_at'),
-            'shift_end_at': shift_state.get('shift_end_at'),
-            'shift_duration_minutes': shift_state.get('shift_duration_minutes'),
+            'shift_start': shift_start_at.isoformat() + 'Z' if shift_start_at and hasattr(shift_start_at, 'isoformat') else None,
+            'shift_end': shift_end_at.isoformat() + 'Z' if shift_end_at and hasattr(shift_end_at, 'isoformat') else None,
+            'shift_hours': shift_hours,
+            'shift_duration_minutes': shift_duration_minutes,
+            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
+            'shift_start_at': shift_start_at,
+            'shift_end_at': shift_end_at,
             'shift_elapsed_minutes': shift_state.get('shift_elapsed_minutes'),
             'shift_remaining_minutes': shift_state.get('shift_remaining_minutes'),
-            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
             'break_due_in_minutes': shift_state.get('break_due_in_minutes'),
             'break_due': shift_state.get('break_due'),
             'near_break': shift_state.get('near_break'),
@@ -3787,7 +3876,11 @@ def kpis():
                         "on_scene": "--",
                         "leave_to_hospital": "--",
                         "at_hospital": "--"
-                    }
+                    },
+                    "units_near_break": 0,
+                    "units_on_meal_break": 0,
+                    "units_overdue_break": 0,
+                    "units_finishing_soon": 0
                 })
             if has_unit_div:
                 unit_div_where = " AND LOWER(TRIM(COALESCE(division, 'general'))) = %s"
@@ -3804,7 +3897,11 @@ def kpis():
                         "on_scene": "--",
                         "leave_to_hospital": "--",
                         "at_hospital": "--"
-                    }
+                    },
+                    "units_near_break": 0,
+                    "units_on_meal_break": 0,
+                    "units_overdue_break": 0,
+                    "units_finishing_soon": 0
                 })
 
         # Active jobs
@@ -3997,12 +4094,58 @@ def kpis():
                 _avg_duration([int(row.get('avg_seconds'))]) if row.get('avg_seconds') is not None else None
             )
 
+        # Unit shift/break KPIs: near break, on meal break, overdue break, finishing soon
+        units_near_break = 0
+        units_on_meal_break = 0
+        units_overdue_break = 0
+        units_finishing_soon = 0
+        try:
+            _ensure_mdts_signed_on_schema(cur)
+            _ensure_meal_break_columns(cur)
+            cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'lastSeenAt'")
+            has_last_seen = cur.fetchone() is not None
+            cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'signOnTime'")
+            has_sign_on = cur.fetchone() is not None
+            seen_expr = "COALESCE(m.lastSeenAt, m.signOnTime)" if (has_last_seen and has_sign_on) else ("m.lastSeenAt" if has_last_seen else "m.signOnTime")
+            cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'shiftStartAt'")
+            has_shift = cur.fetchone() is not None
+            unit_kpi_where = " WHERE m.status IS NOT NULL AND " + seen_expr + " >= DATE_SUB(NOW(), INTERVAL 120 MINUTE)"
+            unit_kpi_where += unit_div_where.replace("division", "m.division") if unit_div_where else ""
+            if has_shift:
+                cur.execute(
+                    "SELECT m.callSign, m.status, m.signOnTime, m.mealBreakStartedAt, m.mealBreakUntil, m.mealBreakTakenAt, m.shiftStartAt, m.shiftEndAt, m.shiftDurationMins, m.breakDueAfterMins FROM mdts_signed_on m" + unit_kpi_where,
+                    tuple(unit_div_args)
+                )
+            else:
+                cur.execute(
+                    "SELECT m.callSign, m.status, m.signOnTime FROM mdts_signed_on m" + unit_kpi_where,
+                    tuple(unit_div_args)
+                )
+            unit_rows = cur.fetchall() or []
+            for u in unit_rows:
+                state = _compute_shift_break_state(u)
+                if state.get("meal_break_active"):
+                    units_on_meal_break += 1
+                elif state.get("break_due"):
+                    units_overdue_break += 1
+                elif state.get("near_break"):
+                    units_near_break += 1
+                rem = state.get("shift_remaining_minutes")
+                if rem is not None and rem <= 30 and rem >= 0:
+                    units_finishing_soon += 1
+        except Exception:
+            pass
+
         return jsonify({
             "active_jobs": active_jobs,
             "units_available": units_available,
             "cleared_today": cleared_today,
             "avg_response_time": avg_response_time,
-            "stage_averages": stage_averages
+            "stage_averages": stage_averages,
+            "units_near_break": units_near_break,
+            "units_on_meal_break": units_on_meal_break,
+            "units_overdue_break": units_overdue_break,
+            "units_finishing_soon": units_finishing_soon
         })
     finally:
         cur.close()
@@ -5597,6 +5740,10 @@ def _ensure_crew_removal_log_table(cur):
     except Exception:
         pass
     try:
+        cur.execute("ALTER TABLE mdt_crew_removal_log ADD COLUMN notes VARCHAR(512) NULL DEFAULT NULL")
+    except Exception:
+        pass
+    try:
         cur.execute("CREATE INDEX idx_crew_remove_callsign_time ON mdt_crew_removal_log (callSign, removed_at)")
     except Exception:
         pass
@@ -5605,6 +5752,209 @@ def _ensure_crew_removal_log_table(cur):
     except Exception:
         pass
     _schema_bootstrap_state["crew_removal_log"] = True
+
+
+def _ensure_crew_grades_table(cur):
+    """Crew grades/roles (e.g. paramedic, AAP, ECA) for dispatch allocation."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mdt_crew_grades (
+            value VARCHAR(64) NOT NULL PRIMARY KEY,
+            label VARCHAR(120) NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            is_active TINYINT NOT NULL DEFAULT 1,
+            INDEX idx_crew_grades_active_order (is_active, sort_order)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+    cur.execute("SELECT 1 FROM mdt_crew_grades LIMIT 1")
+    if cur.fetchone() is None:
+        defaults = [
+            ('paramedic', 'Paramedic', 10),
+            ('aap', 'AAP (Associate Ambulance Practitioner)', 20),
+            ('eca', 'Emergency Care Assistant', 30),
+            ('tec', 'Emergency Medical Technician', 40),
+            ('student', 'Student', 50),
+            ('other', 'Other', 99),
+        ]
+        for val, label, order in defaults:
+            try:
+                cur.execute(
+                    "INSERT IGNORE INTO mdt_crew_grades (value, label, sort_order) VALUES (%s, %s, %s)",
+                    (val, label, order)
+                )
+            except Exception:
+                pass
+
+
+def _list_crew_grades(cur):
+    _ensure_crew_grades_table(cur)
+    cur.execute(
+        "SELECT value, label FROM mdt_crew_grades WHERE is_active = 1 ORDER BY sort_order ASC, label ASC"
+    )
+    rows = cur.fetchall() or []
+    return [{"value": r.get("value", ""), "label": r.get("label", r.get("value", ""))} for r in rows]
+
+
+def _normalize_crew_to_objects(raw_crew, sign_on_time=None):
+    """Normalize crew from DB (list of strings or list of dicts) to [{ username, signedOnAt, grade? }, ...] for API."""
+    if not raw_crew:
+        return []
+    out = []
+    sign_on_iso = None
+    if sign_on_time is not None and hasattr(sign_on_time, 'isoformat'):
+        sign_on_iso = sign_on_time.isoformat() + 'Z' if sign_on_time else None
+    for el in raw_crew:
+        if isinstance(el, dict):
+            uname = str((el.get('username') or el.get('user') or '')).strip()
+            if not uname:
+                continue
+            signed_on = el.get('signedOnAt') or el.get('signed_on_at')
+            if signed_on and hasattr(signed_on, 'isoformat'):
+                signed_on = signed_on.isoformat() + 'Z'
+            grade = str(el.get('grade') or el.get('role') or '').strip() or None
+            out.append({'username': uname, 'signedOnAt': signed_on or sign_on_iso, 'grade': grade})
+        else:
+            uname = str(el).strip()
+            if uname:
+                out.append({'username': uname, 'signedOnAt': sign_on_iso, 'grade': None})
+    return out
+
+
+def _safe_profile_picture_path(path):
+    """Return path only if safe for static serving; otherwise None (no path traversal, no absolute)."""
+    if not path or not isinstance(path, str):
+        return None
+    import re
+    cleaned = path.strip()
+    if ".." in cleaned or cleaned.startswith("/") or re.match(r"^[a-zA-Z]:", cleaned):
+        return None
+    if not re.match(r"^[\w/.\-]+$", cleaned):
+        return None
+    return cleaned
+
+
+def _ensure_mdt_crew_profiles_table(cur):
+    global _schema_bootstrap_state
+    if _schema_bootstrap_state.get("crew_profiles"):
+        return
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mdt_crew_profiles (
+            username VARCHAR(120) NOT NULL PRIMARY KEY,
+            contractor_id INT NULL,
+            gender VARCHAR(24) NULL,
+            skills_json JSON NULL,
+            qualifications_json JSON NULL,
+            profile_picture_path VARCHAR(512) NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_crew_profiles_contractor (contractor_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+    try:
+        cur.execute("SHOW COLUMNS FROM mdt_crew_profiles LIKE 'profile_picture_path'")
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE mdt_crew_profiles ADD COLUMN profile_picture_path VARCHAR(512) NULL AFTER qualifications_json")
+    except Exception:
+        pass
+    _schema_bootstrap_state["crew_profiles"] = True
+
+
+def _get_contractor_id_for_username(cur, username):
+    """Resolve crew username to tb_contractors.id by email or name (if table exists). Returns None if not found."""
+    uname = (username or "").strip()
+    if not uname:
+        return None
+    try:
+        cur.execute("SHOW TABLES LIKE 'tb_contractors'")
+        if not cur.fetchone():
+            return None
+        cur.execute(
+            "SELECT id FROM tb_contractors WHERE LOWER(TRIM(COALESCE(email,''))) = LOWER(%s) OR LOWER(TRIM(COALESCE(name,''))) = LOWER(%s) LIMIT 1",
+            (uname, uname),
+        )
+        row = cur.fetchone()
+        return int(row["id"]) if row and row.get("id") is not None else None
+    except Exception:
+        return None
+
+
+def _get_crew_profile(cur, username):
+    """Return profile row from mdt_crew_profiles (gender, skills_json, qualifications_json, contractor_id, profile_picture_path)."""
+    uname = (username or "").strip()
+    if not uname:
+        return None
+    try:
+        _ensure_mdt_crew_profiles_table(cur)
+        cur.execute(
+            "SELECT contractor_id, gender, skills_json, qualifications_json, profile_picture_path FROM mdt_crew_profiles WHERE username = %s LIMIT 1",
+            (uname,),
+        )
+        return cur.fetchone()
+    except Exception:
+        return None
+
+
+def _enrich_crew_with_profiles(cur, crew):
+    """Enrich each crew member from MySQL: mdt_crew_profiles (gender, skills, qualifications, profile_picture_path); fallback profile pic from tb_contractors when contractor_id set."""
+    if not crew:
+        return crew
+    try:
+        cur.execute("SHOW TABLES LIKE 'tb_contractors'")
+        has_contractors = cur.fetchone() is not None
+        has_profile_col = False
+        if has_contractors:
+            cur.execute("SHOW COLUMNS FROM tb_contractors LIKE 'profile_picture_path'")
+            has_profile_col = cur.fetchone() is not None
+    except Exception:
+        has_contractors = False
+        has_profile_col = False
+    out = []
+    for c in crew:
+        uname = (c.get("username") or "").strip()
+        if not uname:
+            out.append({**c, "gender": None, "profile_picture_url": None, "skills": [], "qualifications": []})
+            continue
+        profile = _get_crew_profile(cur, uname)
+        contractor_id = None
+        if profile and profile.get("contractor_id") is not None:
+            contractor_id = int(profile["contractor_id"])
+        if contractor_id is None:
+            contractor_id = _get_contractor_id_for_username(cur, uname)
+        gender = None
+        skills = []
+        qualifications = []
+        if profile:
+            g = (profile.get("gender") or "").strip() or None
+            if g:
+                gender = g
+            try:
+                if profile.get("skills_json"):
+                    skills = json.loads(profile["skills_json"]) if isinstance(profile["skills_json"], str) else (profile["skills_json"] or [])
+                if profile.get("qualifications_json"):
+                    qualifications = json.loads(profile["qualifications_json"]) if isinstance(profile["qualifications_json"], str) else (profile["qualifications_json"] or [])
+            except Exception:
+                pass
+        profile_picture_url = None
+        if profile and profile.get("profile_picture_path"):
+            safe = _safe_profile_picture_path(profile["profile_picture_path"])
+            if safe:
+                profile_picture_url = "/static/" + safe
+        if not profile_picture_url and has_profile_col and contractor_id is not None:
+            try:
+                cur.execute("SELECT profile_picture_path FROM tb_contractors WHERE id = %s LIMIT 1", (contractor_id,))
+                row = cur.fetchone()
+                if row and row.get("profile_picture_path"):
+                    safe = _safe_profile_picture_path(row["profile_picture_path"])
+                    if safe:
+                        profile_picture_url = "/static/" + safe
+            except Exception:
+                pass
+        out.append({
+            **c,
+            "gender": gender,
+            "profile_picture_url": profile_picture_url,
+            "skills": list(skills) if isinstance(skills, list) else [],
+            "qualifications": list(qualifications) if isinstance(qualifications, list) else [],
+        })
+    return out
 
 
 def _ensure_job_comms_table(cur):
@@ -5619,6 +5969,16 @@ def _ensure_job_comms_table(cur):
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_job_comms_cad (cad),
             INDEX idx_job_comms_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+
+
+def _ensure_dispatcher_inbox_cleared_table(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dispatcher_inbox_cleared (
+            username VARCHAR(120) NOT NULL PRIMARY KEY,
+            cleared_at DATETIME NOT NULL,
+            INDEX idx_inbox_cleared_at (cleared_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
 
@@ -5733,6 +6093,7 @@ def _extract_required_skills(job_payload):
 
 
 def _extract_unit_skills(crew_payload):
+    """Extract skills/grades from crew for job matching. Includes each member's grade/role as a skill."""
     skills = set()
     try:
         crew = crew_payload
@@ -5744,10 +6105,12 @@ def _extract_unit_skills(crew_payload):
             return skills
         for member in crew:
             if isinstance(member, str):
-                # legacy list of crew names only; no skills to infer safely
                 continue
             if not isinstance(member, dict):
                 continue
+            grade = member.get('grade') or member.get('role')
+            if grade:
+                skills.add(str(grade).strip().lower())
             for key in ('skills', 'quals', 'qualifications', 'capabilities'):
                 raw = member.get(key)
                 if isinstance(raw, list):
@@ -5770,6 +6133,170 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     dl = math.radians(lon2 - lon1)
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return r * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+
+# 0) Divisions & crew grades
+
+
+@internal.route('/api/mdt/divisions', methods=['GET', 'OPTIONS'])
+def mdt_divisions():
+    """Return list of available divisions/operating areas for MDT login screen."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        items = _list_dispatch_divisions(cur, include_inactive=False)
+        divisions = [{"value": x.get("slug", ""), "label": x.get("name", "")} for x in items]
+        return _jsonify_safe({"divisions": divisions}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/crew-grades', methods=['GET', 'OPTIONS'])
+def mdt_crew_grades():
+    """Return list of crew grades/roles for MDT sign-on and add-crew dropdowns."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        grades = _list_crew_grades(cur)
+        return _jsonify_safe({"grades": grades}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/crew-profiles', methods=['GET', 'OPTIONS'])
+@login_required
+def mdt_crew_profiles_list():
+    """List crew profiles (optionally filter by username). For admin/HR to manage gender, skills, qualifications, contractor link."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    allowed = ["dispatcher", "admin", "superuser", "clinical_lead", "controller", "call_taker", "call_handler"]
+    if not hasattr(current_user, 'role') or current_user.role.lower() not in allowed:
+        return jsonify({'error': 'Unauthorised'}), 403
+    username = (request.args.get('username') or '').strip() or None
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        _ensure_mdt_crew_profiles_table(cur)
+        if username:
+            cur.execute(
+                "SELECT username, contractor_id, gender, skills_json, qualifications_json, profile_picture_path, updated_at FROM mdt_crew_profiles WHERE username = %s",
+                (username,),
+            )
+            rows = cur.fetchall() or []
+        else:
+            cur.execute(
+                "SELECT username, contractor_id, gender, skills_json, qualifications_json, profile_picture_path, updated_at FROM mdt_crew_profiles ORDER BY username"
+            )
+            rows = cur.fetchall() or []
+        out = []
+        for r in rows:
+            skills = []
+            qualifications = []
+            try:
+                if r.get('skills_json'):
+                    skills = json.loads(r['skills_json']) if isinstance(r['skills_json'], str) else (r['skills_json'] or [])
+                if r.get('qualifications_json'):
+                    qualifications = json.loads(r['qualifications_json']) if isinstance(r['qualifications_json'], str) else (r['qualifications_json'] or [])
+            except Exception:
+                pass
+            out.append({
+                'username': r.get('username'),
+                'contractor_id': r.get('contractor_id'),
+                'gender': r.get('gender'),
+                'skills': skills,
+                'qualifications': qualifications,
+                'profile_picture_path': r.get('profile_picture_path'),
+                'updated_at': r.get('updated_at').isoformat() if r.get('updated_at') and hasattr(r.get('updated_at'), 'isoformat') else str(r.get('updated_at') or ''),
+            })
+        return _jsonify_safe({'profiles': out}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/crew-profiles/<username>', methods=['GET', 'PUT', 'OPTIONS'])
+@login_required
+def mdt_crew_profile(username):
+    """Get or upsert a single crew profile (gender, skills, qualifications, contractor_id)."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    allowed = ["dispatcher", "admin", "superuser", "clinical_lead", "controller", "call_taker", "call_handler"]
+    if not hasattr(current_user, 'role') or current_user.role.lower() not in allowed:
+        return jsonify({'error': 'Unauthorised'}), 403
+    uname = (username or '').strip()
+    if not uname:
+        return jsonify({'error': 'username required'}), 400
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        _ensure_mdt_crew_profiles_table(cur)
+        if request.method == 'GET':
+            cur.execute(
+                "SELECT username, contractor_id, gender, skills_json, qualifications_json, profile_picture_path, updated_at FROM mdt_crew_profiles WHERE username = %s",
+                (uname,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return jsonify({'error': 'Not found'}), 404
+            skills = []
+            qualifications = []
+            try:
+                if r.get('skills_json'):
+                    skills = json.loads(r['skills_json']) if isinstance(r['skills_json'], str) else (r['skills_json'] or [])
+                if r.get('qualifications_json'):
+                    qualifications = json.loads(r['qualifications_json']) if isinstance(r['qualifications_json'], str) else (r['qualifications_json'] or [])
+            except Exception:
+                pass
+            return _jsonify_safe({
+                'username': r.get('username'),
+                'contractor_id': r.get('contractor_id'),
+                'gender': r.get('gender'),
+                'skills': skills,
+                'qualifications': qualifications,
+                'profile_picture_path': r.get('profile_picture_path'),
+                'updated_at': r.get('updated_at').isoformat() if r.get('updated_at') and hasattr(r.get('updated_at'), 'isoformat') else str(r.get('updated_at') or ''),
+            }, 200)
+        # PUT: upsert (all stored in MySQL mdt_crew_profiles)
+        payload = request.get_json() or {}
+        contractor_id = payload.get('contractor_id')
+        if contractor_id is not None and contractor_id != '':
+            try:
+                contractor_id = int(contractor_id)
+            except (TypeError, ValueError):
+                contractor_id = None
+        else:
+            contractor_id = None
+        gender = (str(payload.get('gender') or '').strip() or None)
+        skills = payload.get('skills')
+        if skills is not None and not isinstance(skills, list):
+            skills = [skills] if skills else []
+        qualifications = payload.get('qualifications')
+        if qualifications is not None and not isinstance(qualifications, list):
+            qualifications = [qualifications] if qualifications else []
+        profile_picture_path = (str(payload.get('profile_picture_path') or '').strip() or None
+        skills_json = json.dumps(skills) if skills is not None else None
+        qualifications_json = json.dumps(qualifications) if qualifications is not None else None
+        cur.execute("""
+            INSERT INTO mdt_crew_profiles (username, contractor_id, gender, skills_json, qualifications_json, profile_picture_path)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                contractor_id = COALESCE(VALUES(contractor_id), contractor_id),
+                gender = COALESCE(VALUES(gender), gender),
+                skills_json = COALESCE(VALUES(skills_json), skills_json),
+                qualifications_json = COALESCE(VALUES(qualifications_json), qualifications_json),
+                profile_picture_path = COALESCE(VALUES(profile_picture_path), profile_picture_path)
+        """, (uname, contractor_id, gender, skills_json, qualifications_json, profile_picture_path))
+        conn.commit()
+        return _jsonify_safe({'success': True, 'username': uname}, 200)
+    finally:
+        cur.close()
+        conn.close()
+
 
 # 1) Sign-On
 
@@ -5796,12 +6323,30 @@ def mdt_sign_on():
         or payload.get('meal_break_due_after_minutes')
     )
 
-    # normalize crew into a list
-    crew = []
+    # normalize crew into list of { username, grade? }; may be [ "user1" ] or [ { username, grade } ]
+    crew_input = []
     if isinstance(crew_raw, str):
-        crew = [crew_raw]
+        crew_input = [crew_raw]
     elif isinstance(crew_raw, list):
-        crew = crew_raw
+        crew_input = crew_raw
+    crew_for_validation = []
+    crew_objs_for_storage = []
+    now = datetime.utcnow()
+    sign_on_iso = now.isoformat() + 'Z'
+    for member in crew_input:
+        if isinstance(member, dict):
+            uname = str(member.get('username') or member.get('user') or '').strip()
+            if not uname:
+                continue
+            grade = str(member.get('grade') or member.get('role') or '').strip() or None
+            crew_for_validation.append(uname)
+            crew_objs_for_storage.append({'username': uname, 'signedOnAt': sign_on_iso, 'grade': grade})
+        else:
+            uname = str(member).strip()
+            if uname:
+                crew_for_validation.append(uname)
+                crew_objs_for_storage.append({'username': uname, 'signedOnAt': sign_on_iso, 'grade': None})
+    crew = crew_for_validation
 
     if not callsign or not crew:
         return jsonify({'error': 'callSign (or callsign) and crew required'}), 400
@@ -5902,7 +6447,7 @@ def mdt_sign_on():
                     request.headers.get('X-Forwarded-For',
                                         request.remote_addr or ''),
                     status,
-                    json.dumps(crew),
+                    json.dumps(crew_objs_for_storage),
                     division
                 )
             )
@@ -5925,7 +6470,7 @@ def mdt_sign_on():
                     request.headers.get('X-Forwarded-For',
                                         request.remote_addr or ''),
                     status,
-                    json.dumps(crew)
+                    json.dumps(crew_objs_for_storage)
                 )
             )
         post_set = []
@@ -5998,13 +6543,15 @@ def mdt_sign_on():
     except Exception:
         pass
 
+    shift_hours = (float(shift_duration_mins) / 60.0) if shift_duration_mins is not None else None
     return _jsonify_safe({
         'message': 'Signed on',
         'callsign': callsign,
         'division': division,
         'status': status,
-        'shift_start_at': shift_start_at,
-        'shift_end_at': shift_end_at,
+        'shift_start': shift_start_at.isoformat() + 'Z' if shift_start_at and hasattr(shift_start_at, 'isoformat') else None,
+        'shift_end': shift_end_at.isoformat() + 'Z' if shift_end_at and hasattr(shift_end_at, 'isoformat') else None,
+        'shift_hours': shift_hours,
         'shift_duration_minutes': shift_duration_mins,
         'break_due_after_minutes': break_due_after_mins
     }, 200)
@@ -7018,31 +7565,72 @@ def mdt_update_crew_legacy(callsign):
     try:
         if request.method == 'GET':
             cur.execute(
-                "SELECT crew FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
+                "SELECT crew, signOnTime FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
                 (cs,)
             )
             row = cur.fetchone()
             if not row:
                 return jsonify({'error': 'callsign not signed on'}), 404
             crew_raw = row.get('crew')
-            crew = []
+            raw_list = []
             try:
                 if isinstance(crew_raw, (bytes, bytearray)):
                     crew_raw = crew_raw.decode('utf-8', errors='ignore')
                 if isinstance(crew_raw, str):
-                    crew = json.loads(crew_raw) if crew_raw else []
+                    raw_list = json.loads(crew_raw) if crew_raw else []
                 elif isinstance(crew_raw, list):
-                    crew = crew_raw
+                    raw_list = crew_raw
             except Exception:
-                crew = []
-            if not isinstance(crew, list):
-                crew = []
-            crew = [str(x).strip() for x in crew if str(x).strip()]
+                raw_list = []
+            crew = _normalize_crew_to_objects(raw_list, row.get('signOnTime'))
             return _jsonify_safe({'crew': crew}, 200)
 
         payload = request.get_json(silent=True) or {}
+        cur.execute(
+            "SELECT crew, signOnTime FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
+            (cs,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'callsign not signed on'}), 404
+
+        add_username = str(payload.get('username') or '').strip()
+        if add_username:
+            # Add single crew member: validate user exists, append, return full crew
+            cur.execute("SHOW TABLES LIKE 'users'")
+            if cur.fetchone():
+                cur.execute(
+                    "SELECT 1 FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(%s)) LIMIT 1",
+                    (add_username,)
+                )
+                if cur.fetchone() is None:
+                    return jsonify({'error': 'User not found'}), 404
+            raw_list = []
+            try:
+                r = row.get('crew')
+                if isinstance(r, str):
+                    raw_list = json.loads(r) if r else []
+                elif isinstance(r, list):
+                    raw_list = r
+            except Exception:
+                raw_list = []
+            crew_objs = _normalize_crew_to_objects(raw_list, row.get('signOnTime'))
+            if any(c.get('username', '').lower() == add_username.lower() for c in crew_objs):
+                return _jsonify_safe({'success': True, 'crew': crew_objs}, 200)
+            now = datetime.utcnow()
+            signed_on_iso = now.isoformat() + 'Z'
+            add_grade = str(payload.get('grade') or payload.get('role') or '').strip() or None
+            crew_objs.append({'username': add_username, 'signedOnAt': signed_on_iso, 'grade': add_grade})
+            cur.execute(
+                "UPDATE mdts_signed_on SET crew = %s WHERE callSign = %s",
+                (json.dumps(crew_objs), cs)
+            )
+            conn.commit()
+            return _jsonify_safe({'success': True, 'crew': crew_objs}, 200)
+
+        # Legacy: replace whole crew from payload.crew
         if 'crew' not in payload:
-            return jsonify({'error': 'crew required'}), 400
+            return jsonify({'error': 'crew or username required'}), 400
         crew_raw = payload.get('crew')
         crew = []
         if isinstance(crew_raw, str):
@@ -7050,14 +7638,6 @@ def mdt_update_crew_legacy(callsign):
         elif isinstance(crew_raw, list):
             crew = crew_raw
         crew = [str(x).strip() for x in crew if str(x).strip()]
-
-        cur.execute(
-            "SELECT callSign FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
-            (cs,)
-        )
-        exists = cur.fetchone()
-        if not exists:
-            return jsonify({'error': 'callsign not signed on'}), 404
 
         removed = str(payload.get('removed') or '').strip()
         removal_reason = str(payload.get('removal_reason') or '').strip()
@@ -7078,7 +7658,118 @@ def mdt_update_crew_legacy(callsign):
             (json.dumps(crew), cs)
         )
         conn.commit()
-        return _jsonify_safe({'crew': crew}, 200)
+        crew_objs = _normalize_crew_to_objects(crew, row.get('signOnTime'))
+        return _jsonify_safe({'success': True, 'crew': crew_objs}, 200)
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/division', methods=['POST', 'OPTIONS'])
+def mdt_set_division(callsign):
+    """Update the operating area for a signed-on unit. Broadcasts to dispatcher/CAD."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    if not cs:
+        return jsonify({'error': 'callsign required'}), 400
+    payload = request.get_json(silent=True) or {}
+    division = _normalize_division(payload.get('division'), fallback='')
+    if not division:
+        return jsonify({'error': 'division required'}), 400
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT callSign FROM mdts_signed_on WHERE callSign = %s LIMIT 1", (cs,))
+        if not cur.fetchone():
+            return jsonify({'error': 'Unit not signed on'}), 404
+        cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'division'")
+        if not cur.fetchone():
+            return jsonify({'error': 'Division not supported'}), 500
+        cur.execute("UPDATE mdts_signed_on SET division = %s WHERE callSign = %s", (division, cs))
+        conn.commit()
+        try:
+            socketio.emit('mdt_event', {'type': 'units_updated', 'callsign': cs}, broadcast=True)
+        except Exception:
+            pass
+        return _jsonify_safe({'success': True, 'division': division}, 200)
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@internal.route('/api/mdt/<callsign>/crew/<username>', methods=['DELETE', 'OPTIONS'])
+def mdt_remove_crew_member(callsign, username):
+    """Remove a crew member from the active session. Body: { reason, notes }. Logged for audit."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    cs = str(callsign or '').strip().upper()
+    uname = str(username or '').strip()
+    if not cs:
+        return jsonify({'error': 'callsign required'}), 400
+    if not uname:
+        return jsonify({'error': 'username required'}), 400
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get('reason') or 'other').strip().lower()
+    allowed = {'illness', 'early_finish', 'reassigned', 'other'}
+    if reason not in allowed:
+        reason = 'other'
+    notes = str(payload.get('notes') or '').strip()[:512]
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT crew, signOnTime FROM mdts_signed_on WHERE callSign = %s ORDER BY signOnTime DESC LIMIT 1",
+            (cs,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'Unit not signed on'}), 404
+        raw_list = []
+        try:
+            r = row.get('crew')
+            if isinstance(r, str):
+                raw_list = json.loads(r) if r else []
+            elif isinstance(r, list):
+                raw_list = r
+        except Exception:
+            raw_list = []
+        crew_objs = _normalize_crew_to_objects(raw_list, row.get('signOnTime'))
+        before_len = len(crew_objs)
+        crew_objs = [c for c in crew_objs if str(c.get('username') or '').strip().lower() != uname.lower()]
+        if len(crew_objs) == before_len:
+            return _jsonify_safe({'success': True, 'crew': crew_objs}, 200)
+        _ensure_crew_removal_log_table(cur)
+        has_notes = False
+        try:
+            cur.execute("SHOW COLUMNS FROM mdt_crew_removal_log LIKE 'notes'")
+            has_notes = cur.fetchone() is not None
+        except Exception:
+            pass
+        if has_notes:
+            cur.execute("""
+                INSERT INTO mdt_crew_removal_log
+                    (callSign, removed_username, removal_reason, removed_by, removed_at, notes)
+                VALUES (%s, %s, %s, %s, NOW(), %s)
+            """, (cs, uname, reason, cs, notes or None))
+        else:
+            cur.execute("""
+                INSERT INTO mdt_crew_removal_log
+                    (callSign, removed_username, removal_reason, removed_by, removed_at)
+                VALUES (%s, %s, %s, %s, NOW())
+            """, (cs, uname, reason, cs))
+        cur.execute(
+            "UPDATE mdts_signed_on SET crew = %s WHERE callSign = %s",
+            (json.dumps(crew_objs), cs)
+        )
+        conn.commit()
+        return _jsonify_safe({'success': True, 'crew': crew_objs}, 200)
     except Exception as e:
         conn.rollback()
         return jsonify({'error': str(e)}), 500
@@ -7471,6 +8162,10 @@ def mdt_unit_status_legacy(callsign):
             return jsonify({'error': 'not signed on', 'callsign': cs}), 404
         shift_state = _compute_shift_break_state(row)
         destination = _load_latest_destination(cur, cs)
+        shift_start_at = shift_state.get('shift_start_at')
+        shift_end_at = shift_state.get('shift_end_at')
+        shift_duration_minutes = shift_state.get('shift_duration_minutes')
+        shift_hours = (float(shift_duration_minutes) / 60.0) if shift_duration_minutes is not None else None
         return _jsonify_safe({
             'callsign': cs,
             'status': str(row.get('status') or ''),
@@ -7481,12 +8176,15 @@ def mdt_unit_status_legacy(callsign):
             'meal_break_taken_at': row.get('mealBreakTakenAt'),
             'meal_break_remaining_seconds': shift_state.get('meal_break_remaining_seconds'),
             'meal_break_active': shift_state.get('meal_break_active'),
-            'shift_start_at': shift_state.get('shift_start_at'),
-            'shift_end_at': shift_state.get('shift_end_at'),
-            'shift_duration_minutes': shift_state.get('shift_duration_minutes'),
+            'shift_start': shift_start_at.isoformat() + 'Z' if shift_start_at and hasattr(shift_start_at, 'isoformat') else None,
+            'shift_end': shift_end_at.isoformat() + 'Z' if shift_end_at and hasattr(shift_end_at, 'isoformat') else None,
+            'shift_hours': shift_hours,
+            'shift_duration_minutes': shift_duration_minutes,
+            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
+            'shift_start_at': shift_start_at,
+            'shift_end_at': shift_end_at,
             'shift_elapsed_minutes': shift_state.get('shift_elapsed_minutes'),
             'shift_remaining_minutes': shift_state.get('shift_remaining_minutes'),
-            'break_due_after_minutes': shift_state.get('break_due_after_minutes'),
             'break_due_in_minutes': shift_state.get('break_due_in_minutes'),
             'break_due': shift_state.get('break_due'),
             'near_break': shift_state.get('near_break'),
