@@ -1064,6 +1064,35 @@ function popoutPanel(panelId) {
   showNotification('success', 'Opened', `${panel.title} opened in new window`);
 }
 
+function applyMapOnlyPopoutLayout() {
+  const topbar = document.querySelector('.cad-topbar');
+  const rail = document.querySelector('.cad-rail');
+  const panelsContainer = document.getElementById('panelsContainer');
+  const mapWrap = document.querySelector('.map-wrap');
+  const toast = document.getElementById('toast');
+  const notifications = document.querySelector('.notifications-container');
+  if (topbar) topbar.style.display = 'none';
+  if (rail) rail.style.display = 'none';
+  if (panelsContainer) panelsContainer.style.display = 'none';
+  if (toast) toast.style.display = 'none';
+  if (notifications) notifications.style.display = 'none';
+  if (mapWrap) {
+    mapWrap.style.display = 'block';
+    mapWrap.style.position = 'fixed';
+    mapWrap.style.inset = '0';
+    mapWrap.style.width = '100%';
+    mapWrap.style.height = '100%';
+    mapWrap.style.zIndex = '1';
+  }
+  const cadMain = document.getElementById('cadMain');
+  if (cadMain) {
+    cadMain.style.display = 'block';
+    cadMain.style.padding = '0';
+    cadMain.style.position = 'relative';
+  }
+  document.body.style.overflow = 'hidden';
+}
+
 function applySinglePanelPopoutLayout(panelType) {
   const topbar = document.querySelector('.cad-topbar');
   const root = document.querySelector('.cad-root');
@@ -3206,6 +3235,16 @@ window.sendMessage = function() {
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlPanel = String(urlParams.get('panel') || '').trim().toLowerCase();
+  const urlPopout = String(urlParams.get('popout') || '').trim().toLowerCase() === '1';
+  if (urlPopout && urlPanel === 'map') {
+    const div = urlParams.get('division');
+    if (div) selectedDivision = String(div).trim() || selectedDivision;
+    const ext = urlParams.get('include_external');
+    if (ext !== null && ext !== undefined) showExternalDivisions = String(ext).trim() === '1';
+    applyMapOnlyPopoutLayout();
+  }
   initMap();
   pollDispatcherAlerts();
   initAudioOnce();
@@ -3281,6 +3320,17 @@ document.addEventListener('DOMContentLoaded', () => {
   btnKPI?.addEventListener('click', () => {
     togglePanelByType('kpi', 'Live KPI', btnKPI);
   });
+
+  const btnPopoutMap = document.getElementById('btnPopoutMap');
+  if (btnPopoutMap) {
+    btnPopoutMap.addEventListener('click', () => {
+      const scope = getDivisionParams().toString();
+      const url = `/plugin/ventus_response_module/cad?panel=map&title=Map&popout=1${scope ? `&${scope}` : ''}`;
+      const w = window.open(url, 'ventus-map-popout', 'width=900,height=700');
+      if (w) showNotification('success', 'Map', 'Map opened in new window');
+      else showNotification('warning', 'Blocked', 'Browser blocked pop-out window');
+    });
+  }
 
   try {
     const kpiOpen = Object.values(openPanels || {}).some(p => p && p.type === 'kpi');
