@@ -772,10 +772,14 @@ function createPanel(type, title) {
   panelEl.className = 'cad-panel';
   panelEl.id = panelId;
   panelEl.dataset.panelType = type;
+  const expandToggleHtml = type === 'messages'
+    ? `<button class="panel-btn expand-toggle" data-action="expand-toggle" title="Collapse"><i class="bi bi-chevron-down"></i></button>`
+    : '';
   panelEl.innerHTML = `
     <div class="cad-panel-header">
       <span class="panel-title">${title}</span>
       <div class="cad-panel-controls">
+        ${expandToggleHtml}
         <button class="panel-btn popout" data-action="popout" title="Pop out">
           <i class="bi bi-box-arrow-up-right"></i>
         </button>
@@ -839,6 +843,24 @@ function createPanel(type, title) {
     e.stopPropagation();
     popoutPanel(panelId);
   });
+
+  const expandToggleBtn = panelEl.querySelector('[data-action="expand-toggle"]');
+  if (expandToggleBtn) {
+    expandToggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const body = panelEl.querySelector('.cad-panel-body');
+      const icon = expandToggleBtn.querySelector('i');
+      if (body && body.style.display === 'none') {
+        body.style.display = '';
+        expandToggleBtn.title = 'Collapse';
+        if (icon) { icon.className = 'bi bi-chevron-down'; }
+      } else if (body) {
+        body.style.display = 'none';
+        expandToggleBtn.title = 'Expand';
+        if (icon) { icon.className = 'bi bi-chevron-up'; }
+      }
+    });
+  }
 
   panelEl.querySelector('[data-action="close"]').addEventListener('click', (e) => {
     e.stopPropagation();
