@@ -14,8 +14,8 @@ try:
 except ImportError:
     pass
 
-# Default lifetime when not specified
-DEFAULT_EXPIRY_HOURS = 24
+# Default lifetime when not specified (18h allows a full shift)
+DEFAULT_EXPIRY_HOURS = 18
 
 
 def _get_secret():

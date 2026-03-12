@@ -6106,7 +6106,7 @@ def mdt_sign_off():
     except Exception:
         pass
 
-    return _jsonify_safe({'message': 'Signed off', 'crew_changes': crew_removals_summary}), 200
+    return _jsonify_safe({'message': 'Signed off', 'crew_changes': crew_removals_summary})
 
 # 3) Next job
 
