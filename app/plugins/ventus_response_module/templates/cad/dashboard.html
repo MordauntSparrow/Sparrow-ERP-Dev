@@ -228,6 +228,12 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function normalizeToken(value) {
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function _dt_get(dt, key) {
   try {
     if (!dt || typeof dt.getData !== 'function') return '';
@@ -1002,13 +1008,12 @@ function recenterMapToNearestDivisionUnit() {
     .catch(() => {});
 }
 
-const LOCKED_SLOT_ORDER = ['left', 'map', 'messages', 'right', 'aux'];
+const LOCKED_SLOT_ORDER = ['left', 'map', 'messages', 'right'];
 let lockedSnapOverlayEl = null;
 let lockedLayoutMetrics = {
   leftWidthRatio: 0.24,
   rightWidthRatio: 0.24,
   centerTopRatio: 0.56,
-  auxHeightRatio: 0.22,
 };
 
 function lockedDefaultSlotForType(type) {
@@ -1016,8 +1021,8 @@ function lockedDefaultSlotForType(type) {
   if (type === 'map') return 'map';
   if (type === 'messages') return 'messages';
   if (type === 'units') return 'right';
-  if (type === 'past_jobs') return 'aux';
-  if (type === 'kpi') return 'aux';
+  if (type === 'past_jobs') return 'messages';
+  if (type === 'kpi') return 'messages';
   return null;
 }
 
@@ -1052,11 +1057,9 @@ function loadLockedLayoutMetrics() {
     const lw = Number(parsed.leftWidthRatio);
     const rw = Number(parsed.rightWidthRatio);
     const ct = Number(parsed.centerTopRatio);
-    const ah = Number(parsed.auxHeightRatio);
     if (Number.isFinite(lw)) lockedLayoutMetrics.leftWidthRatio = Math.max(0.15, Math.min(0.34, lw));
     if (Number.isFinite(rw)) lockedLayoutMetrics.rightWidthRatio = Math.max(0.15, Math.min(0.34, rw));
     if (Number.isFinite(ct)) lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, ct));
-    if (Number.isFinite(ah)) lockedLayoutMetrics.auxHeightRatio = Math.max(0.14, Math.min(0.35, ah));
   } catch (e) {}
 }
 
@@ -1076,7 +1079,6 @@ function ensureLockedSnapOverlay() {
     <div class="locked-snap-zone" data-slot="map">Map</div>
     <div class="locked-snap-zone" data-slot="messages">Messages</div>
     <div class="locked-snap-zone" data-slot="right">Active Units</div>
-    <div class="locked-snap-zone" data-slot="aux">Aux Panel</div>
   `;
   panelsContainer.appendChild(el);
   lockedSnapOverlayEl = el;
@@ -1111,8 +1113,7 @@ function getLockedSlotFromPoint(clientX, clientY) {
   if (rx < leftBound) return 'left';
   if (rx > rightBound) return 'right';
   if (ry < centerBound) return 'map';
-  if (ry < 1 - lockedLayoutMetrics.auxHeightRatio) return 'messages';
-  return 'aux';
+  return 'messages';
 }
 
 function getLockedSlotRect(slot) {
@@ -1124,21 +1125,18 @@ function getLockedSlotRect(slot) {
   const leftW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.leftWidthRatio));
   const rightW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.rightWidthRatio));
   const centerW = Math.max(360, innerW - leftW - rightW - (gap * 2));
-  const auxH = Math.max(130, Math.floor(innerH * lockedLayoutMetrics.auxHeightRatio));
-  const workH = Math.max(180, innerH - auxH - gap);
-  const centerTopH = Math.max(150, Math.floor(workH * lockedLayoutMetrics.centerTopRatio));
-  const centerBottomH = Math.max(150, workH - centerTopH - gap);
+  const workH = innerH;
+  const centerTopH = Math.max(180, Math.floor(workH * lockedLayoutMetrics.centerTopRatio));
+  const centerBottomH = Math.max(180, workH - centerTopH - gap);
   const leftX = gap;
   const centerX = leftX + leftW + gap;
   const rightX = centerX + centerW + gap;
   const topY = gap;
   const centerBottomY = topY + centerTopH + gap;
-  const auxY = topY + workH + gap;
   if (slot === 'left') return { left: leftX, top: topY, width: leftW, height: workH };
   if (slot === 'map') return { left: centerX, top: topY, width: centerW, height: centerTopH };
   if (slot === 'messages') return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
   if (slot === 'right') return { left: rightX, top: topY, width: rightW, height: workH };
-  if (slot === 'aux') return { left: leftX, top: auxY, width: innerW, height: auxH };
   return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
 }
 
@@ -1146,7 +1144,7 @@ function layoutLockedPanels() {
   if (!cadLockedLayout) return;
   Object.values(openPanels || {}).forEach((p) => {
     if (!p || !p.element) return;
-    const slot = (p.element.dataset && p.element.dataset.lockedSlot) || lockedDefaultSlotForType(p.type) || 'mid';
+    const slot = (p.element.dataset && p.element.dataset.lockedSlot) || lockedDefaultSlotForType(p.type) || 'messages';
     const r = getLockedSlotRect(slot);
     p.element.style.left = `${Math.round(r.left)}px`;
     p.element.style.top = `${Math.round(r.top)}px`;
@@ -1156,7 +1154,14 @@ function layoutLockedPanels() {
 }
 
 function findPanelByLockedSlot(slot) {
-  return Object.values(openPanels || {}).find((p) => p && p.element && p.element.dataset && p.element.dataset.lockedSlot === slot) || null;
+  return Object.values(openPanels || {}).find((p) => p && !p.closing && p.element && p.element.dataset && p.element.dataset.lockedSlot === slot) || null;
+}
+
+function getFirstAvailableLockedSlot(preferred = null) {
+  const pref = String(preferred || '').trim();
+  if (pref && LOCKED_SLOT_ORDER.includes(pref) && !findPanelByLockedSlot(pref)) return pref;
+  const free = LOCKED_SLOT_ORDER.find((s) => !findPanelByLockedSlot(s));
+  return free || (pref && LOCKED_SLOT_ORDER.includes(pref) ? pref : LOCKED_SLOT_ORDER[0]);
 }
 
 function applyLockedSlot(panelEl, slot, allowSwap = true) {
@@ -1164,7 +1169,7 @@ function applyLockedSlot(panelEl, slot, allowSwap = true) {
   const previous = panelEl.dataset.lockedSlot || null;
   const occupied = findPanelByLockedSlot(slot);
   if (occupied && occupied.element !== panelEl && allowSwap) {
-    const fallback = previous && previous !== slot ? previous : (LOCKED_SLOT_ORDER.find((s) => !findPanelByLockedSlot(s) || s === slot) || 'br');
+    const fallback = previous && previous !== slot ? previous : (LOCKED_SLOT_ORDER.find((s) => !findPanelByLockedSlot(s) || s === slot) || 'right');
     occupied.element.dataset.lockedSlot = fallback;
   }
   panelEl.dataset.lockedSlot = slot;
@@ -1193,7 +1198,7 @@ window.resetPanelsToDefault = function() {
   });
   if (cadLockedLayout) {
     try {
-      lockedLayoutMetrics = { leftWidthRatio: 0.24, rightWidthRatio: 0.24, centerTopRatio: 0.56, auxHeightRatio: 0.22 };
+      lockedLayoutMetrics = { leftWidthRatio: 0.24, rightWidthRatio: 0.24, centerTopRatio: 0.56 };
       saveLockedLayoutMetrics();
       normalizeLockedSlots();
       showNotification('success', 'Panels reset', 'Fixed layout snap zones restored.');
@@ -1273,7 +1278,7 @@ function createPanel(type, title) {
       const preferredSlot = savedSlots[type] && LOCKED_SLOT_ORDER.includes(savedSlots[type])
         ? savedSlots[type]
         : (lockedDefaultSlotForType(type) || LOCKED_SLOT_ORDER[0]);
-      panelEl.dataset.lockedSlot = preferredSlot;
+      panelEl.dataset.lockedSlot = getFirstAvailableLockedSlot(preferredSlot);
       normalizeLockedSlots();
     } catch (e) {}
   } else {
@@ -1425,8 +1430,6 @@ function setupDragResize(panelId) {
               lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, lockedLayoutMetrics.centerTopRatio + (dy / Math.max(300, hostH))));
             } else if (slot === 'messages') {
               lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, lockedLayoutMetrics.centerTopRatio - (dy / Math.max(300, hostH))));
-            } else if (slot === 'aux') {
-              lockedLayoutMetrics.auxHeightRatio = Math.max(0.14, Math.min(0.35, lockedLayoutMetrics.auxHeightRatio - (dy / Math.max(300, hostH))));
             }
             layoutLockedPanels();
             try {
@@ -1582,6 +1585,7 @@ function syncPanelButtonStates() {
 function closePanel(panelId) {
   const panel = openPanels[panelId];
   if (!panel) return;
+  panel.closing = true;
   if (panel.type === 'map') {
     try { restoreMapHome(!cadLockedLayout); } catch (e) {}
   }
@@ -4470,9 +4474,9 @@ function togglePanelByType(type, title, btn) {
       return;
     }
     if (cadLockedLayout) {
-      const openCount = Object.keys(openPanels || {}).length;
+      const openCount = Object.values(openPanels || {}).filter((p) => p && !p.closing).length;
       if (openCount >= LOCKED_SLOT_ORDER.length) {
-        showNotification('warning', 'Fixed layout', 'Maximum 5 panels in fixed view. Close one panel first.');
+        showNotification('warning', 'Fixed layout', `Maximum ${LOCKED_SLOT_ORDER.length} panels in fixed view. Close one panel first.`);
         return;
       }
     }
