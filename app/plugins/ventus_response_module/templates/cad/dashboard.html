@@ -139,8 +139,29 @@ let isPopoutMode = false;
 let assignModalLoading = false;
 let unitLinesVisible = true;
 let messageAlertCount = 0;
+const CAD_USER_SCOPE = {{ (current_user.username if current_user and current_user.is_authenticated else 'anon')|tojson }};
+function cadScopedKey(key) {
+  return `cad:${String(CAD_USER_SCOPE || 'anon')}:${String(key || '')}`;
+}
+function cadLsGet(key, legacyKey = null) {
+  try {
+    const scoped = localStorage.getItem(cadScopedKey(key));
+    if (scoped !== null && scoped !== undefined) return scoped;
+    if (legacyKey) return localStorage.getItem(legacyKey);
+  } catch (e) {}
+  return null;
+}
+function cadLsSet(key, value) {
+  try { localStorage.setItem(cadScopedKey(key), value); } catch (e) {}
+}
+function cadLsRemove(key, legacyKey = null) {
+  try {
+    localStorage.removeItem(cadScopedKey(key));
+    if (legacyKey) localStorage.removeItem(legacyKey);
+  } catch (e) {}
+}
 let cadLockedLayout = (function(){
-  try { return localStorage.getItem('cad_locked_layout') === '1'; } catch (e) { return false; }
+  try { return cadLsGet('locked_layout', 'cad_locked_layout') === '1'; } catch (e) { return false; }
 })();
 
 // BroadcastChannel / Socket.IO
@@ -472,12 +493,13 @@ function getCurrentStatusTimer(job, timingRow) {
 }
 
 function formatStatusTimesTable(job, timingRow) {
-  if (!timingRow) {
+  if (!timingRow && !(job && job.created_at)) {
     return '<div class="meta"><i>No status timestamps available.</i></div>';
   }
   const order = [
-    ['received_time', 'Received'],
+    ['created_time', 'CAD Created'],
     ['assigned_time', 'Assigned'],
+    ['received_time', 'Received'],
     ['mobile_time', 'Mobile'],
     ['on_scene_time', 'On Scene'],
     ['leave_scene_time', 'Leave Scene'],
@@ -486,7 +508,15 @@ function formatStatusTimesTable(job, timingRow) {
     ['stood_down_time', 'Stood Down']
   ];
   const points = order
-    .map(([key, label]) => ({ key, label, time: parseTime(timingRow[key]) }))
+    .map(([key, label]) => {
+      let time = null;
+      if (key === 'created_time') {
+        time = parseTime(job && job.created_at);
+      } else {
+        time = parseTime(timingRow && timingRow[key]);
+      }
+      return { key, label, time };
+    })
     .filter(p => p.time);
   if (points.length === 0) {
     return '<div class="meta"><i>No status timestamps available.</i></div>';
@@ -499,7 +529,8 @@ function formatStatusTimesTable(job, timingRow) {
     const next = points[i + 1];
     let stageDuration = '-';
     if (next && next.time) {
-      stageDuration = formatDuration(next.time - current.time) || '-';
+      const delta = next.time - current.time;
+      stageDuration = delta >= 0 ? (formatDuration(delta) || '-') : '-';
     } else if (!['cleared', 'stood_down'].includes(currentStatus)) {
       stageDuration = formatDuration(new Date() - current.time) || '-';
     }
@@ -870,14 +901,14 @@ function raisePanel(panelEl) {
 function savePanelState(panelEl) {
   if (!panelEl) return;
   try {
-    const key = 'cad_panel_state_' + (panelEl.dataset.panelType || 'panel');
+    const panelType = (panelEl.dataset.panelType || 'panel');
     const state = {
       left: panelEl.style.left,
       top: panelEl.style.top,
       width: panelEl.style.width,
       height: panelEl.style.height
     };
-    localStorage.setItem(key, JSON.stringify(state));
+    cadLsSet(`panel_state_${panelType}`, JSON.stringify(state));
   } catch (e) {}
 }
 
@@ -891,15 +922,114 @@ function getDefaultPanelPosition(type, typeIndex) {
   return { left: 40 + typeIndex * 30, top: 120 + typeIndex * 40, width: w, height: h };
 }
 
-window.resetPanelsToDefault = function() {
+const LOCKED_SLOT_ORDER = ['tl', 'tr', 'mid', 'bl', 'br'];
+let lockedSnapOverlayEl = null;
+
+function lockedDefaultSlotForType(type) {
+  if (type === 'jobs') return 'tl';
+  if (type === 'units') return 'tr';
+  if (type === 'messages') return 'mid';
+  if (type === 'past_jobs') return 'bl';
+  if (type === 'kpi') return 'br';
+  return null;
+}
+
+function getSavedLockedSlots() {
   try {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.indexOf('cad_panel_state_') === 0) keysToRemove.push(key);
-    }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
-  } catch (e) {}
+    const raw = cadLsGet('locked_slots');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveLockedSlots() {
+  if (!cadLockedLayout) return;
+  const slots = {};
+  Object.values(openPanels || {}).forEach((p) => {
+    if (!p || !p.type || !p.element) return;
+    const slot = p.element.dataset && p.element.dataset.lockedSlot;
+    if (slot) slots[p.type] = slot;
+  });
+  cadLsSet('locked_slots', JSON.stringify(slots));
+}
+
+function ensureLockedSnapOverlay() {
+  if (!panelsContainer) return null;
+  if (lockedSnapOverlayEl && document.body.contains(lockedSnapOverlayEl)) return lockedSnapOverlayEl;
+  const el = document.createElement('div');
+  el.className = 'locked-snap-overlay';
+  el.innerHTML = `
+    <div class="locked-snap-zone" data-slot="tl">Top Left</div>
+    <div class="locked-snap-zone" data-slot="tr">Top Right</div>
+    <div class="locked-snap-zone" data-slot="mid">Center (Wide)</div>
+    <div class="locked-snap-zone" data-slot="bl">Bottom Left</div>
+    <div class="locked-snap-zone" data-slot="br">Bottom Right</div>
+  `;
+  panelsContainer.appendChild(el);
+  lockedSnapOverlayEl = el;
+  return el;
+}
+
+function showLockedSnapOverlay(activeSlot = null) {
+  const overlay = ensureLockedSnapOverlay();
+  if (!overlay) return;
+  overlay.classList.add('visible');
+  Array.from(overlay.querySelectorAll('.locked-snap-zone')).forEach((zone) => {
+    zone.classList.toggle('active', !!activeSlot && zone.getAttribute('data-slot') === activeSlot);
+  });
+}
+
+function hideLockedSnapOverlay() {
+  if (!lockedSnapOverlayEl) return;
+  lockedSnapOverlayEl.classList.remove('visible');
+  Array.from(lockedSnapOverlayEl.querySelectorAll('.locked-snap-zone')).forEach((zone) => {
+    zone.classList.remove('active');
+  });
+}
+
+function getLockedSlotFromPoint(clientX, clientY) {
+  const rect = panelsContainer && panelsContainer.getBoundingClientRect ? panelsContainer.getBoundingClientRect() : null;
+  if (!rect || rect.width <= 0 || rect.height <= 0) return 'mid';
+  const rx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const ry = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+  if (ry < 0.28) return rx < 0.5 ? 'tl' : 'tr';
+  if (ry < 0.72) return 'mid';
+  return rx < 0.5 ? 'bl' : 'br';
+}
+
+function findPanelByLockedSlot(slot) {
+  return Object.values(openPanels || {}).find((p) => p && p.element && p.element.dataset && p.element.dataset.lockedSlot === slot) || null;
+}
+
+function applyLockedSlot(panelEl, slot, allowSwap = true) {
+  if (!panelEl || !slot) return;
+  const previous = panelEl.dataset.lockedSlot || null;
+  const occupied = findPanelByLockedSlot(slot);
+  if (occupied && occupied.element !== panelEl && allowSwap) {
+    const fallback = previous && previous !== slot ? previous : (LOCKED_SLOT_ORDER.find((s) => !findPanelByLockedSlot(s) || s === slot) || 'br');
+    occupied.element.dataset.lockedSlot = fallback;
+  }
+  panelEl.dataset.lockedSlot = slot;
+  saveLockedSlots();
+}
+
+function normalizeLockedSlots() {
+  if (!cadLockedLayout) return;
+  const panelEls = Array.from(panelsContainer.querySelectorAll('.cad-panel'));
+  panelEls.forEach((el, idx) => {
+    const target = LOCKED_SLOT_ORDER[idx] || LOCKED_SLOT_ORDER[LOCKED_SLOT_ORDER.length - 1];
+    el.dataset.lockedSlot = target;
+  });
+  saveLockedSlots();
+}
+
+window.resetPanelsToDefault = function() {
+  ['jobs', 'units', 'messages', 'past_jobs', 'kpi'].forEach((type) => {
+    cadLsRemove(`panel_state_${type}`, `cad_panel_state_${type}`);
+  });
   const typeOrder = ['jobs', 'units', 'messages', 'past_jobs', 'kpi'];
   let typeIndex = 0;
   for (const type of typeOrder) {
@@ -971,6 +1101,57 @@ function createPanel(type, title) {
 
   openPanels[panelId] = { id: panelId, type: type, title: title, element: panelEl };
 
+  if (cadLockedLayout) {
+    const savedSlots = getSavedLockedSlots();
+    const preferredSlot = savedSlots[type] && LOCKED_SLOT_ORDER.includes(savedSlots[type])
+      ? savedSlots[type]
+      : (lockedDefaultSlotForType(type) || LOCKED_SLOT_ORDER[0]);
+    applyLockedSlot(panelEl, preferredSlot, true);
+    panelEl.setAttribute('draggable', 'true');
+    panelEl.addEventListener('dragstart', (ev) => {
+      try {
+        ev.dataTransfer.setData('application/x-ventus-panel-id', panelId);
+        ev.dataTransfer.effectAllowed = 'move';
+      } catch (e) {}
+      panelEl.classList.add('dragging');
+      showLockedSnapOverlay(panelEl.dataset.lockedSlot || null);
+    });
+    panelEl.addEventListener('dragend', () => {
+      panelEl.classList.remove('dragging');
+      Array.from(panelsContainer.querySelectorAll('.cad-panel')).forEach((el) => {
+        el.classList.remove('drop-target-before', 'drop-target-after');
+      });
+      hideLockedSnapOverlay();
+    });
+    panelEl.addEventListener('dragover', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const draggingId = (() => {
+        try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
+      })();
+      if (!draggingId || draggingId === panelId) return;
+      const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+      showLockedSnapOverlay(slot);
+    });
+    panelEl.addEventListener('dragleave', () => {
+      panelEl.classList.remove('drop-target-before', 'drop-target-after');
+    });
+    panelEl.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const draggingId = (() => {
+        try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
+      })();
+      if (!draggingId || draggingId === panelId) return;
+      const draggingEl = document.getElementById(draggingId);
+      if (!draggingEl || draggingEl === panelEl) return;
+      const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+      applyLockedSlot(draggingEl, slot, true);
+      panelEl.classList.remove('drop-target-before', 'drop-target-after');
+      showLockedSnapOverlay(slot);
+    });
+  }
+
   // smart initial positioning (only needed for floating panels)
   if (!cadLockedLayout) {
     const panelCount = Object.keys(openPanels).length;
@@ -982,8 +1163,7 @@ function createPanel(type, title) {
     else { posLeft = 40 + panelCount * 30; posTop = 120 + panelCount * 40; }
     // prefer saved spawn position for this panel type
     try {
-      const savedKey = 'cad_panel_state_' + type;
-      const saved = localStorage.getItem(savedKey);
+      const saved = cadLsGet(`panel_state_${type}`, `cad_panel_state_${type}`);
       if (saved) {
         const s = JSON.parse(saved);
         if (s.left) panelEl.style.left = s.left;
@@ -1222,10 +1402,13 @@ function closePanel(panelId) {
       else if (panel.type === 'past_jobs' && btnPastJobs) btnPastJobs.classList.remove('active');
       else if (panel.type === 'kpi' && btnKPI) {
         btnKPI.classList.remove('active');
-        try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
+        cadLsSet('kpi_hidden', '1');
       }
     } catch (e) {}
     delete openPanels[panelId];
+    if (cadLockedLayout) {
+      try { normalizeLockedSlots(); } catch (e) {}
+    }
     if (isPopoutMode && Object.keys(openPanels).length === 0) {
       try { window.close(); } catch (e) {}
     }
@@ -1287,6 +1470,7 @@ function clearAllPanelsImmediate() {
     });
   } catch (e) {}
   openPanels = {};
+  hideLockedSnapOverlay();
   try {
     if (btnJobs) btnJobs.classList.remove('active');
     if (btnUnits) btnUnits.classList.remove('active');
@@ -1298,10 +1482,11 @@ function clearAllPanelsImmediate() {
 
 function applyLockedLayout() {
   cadLockedLayout = true;
-  try { localStorage.setItem('cad_locked_layout', '1'); } catch (e) {}
+  cadLsSet('locked_layout', '1');
   try { document.querySelector('.cad-root')?.classList.add('locked-layout'); } catch (e) {}
   try { btnLockedLayout?.classList.add('active'); } catch (e) {}
   clearAllPanelsImmediate();
+  ensureLockedSnapOverlay();
   const toOpen = [
     ['jobs', 'CAD Stack'],
     ['units', 'Active Units'],
@@ -1312,14 +1497,47 @@ function applyLockedLayout() {
   toOpen.forEach(([type, title]) => {
     try { getOrCreatePanel(type, title); } catch (e) {}
   });
+  panelsContainer?.addEventListener('dragover', handleLockedPanelsDragOver);
+  panelsContainer?.addEventListener('drop', handleLockedPanelsDrop);
 }
 
 function removeLockedLayout() {
   cadLockedLayout = false;
-  try { localStorage.removeItem('cad_locked_layout'); } catch (e) {}
+  cadLsRemove('locked_layout', 'cad_locked_layout');
   try { document.querySelector('.cad-root')?.classList.remove('locked-layout'); } catch (e) {}
   try { btnLockedLayout?.classList.remove('active'); } catch (e) {}
   clearAllPanelsImmediate();
+  panelsContainer?.removeEventListener('dragover', handleLockedPanelsDragOver);
+  panelsContainer?.removeEventListener('drop', handleLockedPanelsDrop);
+  if (lockedSnapOverlayEl) {
+    try { lockedSnapOverlayEl.remove(); } catch (e) {}
+    lockedSnapOverlayEl = null;
+  }
+}
+
+function handleLockedPanelsDragOver(ev) {
+  if (!cadLockedLayout) return;
+  const draggingId = (() => {
+    try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
+  })();
+  if (!draggingId) return;
+  ev.preventDefault();
+  const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+  showLockedSnapOverlay(slot);
+}
+
+function handleLockedPanelsDrop(ev) {
+  if (!cadLockedLayout) return;
+  const draggingId = (() => {
+    try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
+  })();
+  if (!draggingId) return;
+  ev.preventDefault();
+  const draggingEl = document.getElementById(draggingId);
+  if (!draggingEl) return;
+  const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+  applyLockedSlot(draggingEl, slot, true);
+  showLockedSnapOverlay(slot);
 }
 
 function applySinglePanelPopoutLayout(panelType) {
@@ -1788,11 +2006,11 @@ if (dispatchModeSelect) {
 }
 
 try {
-  const storedDiv = localStorage.getItem('cad_division_focus');
+  const storedDiv = cadLsGet('division_focus', 'cad_division_focus');
   if (storedDiv) selectedDivision = storedDiv;
-  const storedExt = localStorage.getItem('cad_show_external_divisions');
+  const storedExt = cadLsGet('show_external_divisions', 'cad_show_external_divisions');
   if (storedExt != null) showExternalDivisions = storedExt === '1';
-  const storedLines = localStorage.getItem('cad_show_unit_lines');
+  const storedLines = cadLsGet('show_unit_lines', 'cad_show_unit_lines');
   if (storedLines != null) unitLinesVisible = storedLines !== '0';
 } catch (e) {}
 
@@ -1800,7 +2018,7 @@ if (showExternalToggle) {
   showExternalToggle.checked = !!showExternalDivisions;
   showExternalToggle.addEventListener('change', () => {
     showExternalDivisions = !!showExternalToggle.checked;
-    try { localStorage.setItem('cad_show_external_divisions', showExternalDivisions ? '1' : '0'); } catch (e) {}
+    cadLsSet('show_external_divisions', showExternalDivisions ? '1' : '0');
     refreshKPIs();
     refreshMap();
     Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
@@ -1811,7 +2029,7 @@ if (showUnitLinesToggle) {
   showUnitLinesToggle.checked = !!unitLinesVisible;
   showUnitLinesToggle.addEventListener('change', () => {
     unitLinesVisible = !!showUnitLinesToggle.checked;
-    try { localStorage.setItem('cad_show_unit_lines', unitLinesVisible ? '1' : '0'); } catch (e) {}
+    cadLsSet('show_unit_lines', unitLinesVisible ? '1' : '0');
     refreshMap();
   });
 }
@@ -1819,7 +2037,7 @@ if (showUnitLinesToggle) {
 if (divisionSelect) {
   divisionSelect.addEventListener('change', () => {
     selectedDivision = divisionSelect.value || 'general';
-    try { localStorage.setItem('cad_division_focus', selectedDivision); } catch (e) {}
+    cadLsSet('division_focus', selectedDivision);
     refreshKPIs();
     refreshMap();
     Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
@@ -3890,7 +4108,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     const kpiOpen = Object.values(openPanels || {}).some(p => p && p.type === 'kpi');
     if (btnKPI && kpiOpen) btnKPI.classList.add('active');
-    else if (!localStorage.getItem('cad_kpi_hidden')) {
+    else if (!cadLsGet('kpi_hidden', 'cad_kpi_hidden')) {
       setTimeout(() => togglePanelByType('kpi', 'Live KPI', btnKPI), 400);
     }
   } catch (e) {}
@@ -3898,7 +4116,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function togglePanelByType(type, title, btn) {
   try {
-    if (cadLockedLayout) return;
     const existing = Object.values(openPanels).find(p => p.type === type);
     if (existing) {
       if (existing.poppedOut && existing.popoutWindow && !existing.popoutWindow.closed) {
@@ -3907,14 +4124,14 @@ function togglePanelByType(type, title, btn) {
       } else {
         closePanel(existing.id);
         if (btn) btn.classList.remove('active');
-        if (type === 'kpi') try { localStorage.setItem('cad_kpi_hidden', '1'); } catch (e) {}
+        if (type === 'kpi') cadLsSet('kpi_hidden', '1');
       }
       return;
     }
     const panel = getOrCreatePanel(type, title);
     if (btn) btn.classList.add('active');
     if (type === 'messages') clearMessageBadge();
-    if (type === 'kpi') try { localStorage.removeItem('cad_kpi_hidden'); } catch (e) {}
+    if (type === 'kpi') cadLsRemove('kpi_hidden', 'cad_kpi_hidden');
   } catch (e) { }
 }
 

@@ -536,10 +536,11 @@
     }
 
     function formatStatusTimesTable(job, timingRow) {
-      if (!timingRow) return '<div class="meta"><i>No status timestamps available.</i></div>';
+      if (!timingRow && !(job && job.created_at)) return '<div class="meta"><i>No status timestamps available.</i></div>';
       const order = [
-        ['received_time', 'Received'],
+        ['created_time', 'CAD Created'],
         ['assigned_time', 'Assigned'],
+        ['received_time', 'Received'],
         ['mobile_time', 'Mobile'],
         ['on_scene_time', 'On Scene'],
         ['leave_scene_time', 'Leave Scene'],
@@ -548,7 +549,15 @@
         ['stood_down_time', 'Stood Down']
       ];
       const points = order
-        .map(([key, label]) => ({ key, label, time: parseTime(timingRow[key]) }))
+        .map(([key, label]) => {
+          let time = null;
+          if (key === 'created_time') {
+            time = parseTime(job && job.created_at);
+          } else {
+            time = parseTime(timingRow && timingRow[key]);
+          }
+          return { key, label, time };
+        })
         .filter(p => p.time);
       if (!points.length) return '<div class="meta"><i>No status timestamps available.</i></div>';
 
@@ -559,7 +568,8 @@
         const next = points[i + 1];
         let dur = '-';
         if (next && next.time) {
-          dur = formatDuration(next.time - current.time);
+          const delta = next.time - current.time;
+          dur = delta >= 0 ? (formatDuration(delta) || '-') : '-';
         } else if (!['cleared', 'stood_down'].includes(currentStatus)) {
           dur = formatDuration(new Date() - current.time);
         }

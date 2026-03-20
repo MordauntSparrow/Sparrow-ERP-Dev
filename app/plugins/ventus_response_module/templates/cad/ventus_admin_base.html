@@ -246,15 +246,12 @@
     }
 
     /* ====== LOCKED LAYOUT MODE (single-screen fixed panels) ====== */
-    .cad-root.locked-layout .cad-rail {
-      display: none;
-    }
     .cad-root.locked-layout .cad-main {
-      grid-template-columns: 1fr 760px;
+      grid-template-columns: minmax(280px, 0.75fr) minmax(640px, 1.25fr);
     }
     @media (max-width: 1320px) {
       .cad-root.locked-layout .cad-main {
-        grid-template-columns: 1fr 620px;
+        grid-template-columns: minmax(240px, 0.65fr) minmax(560px, 1.35fr);
       }
     }
     .cad-root.locked-layout .cad-panels {
@@ -267,7 +264,7 @@
       z-index: 1;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+      grid-template-rows: minmax(170px, 0.8fr) minmax(280px, 1.45fr) minmax(170px, 0.8fr);
       gap: 8px;
       padding: 10px;
       overflow: auto;
@@ -287,38 +284,70 @@
       resize: none;
       overflow: hidden;
     }
+    .cad-root.locked-layout .cad-panel.dragging {
+      opacity: 0.5;
+      outline: 2px dashed var(--accent);
+      outline-offset: -2px;
+    }
+    .cad-root.locked-layout .cad-panel.drop-target-before {
+      border-top: 3px solid var(--accent);
+    }
+    .cad-root.locked-layout .cad-panel.drop-target-after {
+      border-bottom: 3px solid var(--accent);
+    }
     .cad-root.locked-layout .cad-panel .resize-handle {
       display: none;
     }
     .cad-root.locked-layout .cad-panel .panel-btn.popout,
-    .cad-root.locked-layout .cad-panel .panel-btn.close,
     .cad-root.locked-layout .cad-panel .panel-btn.expand-toggle {
       display: none;
     }
     .cad-root.locked-layout .cad-panel-header {
       cursor: default;
     }
-    .cad-root.locked-layout .cad-panel[data-panel-type="jobs"] {
-      grid-column: 1;
-      grid-row: 1;
+    .cad-root.locked-layout .cad-panel[data-locked-slot="tl"] { grid-column: 1; grid-row: 1; }
+    .cad-root.locked-layout .cad-panel[data-locked-slot="tr"] { grid-column: 2; grid-row: 1; }
+    .cad-root.locked-layout .cad-panel[data-locked-slot="mid"] { grid-column: 1 / span 2; grid-row: 2; }
+    .cad-root.locked-layout .cad-panel[data-locked-slot="bl"] { grid-column: 1; grid-row: 3; }
+    .cad-root.locked-layout .cad-panel[data-locked-slot="br"] { grid-column: 2; grid-row: 3; }
+    .locked-snap-overlay {
+      position: absolute;
+      inset: 10px;
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: minmax(170px, 0.8fr) minmax(280px, 1.45fr) minmax(170px, 0.8fr);
+      gap: 8px;
+      pointer-events: none;
+      z-index: 12;
     }
-    .cad-root.locked-layout .cad-panel[data-panel-type="units"] {
-      grid-column: 2;
-      grid-row: 1;
+    .cad-root.locked-layout .locked-snap-overlay.visible {
+      display: grid;
     }
-    .cad-root.locked-layout .cad-panel[data-panel-type="messages"] {
-      grid-column: 1;
-      grid-row: 2;
+    .locked-snap-zone {
+      border: 1px dashed rgba(148, 163, 184, 0.65);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.25);
+      color: rgba(226, 232, 240, 0.9);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s ease;
     }
-    .cad-root.locked-layout .cad-panel[data-panel-type="past_jobs"] {
-      grid-column: 2;
-      grid-row: 2;
+    .locked-snap-zone.active {
+      border-color: var(--accent);
+      background: rgba(14, 165, 233, 0.25);
+      color: #fff;
+      box-shadow: 0 0 0 2px rgba(14,165,233,0.2) inset;
     }
-    .cad-root.locked-layout .cad-panel[data-panel-type="kpi"] {
-      grid-column: 1 / span 2;
-      grid-row: 3;
-      height: 140px;
-    }
+    .locked-snap-zone[data-slot="tl"] { grid-column: 1; grid-row: 1; }
+    .locked-snap-zone[data-slot="tr"] { grid-column: 2; grid-row: 1; }
+    .locked-snap-zone[data-slot="mid"] { grid-column: 1 / span 2; grid-row: 2; }
+    .locked-snap-zone[data-slot="bl"] { grid-column: 1; grid-row: 3; }
+    .locked-snap-zone[data-slot="br"] { grid-column: 2; grid-row: 3; }
 
     /* ====== LEFT SIDEBAR RAIL ====== */
     .cad-rail {
@@ -1051,7 +1080,7 @@
         <i class="bi bi-arrow-counterclockwise"></i>
       </div>
       <div class="cad-rail-btn" id="btnLockedLayout" title="Locked layout (fixed panels for single-screen use)">
-        <i class="bi bi-layout-3-window"></i>
+        <i class="bi bi-grid-3x3-gap"></i>
       </div>
     </div>
     <div class="cad-main" id="cadMain">
