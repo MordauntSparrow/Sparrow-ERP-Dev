@@ -1163,21 +1163,41 @@ function getLockedSlotRect(slot) {
   const gap = 10;
   const innerW = Math.max(320, rect.width - (gap * 2));
   const innerH = Math.max(260, rect.height - (gap * 2));
-  const leftW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.leftWidthRatio));
-  const rightW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.rightWidthRatio));
-  const centerW = Math.max(360, innerW - leftW - rightW - (gap * 2));
-  const workH = innerH;
-  const centerTopH = Math.max(180, Math.floor(workH * lockedLayoutMetrics.centerTopRatio));
-  const centerBottomH = Math.max(180, workH - centerTopH - gap);
+  const minSideW = 220;
+  const minCenterW = 320;
+  const usableW = Math.max(minSideW * 2 + minCenterW, innerW - (gap * 2));
+  let leftW = Math.round(usableW * lockedLayoutMetrics.leftWidthRatio);
+  let rightW = Math.round(usableW * lockedLayoutMetrics.rightWidthRatio);
+  leftW = Math.max(minSideW, Math.min(leftW, usableW - minSideW - minCenterW));
+  rightW = Math.max(minSideW, Math.min(rightW, usableW - leftW - minCenterW));
+  let centerW = usableW - leftW - rightW;
+  if (centerW < minCenterW) {
+    const shortfall = minCenterW - centerW;
+    const takeRight = Math.min(shortfall, Math.max(0, rightW - minSideW));
+    rightW -= takeRight;
+    centerW += takeRight;
+    if (centerW < minCenterW) {
+      const takeLeft = Math.min(minCenterW - centerW, Math.max(0, leftW - minSideW));
+      leftW -= takeLeft;
+      centerW += takeLeft;
+    }
+  }
+  const minTopH = 160;
+  const minBottomH = 160;
+  const usableH = Math.max(minTopH + minBottomH, innerH - gap);
+  let centerTopH = Math.round(usableH * lockedLayoutMetrics.centerTopRatio);
+  centerTopH = Math.max(minTopH, Math.min(centerTopH, usableH - minBottomH));
+  const centerBottomH = usableH - centerTopH;
   const leftX = gap;
   const centerX = leftX + leftW + gap;
   const rightX = centerX + centerW + gap;
   const topY = gap;
   const centerBottomY = topY + centerTopH + gap;
-  if (slot === 'left') return { left: leftX, top: topY, width: leftW, height: workH };
+  const fullColH = centerTopH + gap + centerBottomH;
+  if (slot === 'left') return { left: leftX, top: topY, width: leftW, height: fullColH };
   if (slot === 'map') return { left: centerX, top: topY, width: centerW, height: centerTopH };
   if (slot === 'messages') return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
-  if (slot === 'right') return { left: rightX, top: topY, width: rightW, height: workH };
+  if (slot === 'right') return { left: rightX, top: topY, width: rightW, height: fullColH };
   return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
 }
 
