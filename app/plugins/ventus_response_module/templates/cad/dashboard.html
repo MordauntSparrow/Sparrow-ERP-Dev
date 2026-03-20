@@ -450,6 +450,23 @@ function renderIncidentDetails(triageRaw) {
       s.split(/[\n,;|]+/).forEach(pushRisk);
     };
     ['risk_flags', 'riskFlags', 'risk_flag', 'risk'].forEach(pull);
+    Object.entries(triage || {}).forEach(([k, v]) => {
+      const key = String(k || '');
+      if (['risk_flags', 'riskFlags', 'risk_flag', 'risk'].includes(key)) return;
+      if (!/(risk|threat|hazard|violent|violence|weapon|police|safeguard|danger)/i.test(key)) return;
+      const label = prettyFieldLabel(key);
+      if (Array.isArray(v)) {
+        v.forEach((item) => pushRisk(`${label}: ${formatDisplayValue(item)}`));
+        return;
+      }
+      if (v && typeof v === 'object') {
+        pushRisk(`${label}: ${formatDisplayValue(v)}`);
+        return;
+      }
+      const text = normalizeToken(String(v ?? ''));
+      if (!text || ignored.has(text.toLowerCase())) return;
+      pushRisk(`${label}: ${text}`);
+    });
     Object.entries(answers || {}).forEach(([k, v]) => {
       const key = String(k || '');
       if (!/(risk|threat|hazard|violent|weapon|police|safeguard|danger)/i.test(key)) return;
