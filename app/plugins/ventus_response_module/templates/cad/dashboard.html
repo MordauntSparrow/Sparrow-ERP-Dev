@@ -65,6 +65,9 @@
 .drop-target-job.drag-over .drop-target-job-hint {
   display: block;
 }
+.drop-target-unit.drag-over .drop-target-job-hint {
+  display: block;
+}
 .job-detail-drop-target {
   min-height: 120px;
   border-radius: 8px;
@@ -201,6 +204,63 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function _dt_get(dt, key) {
+  try {
+    if (!dt || typeof dt.getData !== 'function') return '';
+    const v = dt.getData(key);
+    return v == null ? '' : String(v);
+  } catch (e) {
+    return '';
+  }
+}
+
+function handleJobDragOver(event) {
+  const dt = event && event.dataTransfer;
+  const cs = _dt_get(dt, 'text/plain').trim();
+  const cadRaw = _dt_get(dt, 'application/x-ventus-job-cad').trim();
+
+  // Only highlight when dragging a callsign onto the CAD stack.
+  const shouldHighlight = !!cs && !cadRaw;
+
+  if (shouldHighlight) {
+    if (dt) dt.dropEffect = 'copy';
+    event.currentTarget.classList.add('drag-over');
+    const h = event.currentTarget.querySelector('.drop-target-job-hint');
+    if (h) h.textContent = `Assign ${cs}?`;
+  } else {
+    event.currentTarget.classList.remove('drag-over');
+    const h = event.currentTarget.querySelector('.drop-target-job-hint');
+    if (h) h.textContent = 'Drop to assign unit';
+  }
+}
+
+function handleJobDragLeave(event) {
+  if (!event || !event.currentTarget) return;
+  event.currentTarget.classList.remove('drag-over');
+  const h = event.currentTarget.querySelector('.drop-target-job-hint');
+  if (h) h.textContent = 'Drop to assign unit';
+}
+
+function handleUnitDragOver(event) {
+  const dt = event && event.dataTransfer;
+  const cadRaw = _dt_get(dt, 'application/x-ventus-job-cad').trim();
+
+  // Only highlight when dragging a CAD job onto the unit list.
+  const shouldHighlight = !!cadRaw;
+
+  if (shouldHighlight) {
+    if (dt) dt.dropEffect = 'copy';
+    event.currentTarget.classList.add('drag-over');
+  } else {
+    event.currentTarget.classList.remove('drag-over');
+  }
+}
+
+function handleUnitDragLeave(event) {
+  if (!event || !event.currentTarget) return;
+  event.currentTarget.classList.remove('drag-over');
 }
 
 function getDivisionParams() {
@@ -1878,7 +1938,7 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
       ? String(eligibilityMap[job.cad].recommended.callsign)
       : '';
     html += `
-      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" draggable="true" ondragstart="if(event.dataTransfer){event.dataTransfer.setData('application/x-ventus-job-cad', String(event.currentTarget.dataset.cad||''));event.dataTransfer.setData('text/plain','');event.dataTransfer.effectAllowed='copy';}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragenter="event.preventDefault();this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
+      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" draggable="true" ondragstart="if(event.dataTransfer){event.dataTransfer.setData('application/x-ventus-job-cad', String(event.currentTarget.dataset.cad||''));event.dataTransfer.setData('text/plain','');event.dataTransfer.effectAllowed='copy';}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();handleJobDragOver(event);" ondragenter="event.preventDefault();handleJobDragOver(event);" ondragleave="event.preventDefault();handleJobDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
         <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
@@ -2011,7 +2071,8 @@ function renderUnitsList(units, contentEl) {
         `
       : '';
     html += `
-      <li class="panel-list-item draggable-unit drop-target-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');" ondragenter="event.preventDefault();this.classList.add('drag-over');" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cadRaw=event.dataTransfer.getData('application/x-ventus-job-cad')||event.dataTransfer.getData('text/plain');var cad=parseInt(cadRaw,10);var cs=this.dataset.callsign||'';if(cad>0&&cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(cad,cs);}">
+      <li class="panel-list-item draggable-unit drop-target-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';" ondragover="event.preventDefault();event.stopPropagation();handleUnitDragOver(event);" ondragenter="event.preventDefault();handleUnitDragOver(event);" ondragleave="event.preventDefault();handleUnitDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cadRaw=event.dataTransfer.getData('application/x-ventus-job-cad')||event.dataTransfer.getData('text/plain');var cad=parseInt(cadRaw,10);var cs=this.dataset.callsign||'';if(cad>0&&cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(cad,cs);}">
+        <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
           <div style="font-weight:600;">${callsign}</div>
