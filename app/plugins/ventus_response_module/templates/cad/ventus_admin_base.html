@@ -253,6 +253,12 @@
     .cad-root.locked-layout #btnResetPanels {
       display: none;
     }
+    #btnLockedMap {
+      display: none;
+    }
+    .cad-root.locked-layout #btnLockedMap {
+      display: flex;
+    }
     .cad-root.locked-layout .map-wrap {
       display: none;
     }
@@ -1057,6 +1063,9 @@
       </div>
       <div class="cad-rail-btn" id="btnPopoutMap" title="Pop out map (units and markers in own window)">
         <i class="bi bi-map"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnLockedMap" title="Map panel (fixed layout only)">
+        <i class="bi bi-map-fill"></i>
       </div>
       <div class="cad-rail-btn" id="btnLockedLayout" title="Locked layout (fixed panels for single-screen use)">
         <i class="bi bi-grid-3x3-gap"></i>

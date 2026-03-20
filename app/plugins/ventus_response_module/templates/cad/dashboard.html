@@ -815,6 +815,7 @@ const btnUnits = document.getElementById('btnUnits');
 const btnMsgs = document.getElementById('btnMsgs');
 const btnKPI = document.getElementById('btnKPI');
 const btnPastJobs = document.getElementById('btnPastJobs');
+const btnLockedMap = document.getElementById('btnLockedMap');
 const btnResetPanels = document.getElementById('btnResetPanels');
 const btnLockedLayout = document.getElementById('btnLockedLayout');
 const cadMain = document.getElementById('cadMain');
@@ -1389,6 +1390,11 @@ function syncPanelButtonStates() {
     if (btnMsgs) btnMsgs.classList.toggle('active', openTypes.has('messages'));
     if (btnPastJobs) btnPastJobs.classList.toggle('active', openTypes.has('past_jobs'));
     if (btnKPI) btnKPI.classList.toggle('active', openTypes.has('kpi'));
+    if (btnLockedMap) btnLockedMap.classList.toggle('active', openTypes.has('map'));
+    if (cadLockedLayout) {
+      const lockedOpen = Array.from(openTypes).filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi', 'map'].includes(String(t)));
+      cadLsSet('locked_open_types', JSON.stringify(lockedOpen));
+    }
   } catch (e) {}
 }
 
@@ -1420,6 +1426,7 @@ function closePanel(panelId) {
       }
     } catch (e) {}
     delete openPanels[panelId];
+    syncPanelButtonStates();
     if (cadLockedLayout) {}
     if (isPopoutMode && Object.keys(openPanels).length === 0) {
       try { window.close(); } catch (e) {}
@@ -1492,13 +1499,26 @@ function clearAllPanelsImmediate() {
     if (btnMsgs) btnMsgs.classList.remove('active');
     if (btnPastJobs) btnPastJobs.classList.remove('active');
     if (btnKPI) btnKPI.classList.remove('active');
+    if (btnLockedMap) btnLockedMap.classList.remove('active');
   } catch (e) {}
 }
 
 function applyLockedLayout() {
-  const currentlyOpenTypes = Object.values(openPanels || {})
+  let currentlyOpenTypes = Object.values(openPanels || {})
     .map((p) => (p && p.type) ? String(p.type) : '')
-    .filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi'].includes(t));
+    .filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi', 'map'].includes(t));
+  if (!currentlyOpenTypes.length) {
+    try {
+      const raw = cadLsGet('locked_open_types');
+      const saved = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(saved)) {
+        currentlyOpenTypes = saved
+          .map((t) => String(t || ''))
+          .filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi', 'map'].includes(t));
+      }
+    } catch (e) {}
+  }
+  if (!currentlyOpenTypes.length) currentlyOpenTypes = ['jobs', 'units', 'messages', 'map'];
   cadLockedLayout = true;
   cadLsSet('locked_layout', '1');
   try { document.querySelector('.cad-root')?.classList.add('locked-layout'); } catch (e) {}
@@ -1510,6 +1530,7 @@ function applyLockedLayout() {
     messages: 'Messages',
     past_jobs: 'Past / Cleared Jobs',
     kpi: 'Live KPI',
+    map: 'Live Map',
   };
   currentlyOpenTypes.forEach((type) => {
     try { getOrCreatePanel(type, titleByType[type] || type); } catch (e) {}
@@ -4101,6 +4122,10 @@ document.addEventListener('DOMContentLoaded', () => {
   btnLockedLayout?.addEventListener('click', () => {
     if (cadLockedLayout) removeLockedLayout();
     else applyLockedLayout();
+  });
+  btnLockedMap?.addEventListener('click', () => {
+    if (!cadLockedLayout) return;
+    togglePanelByType('map', 'Live Map', btnLockedMap);
   });
 
   btnKPI?.addEventListener('click', () => {
