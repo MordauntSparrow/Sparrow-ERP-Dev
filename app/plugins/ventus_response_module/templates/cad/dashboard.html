@@ -126,6 +126,7 @@ let commSnapshotInitialized = false;
 let unitsSnapshot = new Set();
 let unitsSnapshotInitialized = false;
 let panelZCounter = 560;
+let pendingDivisionRecenter = false;
 // Optional sounds disabled by default to avoid CDN/autoplay errors in console.
 let soundNewJob = null;
 let soundUrgent = null;
@@ -950,6 +951,7 @@ function moveMapIntoPanel(contentEl) {
   mapWrap.style.height = '100%';
   mapWrap.style.zIndex = '1';
   try { if (window.map && typeof window.map.invalidateSize === 'function') window.map.invalidateSize(true); } catch (e) {}
+  try { recenterMapToNearestDivisionUnit(); } catch (e) {}
 }
 
 function restoreMapHome(showMap = true) {
@@ -965,16 +967,57 @@ function restoreMapHome(showMap = true) {
   try { if (window.map && typeof window.map.invalidateSize === 'function') window.map.invalidateSize(true); } catch (e) {}
 }
 
-const LOCKED_SLOT_ORDER = ['tl', 'tr', 'mid', 'bl', 'br'];
+function recenterMapToNearestDivisionUnit() {
+  if (!map || typeof map.getCenter !== 'function' || typeof map.setView !== 'function') return;
+  const currentCenter = map.getCenter();
+  if (!currentCenter) return;
+  const applyFromUnits = (units) => {
+    const inDivision = (Array.isArray(units) ? units : []).filter((u) => String(u && u.division || 'general') === String(selectedDivision || 'general'));
+    let best = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    inDivision.forEach((u) => {
+      const lat = Number(u && u.latitude);
+      const lng = Number(u && u.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const d = Math.hypot(lat - Number(currentCenter.lat), lng - Number(currentCenter.lng));
+      if (d < bestDist) {
+        bestDist = d;
+        best = { lat, lng };
+      }
+    });
+    if (!best) return false;
+    const currentZoom = (typeof map.getZoom === 'function') ? Number(map.getZoom()) : 12;
+    const targetZoom = Number.isFinite(currentZoom) ? Math.max(11, currentZoom) : 12;
+    map.setView([best.lat, best.lng], targetZoom, { animate: true });
+    return true;
+  };
+
+  if (applyFromUnits(unitsData)) return;
+  fetch(withDivision('/plugin/ventus_response_module/units'))
+    .then((r) => (r.ok ? r.json() : []))
+    .then((units) => {
+      if (Array.isArray(units)) unitsData = units;
+      applyFromUnits(units);
+    })
+    .catch(() => {});
+}
+
+const LOCKED_SLOT_ORDER = ['left', 'map', 'messages', 'right', 'aux'];
 let lockedSnapOverlayEl = null;
+let lockedLayoutMetrics = {
+  leftWidthRatio: 0.24,
+  rightWidthRatio: 0.24,
+  centerTopRatio: 0.56,
+  auxHeightRatio: 0.22,
+};
 
 function lockedDefaultSlotForType(type) {
-  if (type === 'jobs') return 'tl';
-  if (type === 'units') return 'tr';
-  if (type === 'map') return 'bl';
-  if (type === 'messages') return 'mid';
-  if (type === 'past_jobs') return 'bl';
-  if (type === 'kpi') return 'br';
+  if (type === 'jobs') return 'left';
+  if (type === 'map') return 'map';
+  if (type === 'messages') return 'messages';
+  if (type === 'units') return 'right';
+  if (type === 'past_jobs') return 'aux';
+  if (type === 'kpi') return 'aux';
   return null;
 }
 
@@ -1000,17 +1043,40 @@ function saveLockedSlots() {
   cadLsSet('locked_slots', JSON.stringify(slots));
 }
 
+function loadLockedLayoutMetrics() {
+  try {
+    const raw = cadLsGet('locked_layout_metrics');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    const lw = Number(parsed.leftWidthRatio);
+    const rw = Number(parsed.rightWidthRatio);
+    const ct = Number(parsed.centerTopRatio);
+    const ah = Number(parsed.auxHeightRatio);
+    if (Number.isFinite(lw)) lockedLayoutMetrics.leftWidthRatio = Math.max(0.15, Math.min(0.34, lw));
+    if (Number.isFinite(rw)) lockedLayoutMetrics.rightWidthRatio = Math.max(0.15, Math.min(0.34, rw));
+    if (Number.isFinite(ct)) lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, ct));
+    if (Number.isFinite(ah)) lockedLayoutMetrics.auxHeightRatio = Math.max(0.14, Math.min(0.35, ah));
+  } catch (e) {}
+}
+
+function saveLockedLayoutMetrics() {
+  try {
+    cadLsSet('locked_layout_metrics', JSON.stringify(lockedLayoutMetrics));
+  } catch (e) {}
+}
+
 function ensureLockedSnapOverlay() {
   if (!panelsContainer) return null;
   if (lockedSnapOverlayEl && document.body.contains(lockedSnapOverlayEl)) return lockedSnapOverlayEl;
   const el = document.createElement('div');
   el.className = 'locked-snap-overlay';
   el.innerHTML = `
-    <div class="locked-snap-zone" data-slot="tl">Top Left</div>
-    <div class="locked-snap-zone" data-slot="tr">Top Right</div>
-    <div class="locked-snap-zone" data-slot="mid">Center (Wide)</div>
-    <div class="locked-snap-zone" data-slot="bl">Bottom Left</div>
-    <div class="locked-snap-zone" data-slot="br">Bottom Right</div>
+    <div class="locked-snap-zone" data-slot="left">Left Stack</div>
+    <div class="locked-snap-zone" data-slot="map">Map</div>
+    <div class="locked-snap-zone" data-slot="messages">Messages</div>
+    <div class="locked-snap-zone" data-slot="right">Active Units</div>
+    <div class="locked-snap-zone" data-slot="aux">Aux Panel</div>
   `;
   panelsContainer.appendChild(el);
   lockedSnapOverlayEl = el;
@@ -1036,35 +1102,44 @@ function hideLockedSnapOverlay() {
 
 function getLockedSlotFromPoint(clientX, clientY) {
   const rect = panelsContainer && panelsContainer.getBoundingClientRect ? panelsContainer.getBoundingClientRect() : null;
-  if (!rect || rect.width <= 0 || rect.height <= 0) return 'mid';
+  if (!rect || rect.width <= 0 || rect.height <= 0) return 'messages';
   const rx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   const ry = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-  if (ry < 0.28) return rx < 0.5 ? 'tl' : 'tr';
-  if (ry < 0.72) return 'mid';
-  return rx < 0.5 ? 'bl' : 'br';
+  const leftBound = lockedLayoutMetrics.leftWidthRatio;
+  const rightBound = 1 - lockedLayoutMetrics.rightWidthRatio;
+  const centerBound = lockedLayoutMetrics.centerTopRatio;
+  if (rx < leftBound) return 'left';
+  if (rx > rightBound) return 'right';
+  if (ry < centerBound) return 'map';
+  if (ry < 1 - lockedLayoutMetrics.auxHeightRatio) return 'messages';
+  return 'aux';
 }
 
 function getLockedSlotRect(slot) {
   const rect = panelsContainer && panelsContainer.getBoundingClientRect ? panelsContainer.getBoundingClientRect() : null;
   if (!rect || rect.width <= 0 || rect.height <= 0) return { left: 8, top: 8, width: 420, height: 320 };
   const gap = 10;
-  const innerW = Math.max(200, rect.width - (gap * 2));
-  const innerH = Math.max(220, rect.height - (gap * 2));
-  const colW = Math.max(220, Math.floor((innerW - gap) / 2));
-  const rowTop = Math.max(150, Math.floor(innerH * 0.23));
-  const rowMid = Math.max(240, Math.floor(innerH * 0.50));
-  const rowBot = Math.max(140, innerH - rowTop - rowMid - (gap * 2));
+  const innerW = Math.max(320, rect.width - (gap * 2));
+  const innerH = Math.max(260, rect.height - (gap * 2));
+  const leftW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.leftWidthRatio));
+  const rightW = Math.max(260, Math.floor(innerW * lockedLayoutMetrics.rightWidthRatio));
+  const centerW = Math.max(360, innerW - leftW - rightW - (gap * 2));
+  const auxH = Math.max(130, Math.floor(innerH * lockedLayoutMetrics.auxHeightRatio));
+  const workH = Math.max(180, innerH - auxH - gap);
+  const centerTopH = Math.max(150, Math.floor(workH * lockedLayoutMetrics.centerTopRatio));
+  const centerBottomH = Math.max(150, workH - centerTopH - gap);
   const leftX = gap;
-  const rightX = gap + colW + gap;
+  const centerX = leftX + leftW + gap;
+  const rightX = centerX + centerW + gap;
   const topY = gap;
-  const midY = gap + rowTop + gap;
-  const botY = gap + rowTop + gap + rowMid + gap;
-  if (slot === 'tl') return { left: leftX, top: topY, width: colW, height: rowTop };
-  if (slot === 'tr') return { left: rightX, top: topY, width: colW, height: rowTop };
-  if (slot === 'mid') return { left: leftX, top: midY, width: (colW * 2) + gap, height: rowMid };
-  if (slot === 'bl') return { left: leftX, top: botY, width: colW, height: rowBot };
-  if (slot === 'br') return { left: rightX, top: botY, width: colW, height: rowBot };
-  return { left: leftX, top: midY, width: (colW * 2) + gap, height: rowMid };
+  const centerBottomY = topY + centerTopH + gap;
+  const auxY = topY + workH + gap;
+  if (slot === 'left') return { left: leftX, top: topY, width: leftW, height: workH };
+  if (slot === 'map') return { left: centerX, top: topY, width: centerW, height: centerTopH };
+  if (slot === 'messages') return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
+  if (slot === 'right') return { left: rightX, top: topY, width: rightW, height: workH };
+  if (slot === 'aux') return { left: leftX, top: auxY, width: innerW, height: auxH };
+  return { left: centerX, top: centerBottomY, width: centerW, height: centerBottomH };
 }
 
 function layoutLockedPanels() {
@@ -1100,9 +1175,13 @@ function applyLockedSlot(panelEl, slot, allowSwap = true) {
 function normalizeLockedSlots() {
   if (!cadLockedLayout) return;
   const panelEls = Array.from(panelsContainer.querySelectorAll('.cad-panel'));
-  panelEls.forEach((el, idx) => {
-    const target = LOCKED_SLOT_ORDER[idx] || LOCKED_SLOT_ORDER[LOCKED_SLOT_ORDER.length - 1];
+  const used = new Set();
+  panelEls.forEach((el) => {
+    const type = String((el.dataset && el.dataset.panelType) || '');
+    const pref = lockedDefaultSlotForType(type) || 'messages';
+    const target = !used.has(pref) ? pref : (LOCKED_SLOT_ORDER.find((s) => !used.has(s)) || pref);
     el.dataset.lockedSlot = target;
+    used.add(target);
   });
   saveLockedSlots();
   layoutLockedPanels();
@@ -1112,6 +1191,15 @@ window.resetPanelsToDefault = function() {
   ['map', 'jobs', 'units', 'messages', 'past_jobs', 'kpi'].forEach((type) => {
     cadLsRemove(`panel_state_${type}`, `cad_panel_state_${type}`);
   });
+  if (cadLockedLayout) {
+    try {
+      lockedLayoutMetrics = { leftWidthRatio: 0.24, rightWidthRatio: 0.24, centerTopRatio: 0.56, auxHeightRatio: 0.22 };
+      saveLockedLayoutMetrics();
+      normalizeLockedSlots();
+      showNotification('success', 'Panels reset', 'Fixed layout snap zones restored.');
+    } catch (e) {}
+    return;
+  }
   const typeOrder = cadLockedLayout
     ? ['map', 'jobs', 'units', 'messages', 'past_jobs', 'kpi']
     : ['jobs', 'units', 'messages', 'past_jobs', 'kpi'];
@@ -1186,21 +1274,6 @@ function createPanel(type, title) {
         ? savedSlots[type]
         : (lockedDefaultSlotForType(type) || LOCKED_SLOT_ORDER[0]);
       panelEl.dataset.lockedSlot = preferredSlot;
-      const saved = cadLsGet(`panel_state_${type}`, `cad_panel_state_${type}`);
-      if (saved) {
-        const s = JSON.parse(saved);
-        if (s.left) panelEl.style.left = s.left;
-        if (s.top) panelEl.style.top = s.top;
-        if (s.width) panelEl.style.width = s.width;
-        if (s.height) panelEl.style.height = s.height;
-      }
-      if (!panelEl.style.left || !panelEl.style.top) {
-        const def = getLockedPanelDefaults(type);
-        panelEl.style.left = def.left + 'px';
-        panelEl.style.top = def.top + 'px';
-        panelEl.style.width = def.width + 'px';
-        panelEl.style.height = def.height + 'px';
-      }
       normalizeLockedSlots();
     } catch (e) {}
   } else {
@@ -1342,6 +1415,39 @@ function setupDragResize(panelId) {
         const maxH = Math.max(minH, hostH - startTop - 8);
         const onMove = (ev) => {
           const dx = ev.clientX - startX, dy = ev.clientY - startY;
+          if (cadLockedLayout) {
+            const slot = String((panelEl.dataset && panelEl.dataset.lockedSlot) || '');
+            if (slot === 'left') {
+              lockedLayoutMetrics.leftWidthRatio = Math.max(0.15, Math.min(0.34, lockedLayoutMetrics.leftWidthRatio + (dx / Math.max(400, hostW))));
+            } else if (slot === 'right') {
+              lockedLayoutMetrics.rightWidthRatio = Math.max(0.15, Math.min(0.34, lockedLayoutMetrics.rightWidthRatio - (dx / Math.max(400, hostW))));
+            } else if (slot === 'map') {
+              lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, lockedLayoutMetrics.centerTopRatio + (dy / Math.max(300, hostH))));
+            } else if (slot === 'messages') {
+              lockedLayoutMetrics.centerTopRatio = Math.max(0.3, Math.min(0.75, lockedLayoutMetrics.centerTopRatio - (dy / Math.max(300, hostH))));
+            } else if (slot === 'aux') {
+              lockedLayoutMetrics.auxHeightRatio = Math.max(0.14, Math.min(0.35, lockedLayoutMetrics.auxHeightRatio - (dy / Math.max(300, hostH))));
+            }
+            layoutLockedPanels();
+            try {
+              let sizeOverlay = document.getElementById('panel-size-overlay');
+              if (!sizeOverlay) {
+                sizeOverlay = document.createElement('div');
+                sizeOverlay.id = 'panel-size-overlay';
+                Object.assign(sizeOverlay.style, {
+                  position: 'fixed', left: '0px', top: '0px', padding: '6px 8px',
+                  background: 'rgba(0,0,0,0.8)', color: 'white', fontSize: '12px',
+                  borderRadius: '6px', zIndex: 99999, pointerEvents: 'none', display: 'none'
+                });
+                document.body.appendChild(sizeOverlay);
+              }
+              sizeOverlay.style.display = 'block';
+              sizeOverlay.textContent = 'Dock resized';
+              sizeOverlay.style.left = (ev.clientX + 12) + 'px';
+              sizeOverlay.style.top = (ev.clientY + 12) + 'px';
+            } catch (e) {}
+            return;
+          }
           let nw = startW, nh = startH, nl = startLeft, nt = startTop;
           if (dir.includes('r')) nw = Math.min(maxW, Math.max(minW, startW + dx));
           if (dir.includes('l')) {
@@ -1385,6 +1491,7 @@ function setupDragResize(panelId) {
             const sizeOverlay = document.getElementById('panel-size-overlay');
             if (sizeOverlay) sizeOverlay.style.display = 'none';
           } catch (e) {}
+          if (cadLockedLayout) saveLockedLayoutMetrics();
           savePanelState(panelEl);
         };
 
@@ -1501,7 +1608,9 @@ function closePanel(panelId) {
     } catch (e) {}
     delete openPanels[panelId];
     syncPanelButtonStates();
-    if (cadLockedLayout) {}
+    if (cadLockedLayout) {
+      try { normalizeLockedSlots(); } catch (e) {}
+    }
     if (isPopoutMode && Object.keys(openPanels).length === 0) {
       try { window.close(); } catch (e) {}
     }
@@ -1578,6 +1687,7 @@ function clearAllPanelsImmediate() {
 }
 
 function applyLockedLayout() {
+  loadLockedLayoutMetrics();
   let currentlyOpenTypes = Object.values(openPanels || {})
     .map((p) => (p && p.type) ? String(p.type) : '')
     .filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi', 'map'].includes(t));
@@ -1868,6 +1978,10 @@ function refreshMap() {
         }
       }
     });
+    if (pendingDivisionRecenter) {
+      pendingDivisionRecenter = false;
+      try { recenterMapToNearestDivisionUnit(); } catch (e) {}
+    }
     refreshOpenPanels(['units', 'messages']);
   });
 }
@@ -2149,8 +2263,14 @@ if (divisionSelect) {
   divisionSelect.addEventListener('change', () => {
     selectedDivision = divisionSelect.value || 'general';
     cadLsSet('division_focus', selectedDivision);
+    pendingDivisionRecenter = true;
     refreshKPIs();
     refreshMap();
+    setTimeout(() => {
+      if (pendingDivisionRecenter) {
+        try { recenterMapToNearestDivisionUnit(); } catch (e) {}
+      }
+    }, 500);
     refreshOpenPanels(['past_jobs', 'kpi']);
   });
 }
@@ -2274,12 +2394,17 @@ function loadJobsPanel(contentEl) {
   }
   contentEl.innerHTML = `
     <div style="margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);">
+        <input type="checkbox" class="jobs-show-external-toggle" ${showExternalDivisions ? 'checked' : ''}>
+        Show other divisions (greyed)
+      </label>
       <input type="search" placeholder="🔍 Search..." class="job-filter" style="margin-bottom:8px;">
     </div>
     <ul id="jobsList" style="list-style:none;padding:0;margin:0;"></ul>
   `;
 
   const filter = contentEl.querySelector('.job-filter');
+  const localExternalToggle = contentEl.querySelector('.jobs-show-external-toggle');
   const renderFiltered = (jobs, timingsMap = {}, eligibilityMap = {}) => {
     const val = String(filter?.value || '').toLowerCase();
     const list = Array.isArray(jobs) ? jobs : [];
@@ -2310,9 +2435,23 @@ function loadJobsPanel(contentEl) {
       refreshJobs().catch(() => {});
     };
   }
+  if (localExternalToggle) {
+    localExternalToggle.addEventListener('change', () => {
+      showExternalDivisions = !!localExternalToggle.checked;
+      cadLsSet('show_external_divisions', showExternalDivisions ? '1' : '0');
+      if (showExternalToggle) showExternalToggle.checked = showExternalDivisions;
+      refreshMap();
+      refreshJobs().catch(() => {});
+    });
+  }
 
   refreshJobs()
-    .catch(() => { contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load jobs.</div>'; });
+    .catch(() => {
+      const jobsList = contentEl.querySelector('#jobsList');
+      if (!jobsList || !jobsList.children || jobsList.children.length === 0) {
+        contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load jobs.</div>';
+      }
+    });
 
   const jobsPoll = setInterval(() => {
     if (!document.body.contains(contentEl)) { clearInterval(jobsPoll); return; }
@@ -2321,8 +2460,40 @@ function loadJobsPanel(contentEl) {
   }, 5000);
 }
 
+function patchListByKey(listEl, rows, emptyHtml = '') {
+  if (!listEl) return;
+  const nextRows = Array.isArray(rows) ? rows : [];
+  if (!nextRows.length) {
+    listEl.innerHTML = emptyHtml;
+    return;
+  }
+  const existing = new Map();
+  Array.from(listEl.children || []).forEach((el) => {
+    const key = el && el.getAttribute ? el.getAttribute('data-row-key') : '';
+    if (key) existing.set(key, el);
+  });
+  nextRows.forEach((row) => {
+    const key = String(row && row.key ? row.key : '');
+    if (!key) return;
+    const html = String(row && row.html ? row.html : '');
+    const hash = String(html.length) + ':' + html;
+    const current = existing.get(key);
+    if (current) {
+      if ((current.getAttribute('data-row-hash') || '') !== hash) {
+        current.outerHTML = html;
+      }
+      existing.delete(key);
+      return;
+    }
+    listEl.insertAdjacentHTML('beforeend', html);
+  });
+  existing.forEach((el) => {
+    try { el.remove(); } catch (e) {}
+  });
+}
+
 function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
-  let html = '';
+  const rows = [];
   jobs.forEach(job => {
     const currentTimer = getCurrentStatusTimer(job, timingsMap[job.cad]);
     const ongoing = formatOngoing(job.created_at || (timingsMap[job.cad] && timingsMap[job.cad].received_time));
@@ -2338,8 +2509,8 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
     const suggested = (eligibilityMap[job.cad] && eligibilityMap[job.cad].recommended && eligibilityMap[job.cad].recommended.callsign)
       ? String(eligibilityMap[job.cad].recommended.callsign)
       : '';
-    html += `
-      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" draggable="true" ondragstart="if(event.dataTransfer){event.dataTransfer.setData('application/x-ventus-job-cad', String(event.currentTarget.dataset.cad||''));event.dataTransfer.setData('text/plain','');event.dataTransfer.effectAllowed='copy';}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();handleJobDragOver(event);" ondragenter="event.preventDefault();handleJobDragOver(event);" ondragleave="event.preventDefault();handleJobDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
+    const rowHtml = `
+      <li class="panel-list-item drop-target-job" data-row-key="job-${job.cad}" data-row-hash="" data-cad="${job.cad}" draggable="true" ondragstart="if(event.dataTransfer){event.dataTransfer.setData('application/x-ventus-job-cad', String(event.currentTarget.dataset.cad||''));event.dataTransfer.setData('text/plain','');event.dataTransfer.effectAllowed='copy';}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();handleJobDragOver(event);" ondragenter="event.preventDefault();handleJobDragOver(event);" ondragleave="event.preventDefault();handleJobDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
         <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
@@ -2356,9 +2527,14 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
         <span class="status" style="background:rgba(59,130,246,0.2);color:var(--primary-light);">${prettyStatus(job.status)}</span>
       </li>
     `;
+    const hash = String(rowHtml.length) + ':' + rowHtml;
+    rows.push({
+      key: `job-${job.cad}`,
+      html: rowHtml.replace('data-row-hash=""', `data-row-hash="${escapeHtml(hash)}"`),
+    });
   });
   const jobsList = contentEl.querySelector('#jobsList');
-  if (jobsList) jobsList.innerHTML = html;
+  patchListByKey(jobsList, rows, '<li style="color:var(--text-muted);padding:8px;">No active jobs.</li>');
 }
 function loadUnitsPanel(contentEl) {
   contentEl.innerHTML = `
@@ -2391,7 +2567,12 @@ function loadUnitsPanel(contentEl) {
   }
 
   refreshUnits()
-    .catch(() => { contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load units.</div>'; });
+    .catch(() => {
+      const unitsList = contentEl.querySelector('#unitsList');
+      if (!unitsList || !unitsList.children || unitsList.children.length === 0) {
+        contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load units.</div>';
+      }
+    });
 
   const unitsPoll = setInterval(() => {
     if (!document.body.contains(contentEl)) { clearInterval(unitsPoll); return; }
@@ -2433,7 +2614,7 @@ function loadPastJobsPanel(contentEl) {
 }
 
 function renderUnitsList(units, contentEl) {
-  let html = '';
+  const rows = [];
   units.forEach(u => {
     const callsign = String(u.callSign || '').trim();
     const st = String(u.status || '').toLowerCase();
@@ -2471,8 +2652,8 @@ function renderUnitsList(units, contentEl) {
           </div>
         `
       : '';
-    html += `
-      <li class="panel-list-item draggable-unit drop-target-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';" ondragover="event.preventDefault();event.stopPropagation();handleUnitDragOver(event);" ondragenter="event.preventDefault();handleUnitDragOver(event);" ondragleave="event.preventDefault();handleUnitDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cadRaw=event.dataTransfer.getData('application/x-ventus-job-cad')||event.dataTransfer.getData('text/plain');var cad=parseInt(cadRaw,10);var cs=this.dataset.callsign||'';if(cad>0&&cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(cad,cs);}">
+    const rowHtml = `
+      <li class="panel-list-item draggable-unit drop-target-unit" data-row-key="unit-${escapeHtml(callsign)}" data-row-hash="" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';" ondragover="event.preventDefault();event.stopPropagation();handleUnitDragOver(event);" ondragenter="event.preventDefault();handleUnitDragOver(event);" ondragleave="event.preventDefault();handleUnitDragLeave(event);" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cadRaw=event.dataTransfer.getData('application/x-ventus-job-cad')||event.dataTransfer.getData('text/plain');var cad=parseInt(cadRaw,10);var cs=this.dataset.callsign||'';if(cad>0&&cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(cad,cs);}">
         <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
@@ -2491,9 +2672,14 @@ function renderUnitsList(units, contentEl) {
         <span class="status" style="background:${breakBlocked ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'};color:${breakBlocked ? '#fca5a5' : 'var(--accent-success)'};">${breakBlocked ? 'BREAK DUE' : prettyStatus(u.status)}</span>
       </li>
     `;
+    const hash = String(rowHtml.length) + ':' + rowHtml;
+    rows.push({
+      key: `unit-${callsign}`,
+      html: rowHtml.replace('data-row-hash=""', `data-row-hash="${escapeHtml(hash)}"`),
+    });
   });
   const unitsList = contentEl.querySelector('#unitsList');
-  if (unitsList) unitsList.innerHTML = html;
+  patchListByKey(unitsList, rows, '<li style="color:var(--text-muted);padding:8px;">No units available.</li>');
 }
 
 const dispatchMsgState = {
@@ -2698,6 +2884,8 @@ function loadMsgPanel(contentEl) {
   const motdDisplay = contentEl.querySelector('#motdDisplay');
   const motdMeta = contentEl.querySelector('#motdMeta');
   const motdReloadBtn = contentEl.querySelector('#motdReloadBtn');
+  let hasLoadedMsgUnits = false;
+  let hasLoadedMsgInbox = false;
 
   const setSectionCount = (el, n) => {
     if (!el) return;
@@ -2817,14 +3005,17 @@ function loadMsgPanel(contentEl) {
           const unreadTotal = Object.values(unreadByCalls).reduce((a, b) => a + (Number(b) || 0), 0);
 
           setSectionCount(msgConversationCount, unreadTotal);
+        hasLoadedMsgUnits = true;
 
           const selectedUnread = dispatchMsgState.selectedUnit ? (Number(unreadByCalls[dispatchMsgState.selectedUnit]) || 0) : 0;
           renderRecipientChips(callsigns, { refreshConversation: selectedUnread > 0 });
         });
       })
       .catch(() => {
-        setSectionCount(msgConversationCount, 0);
-        recipientChips.innerHTML = '<span class="meta">Unable to load units.</span>';
+        if (!hasLoadedMsgUnits) {
+          setSectionCount(msgConversationCount, 0);
+          recipientChips.innerHTML = '<span class="meta">Unable to load units.</span>';
+        }
       });
 
   const loadDispatcherInbox = () =>
@@ -2834,6 +3025,7 @@ function loadMsgPanel(contentEl) {
         const list = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : []);
         const unreadCount = (data && typeof data.unread_count === 'number') ? data.unread_count : list.length;
         setSectionCount(msgInboxCount, unreadCount);
+        hasLoadedMsgInbox = true;
         if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', unreadCount);
         if (!list.length) {
           dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">No incident messages yet.</li>';
@@ -2857,9 +3049,11 @@ function loadMsgPanel(contentEl) {
         }).join('');
       })
       .catch(() => {
-        setSectionCount(msgInboxCount, 0);
-        if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', 0);
-        dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">Unable to load inbox.</li>';
+        if (!hasLoadedMsgInbox) {
+          setSectionCount(msgInboxCount, 0);
+          if (!isPanelOpenByType('messages')) setRailBadge('btnMsgs', 0);
+          dispatcherInboxList.innerHTML = '<li style="color:var(--text-muted);padding:8px;">Unable to load inbox.</li>';
+        }
       });
 
   const resolveAssistRequest = (id, decision) =>
@@ -3825,10 +4019,10 @@ window.loadJobDetail = function(cad, opts) {
   contentEl.innerHTML = '<div style="text-align:center;padding:20px;">Loading...</div>';
 
   Promise.all([
-    fetch(`/plugin/ventus_response_module/job/${cad}`).then(res => res.json()),
+    fetch(withDivision(`/plugin/ventus_response_module/job/${cad}`)).then(res => res.json()),
     fetchJobsTimings([cad]),
-    fetch(`/plugin/ventus_response_module/job/${cad}/comms`).then(res => (res.ok ? res.json() : [])),
-    fetch(`/plugin/ventus_response_module/job/${cad}/system-log`).then(res => (res.ok ? res.json() : { events: [] }))
+    fetch(withDivision(`/plugin/ventus_response_module/job/${cad}/comms`)).then(res => (res.ok ? res.json() : [])),
+    fetch(withDivision(`/plugin/ventus_response_module/job/${cad}/system-log`)).then(res => (res.ok ? res.json() : { events: [] }))
   ])
     .then(([job, timingsMap, comms, systemLog]) => {
       let triage = job.triage_data || {};

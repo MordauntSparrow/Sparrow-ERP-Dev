@@ -148,6 +148,17 @@
               <input type="text" id="vitaRecordDisplay" readonly placeholder="Auto from lookup">
             </div>
           </div>
+          <div style="margin-top:8px;">
+            <label class="muted">Dispatch Division</label>
+            <select name="division" required>
+              {% for div in dispatch_divisions %}
+                {% set slug = (div.slug if div.slug is defined else 'general') %}
+                {% set label = (div.name if div.name is defined and div.name else slug) %}
+                <option value="{{ slug }}" {% if selected_dispatch_division == slug %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="muted" style="margin-top:6px;">This controls which dispatcher division stack receives the incident.</div>
+          </div>
         </div>
       </div>
 

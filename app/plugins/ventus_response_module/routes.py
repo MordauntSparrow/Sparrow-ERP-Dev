@@ -5139,9 +5139,29 @@ def triage_form():
     cur = conn.cursor(dictionary=True)
     try:
         forms = _load_triage_forms(cur)
+        dispatch_divisions = _list_dispatch_divisions(cur, include_inactive=False)
+        access = _get_dispatch_user_division_access(cur, getattr(current_user, "username", None))
+        default_dispatch_division = _get_dispatch_default_division(cur)
     finally:
         cur.close()
         conn.close()
+
+    division_slugs = [str((d or {}).get("slug") or "").strip() for d in (dispatch_divisions or [])]
+    division_slugs = [s for s in division_slugs if s]
+    restricted_divisions = [str(d or "").strip() for d in (access.get("divisions") or []) if str(d or "").strip()] if isinstance(access, dict) else []
+    can_override_all = bool((access or {}).get("can_override_all")) if isinstance(access, dict) else False
+    if restricted_divisions and not can_override_all:
+        allowed_set = set(restricted_divisions)
+        dispatch_divisions = [d for d in (dispatch_divisions or []) if str((d or {}).get("slug") or "").strip() in allowed_set]
+    if not dispatch_divisions:
+        dispatch_divisions = [{"slug": "general", "name": "General", "color": "#64748b", "is_default": True}]
+    selected_dispatch_division = _normalize_division(
+        request.args.get("division") or request.form.get("division") or default_dispatch_division or "general",
+        fallback="general",
+    )
+    allowed_divisions = [str((d or {}).get("slug") or "").strip() for d in dispatch_divisions if str((d or {}).get("slug") or "").strip()]
+    if selected_dispatch_division not in allowed_divisions:
+        selected_dispatch_division = allowed_divisions[0] if allowed_divisions else "general"
 
     selected_slug = request.args.get('form') or request.form.get('form_slug') or ''
     selected_form = _pick_triage_form(forms, selected_slug)
@@ -5149,6 +5169,8 @@ def triage_form():
         "config": core_manifest,
         "triage_forms": forms,
         "selected_form": selected_form,
+        "dispatch_divisions": dispatch_divisions,
+        "selected_dispatch_division": selected_dispatch_division,
         "google_maps_api_key": (GOOGLE_MAPS_API_KEY or "")
     }
 
@@ -5272,6 +5294,8 @@ def triage_form():
                 requested_division = 'events'
             else:
                 requested_division = 'general'
+        if requested_division not in allowed_divisions:
+            requested_division = selected_dispatch_division or 'general'
 
         validation_errors = []
         if not reason_for_call:
