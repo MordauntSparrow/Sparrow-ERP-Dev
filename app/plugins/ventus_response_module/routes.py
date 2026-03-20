@@ -1675,6 +1675,61 @@ def job_detail(cad):
                 job['assigned_units'] = _get_job_unit_callsigns(cur, cad)
         except Exception:
             pass
+        job['assigned_unit_states'] = []
+        try:
+            assigned_units = [str(cs).strip() for cs in (job.get('assigned_units') or []) if str(cs).strip()]
+            if assigned_units:
+                cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'lastSeenAt'")
+                has_last_seen = cur.fetchone() is not None
+                cur.execute("SHOW COLUMNS FROM mdts_signed_on LIKE 'signOnTime'")
+                has_sign_on = cur.fetchone() is not None
+                if has_last_seen and has_sign_on:
+                    last_seen_sql = "COALESCE(lastSeenAt, signOnTime)"
+                elif has_last_seen:
+                    last_seen_sql = "lastSeenAt"
+                elif has_sign_on:
+                    last_seen_sql = "signOnTime"
+                else:
+                    last_seen_sql = "NULL"
+                placeholders = ",".join(["%s"] * len(assigned_units))
+                cur.execute(
+                    f"""
+                    SELECT callSign,
+                           LOWER(TRIM(COALESCE(status, ''))) AS status,
+                           {last_seen_sql} AS last_seen
+                    FROM mdts_signed_on
+                    WHERE callSign IN ({placeholders})
+                    """,
+                    tuple(assigned_units),
+                )
+                online_rows = {str((r or {}).get('callSign') or '').strip(): (r or {}) for r in (cur.fetchall() or [])}
+                now_dt = datetime.utcnow()
+                for cs in assigned_units:
+                    row = online_rows.get(cs) or {}
+                    status = str(row.get('status') or '').strip().lower()
+                    last_seen = row.get('last_seen')
+                    stale = False
+                    if isinstance(last_seen, datetime):
+                        try:
+                            stale = (now_dt - last_seen).total_seconds() > 300
+                        except Exception:
+                            stale = False
+                    signed_on = bool(row)
+                    responding = bool(signed_on and not stale)
+                    if not signed_on:
+                        alert = 'signed_off'
+                    elif stale:
+                        alert = 'no_signal'
+                    else:
+                        alert = ''
+                    job['assigned_unit_states'].append({
+                        'callsign': cs,
+                        'status': status,
+                        'responding': responding,
+                        'alert': alert,
+                    })
+        except Exception:
+            pass
         job['division'] = _normalize_division(job.get('division'), fallback='general')
         if access.get('restricted'):
             allowed = set(access.get('divisions') or [])

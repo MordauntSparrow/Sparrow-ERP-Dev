@@ -107,6 +107,11 @@
   outline: 2px dashed var(--accent-success);
   outline-offset: -2px;
 }
+@keyframes cad-alert-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
 </style>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -401,9 +406,11 @@ function renderIncidentDetails(triageRaw) {
 
   const riskFlags = (() => {
     const out = [];
+    const ignored = new Set(['', 'no', 'none', 'unknown', 'false', '0', 'n/a', 'na', 'nil']);
     const pushRisk = (val) => {
       const txt = normalizeToken(formatDisplayValue(val));
       if (!txt) return;
+      if (ignored.has(txt.toLowerCase())) return;
       if (!out.some((x) => x.toLowerCase() === txt.toLowerCase())) out.push(txt);
     };
     const pull = (key) => {
@@ -443,6 +450,22 @@ function renderIncidentDetails(triageRaw) {
       s.split(/[\n,;|]+/).forEach(pushRisk);
     };
     ['risk_flags', 'riskFlags', 'risk_flag', 'risk'].forEach(pull);
+    Object.entries(answers || {}).forEach(([k, v]) => {
+      const key = String(k || '');
+      if (!/(risk|threat|hazard|violent|weapon|police|safeguard|danger)/i.test(key)) return;
+      const label = prettyFieldLabel(key);
+      if (Array.isArray(v)) {
+        v.forEach((item) => pushRisk(`${label}: ${formatDisplayValue(item)}`));
+        return;
+      }
+      if (v && typeof v === 'object') {
+        pushRisk(`${label}: ${formatDisplayValue(v)}`);
+        return;
+      }
+      const text = normalizeToken(String(v ?? ''));
+      if (!text || ignored.has(text.toLowerCase())) return;
+      pushRisk(`${label}: ${text}`);
+    });
     return out;
   })();
 
@@ -4044,10 +4067,23 @@ window.loadJobDetail = function(cad, opts) {
       let incidentDetailsHtml = renderIncidentDetails(triage);
       const statusTimesTable = formatStatusTimesTable(job, timingsMap[cad]);
       const assignedUnits = Array.isArray(job.assigned_units) ? job.assigned_units : [];
+      const assignedStateByCallsign = new Map(
+        (Array.isArray(job.assigned_unit_states) ? job.assigned_unit_states : [])
+          .map((s) => [String((s && s.callsign) || ''), s || {}])
+      );
       const assignedUnitsHtml = assignedUnits.length
         ? assignedUnits.map((cs) => `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:6px;">
-              <span>${escapeHtml(cs)}</span>
+              <span>
+                ${escapeHtml(cs)}
+                ${(() => {
+                  const st = assignedStateByCallsign.get(String(cs)) || {};
+                  if (st && st.responding) return '';
+                  const alert = String((st && st.alert) || '').toLowerCase();
+                  const txt = alert === 'signed_off' ? 'SIGNED OFF' : 'NO SIGNAL';
+                  return ` <span class="status" style="margin-left:8px;background:rgba(239,68,68,0.26);color:#fecaca;border:1px solid rgba(239,68,68,0.65);animation:cad-alert-pulse 1.2s ease-in-out infinite;">${txt}</span>`;
+                })()}
+              </span>
               <button class="btn" style="padding:4px 8px;background:transparent;border:1px solid var(--border-color);" onclick='event.stopPropagation();standDownUnitFromJob(${job.cad}, ${JSON.stringify(cs)})'>Stand Down</button>
             </div>
           `).join('')
