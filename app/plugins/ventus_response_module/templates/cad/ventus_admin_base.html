@@ -245,6 +245,81 @@
       overflow: hidden;
     }
 
+    /* ====== LOCKED LAYOUT MODE (single-screen fixed panels) ====== */
+    .cad-root.locked-layout .cad-rail {
+      display: none;
+    }
+    .cad-root.locked-layout .cad-main {
+      grid-template-columns: 1fr 760px;
+    }
+    @media (max-width: 1320px) {
+      .cad-root.locked-layout .cad-main {
+        grid-template-columns: 1fr 620px;
+      }
+    }
+    .cad-root.locked-layout .cad-panels {
+      position: relative;
+      top: auto;
+      left: auto;
+      width: 100%;
+      height: 100%;
+      pointer-events: auto;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+      gap: 8px;
+      padding: 10px;
+      overflow: auto;
+    }
+    .cad-root.locked-layout .cad-panels::-webkit-scrollbar {
+      display: none;
+    }
+    .cad-root.locked-layout .cad-panel {
+      position: relative;
+      z-index: auto;
+      left: auto;
+      top: auto;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      resize: none;
+      overflow: hidden;
+    }
+    .cad-root.locked-layout .cad-panel .resize-handle {
+      display: none;
+    }
+    .cad-root.locked-layout .cad-panel .panel-btn.popout,
+    .cad-root.locked-layout .cad-panel .panel-btn.close,
+    .cad-root.locked-layout .cad-panel .panel-btn.expand-toggle {
+      display: none;
+    }
+    .cad-root.locked-layout .cad-panel-header {
+      cursor: default;
+    }
+    .cad-root.locked-layout .cad-panel[data-panel-type="jobs"] {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .cad-root.locked-layout .cad-panel[data-panel-type="units"] {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .cad-root.locked-layout .cad-panel[data-panel-type="messages"] {
+      grid-column: 1;
+      grid-row: 2;
+    }
+    .cad-root.locked-layout .cad-panel[data-panel-type="past_jobs"] {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    .cad-root.locked-layout .cad-panel[data-panel-type="kpi"] {
+      grid-column: 1 / span 2;
+      grid-row: 3;
+      height: 140px;
+    }
+
     /* ====== LEFT SIDEBAR RAIL ====== */
     .cad-rail {
       width: 72px;
@@ -974,6 +1049,9 @@
       </div>
       <div class="cad-rail-btn" id="btnResetPanels" title="Reset panels to default position/size">
         <i class="bi bi-arrow-counterclockwise"></i>
+      </div>
+      <div class="cad-rail-btn" id="btnLockedLayout" title="Locked layout (fixed panels for single-screen use)">
+        <i class="bi bi-layout-3-window"></i>
       </div>
     </div>
     <div class="cad-main" id="cadMain">

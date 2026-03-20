@@ -1393,30 +1393,48 @@ class UpdateManager:
             raise Exception(
                 f"Failed to fetch remote manifest for '{plugin_name}': {e}")
 
-        download_url = remote_manifest.get("download_url")
-        if not download_url:
+        # Fresh install needs a "complete" (full module) artifact.
+        # Some repo artifacts pointed by `download_url` may be partial/delta
+        # updates (missing unchanged files). If `complete_download_url` is
+        # provided, install that first, then overlay `download_url`.
+        latest_download_url = remote_manifest.get("download_url")
+        if not latest_download_url and not remote_manifest.get("complete_download_url"):
             raise Exception(
-                f"No download_url in remote manifest for '{plugin_name}'.")
+                f"No download_url/complete_download_url in remote manifest for '{plugin_name}'.")
 
-        # --- Normalize download URL to GitLab API endpoint ---
-        download_url = self.convert_to_api_endpoint(download_url)
-        if not download_url.startswith("https://gitlab.com/api/v4/"):
+        complete_download_url = (
+            remote_manifest.get("complete_download_url")
+            or remote_manifest.get("full_download_url")
+        )
+
+        initial_download_url = complete_download_url or latest_download_url
+        initial_download_url = self.convert_to_api_endpoint(initial_download_url)
+        latest_download_url = (
+            self.convert_to_api_endpoint(latest_download_url)
+            if latest_download_url
+            else None
+        )
+
+        if not initial_download_url.startswith("https://gitlab.com/api/v4/"):
             raise Exception(
-                f"Download URL not normalized to API endpoint for '{plugin_name}': {download_url}")
+                f"Initial download URL not normalized to API endpoint for '{plugin_name}': {initial_download_url}")
+        if latest_download_url and not latest_download_url.startswith("https://gitlab.com/api/v4/"):
+            raise Exception(
+                f"Latest download URL not normalized to API endpoint for '{plugin_name}': {latest_download_url}")
 
-        # --- Compute local zip path ---
-        url_name = unquote(os.path.basename(urlparse(download_url).path))
+        # --- Compute local zip path (initial complete artifact) ---
+        url_name = unquote(os.path.basename(urlparse(initial_download_url).path))
         if not url_name.lower().endswith(".zip"):
-            url_name = f"{plugin_name}_update.zip"
-        zip_path = os.path.join(self.UPDATE_DIR, url_name)
+            url_name = f"{plugin_name}_complete.zip"
+        zip_path_initial = os.path.join(self.UPDATE_DIR, url_name)
 
-        # --- Download zip ---
+        # --- Download initial zip ---
         try:
-            self.download_update(download_url, zip_path)
+            self.download_update(initial_download_url, zip_path_initial)
             print(
-                f"[DEBUG] Downloaded zip for '{plugin_name}' to: {zip_path} (exists={os.path.exists(zip_path)})")
+                f"[DEBUG] Downloaded zip for '{plugin_name}' to: {zip_path_initial} (exists={os.path.exists(zip_path_initial)})")
         except Exception as e:
-            raise Exception(f"Failed to download '{plugin_name}' zip: {e}")
+            raise Exception(f"Failed to download '{plugin_name}' initial zip: {e}")
 
         # --- Prepare target plugin path ---
         plugin_target = os.path.join(self.PLUGINS_DIR, plugin_name)
@@ -1424,15 +1442,34 @@ class UpdateManager:
 
         # --- Extract safely ---
         try:
-            self.apply_zip(zip_path, plugin_target)
-            print(f"[DEBUG] Extracted '{plugin_name}' into: {plugin_target}")
+            self.apply_zip(zip_path_initial, plugin_target)
+            print(
+                f"[DEBUG] Extracted '{plugin_name}' initial artifact into: {plugin_target}")
             try:
                 print(
                     f"[DEBUG] Listing of {plugin_target}: {os.listdir(plugin_target)}")
             except Exception as le:
                 print(f"[DEBUG] Could not list {plugin_target}: {le}")
         except Exception as e:
-            raise Exception(f"Failed to extract '{plugin_name}' zip: {e}")
+            raise Exception(f"Failed to extract '{plugin_name}' initial zip: {e}")
+
+        # --- Overlay latest partial artifact (optional) ---
+        zip_path_latest = None
+        overlay_applied = False
+        if latest_download_url and latest_download_url != initial_download_url:
+            try:
+                latest_name = unquote(os.path.basename(urlparse(latest_download_url).path))
+                if not latest_name.lower().endswith(".zip"):
+                    latest_name = f"{plugin_name}_latest.zip"
+                zip_path_latest = os.path.join(self.UPDATE_DIR, latest_name)
+                self.download_update(latest_download_url, zip_path_latest)
+                self.apply_zip(zip_path_latest, plugin_target)
+                overlay_applied = True
+                print(
+                    f"[DEBUG] Overlay applied for '{plugin_name}' from {zip_path_latest}")
+            except Exception as e:
+                raise Exception(
+                    f"Failed to overlay latest partial artifact for '{plugin_name}': {e}")
 
         # --- Local manifest path ---
         local_manifest_path = os.path.join(plugin_target, "manifest.json")
@@ -1445,8 +1482,9 @@ class UpdateManager:
                 local_manifest = {}
 
         # --- Minimum viable manifest ---
+        zip_for_version = zip_path_latest or zip_path_initial
         inferred_version = self._parse_version_from_zip_name(
-            zip_path, plugin_name) or remote_manifest.get("current_version")
+            zip_for_version, plugin_name) or remote_manifest.get("current_version")
         local_manifest.setdefault("system_name", plugin_name)
         if inferred_version:
             local_manifest["version"] = inferred_version
@@ -1510,6 +1548,25 @@ class UpdateManager:
                 if e.stderr:
                     print("[STDERR]", e.stderr)
                 raise
+
+            # If we installed a complete base artifact and overlaid a newer
+            # partial artifact, run the upgrade step too so DB migrations catch up.
+            if overlay_applied:
+                try:
+                    result = subprocess.run(
+                        [sys.executable, script_path, "upgrade"],
+                        check=True, capture_output=True, text=True
+                    )
+                    print(result.stdout)
+                    if result.stderr:
+                        print("[STDERR]", result.stderr)
+                except subprocess.CalledProcessError as e:
+                    print(f"[ERROR] Plugin upgrade script failed: {e}")
+                    if e.stdout:
+                        print("[STDOUT]", e.stdout)
+                    if e.stderr:
+                        print("[STDERR]", e.stderr)
+                    raise
         else:
             print(
                 f"[WARN] No install.py found in plugin directory for {plugin_name}.")

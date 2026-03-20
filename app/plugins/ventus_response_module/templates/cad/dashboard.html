@@ -94,6 +94,16 @@
 .draggable-unit:active {
   cursor: grabbing;
 }
+
+/* Allow reverse drag: drop a CAD job onto a unit to assign it. */
+.drop-target-unit {
+  position: relative;
+}
+.drop-target-unit.drag-over {
+  background: rgba(16, 185, 129, 0.12);
+  outline: 2px dashed var(--accent-success);
+  outline-offset: -2px;
+}
 </style>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -126,6 +136,9 @@ let isPopoutMode = false;
 let assignModalLoading = false;
 let unitLinesVisible = true;
 let messageAlertCount = 0;
+let cadLockedLayout = (function(){
+  try { return localStorage.getItem('cad_locked_layout') === '1'; } catch (e) { return false; }
+})();
 
 // BroadcastChannel / Socket.IO
 let socket = null;
@@ -657,6 +670,7 @@ const btnMsgs = document.getElementById('btnMsgs');
 const btnKPI = document.getElementById('btnKPI');
 const btnPastJobs = document.getElementById('btnPastJobs');
 const btnResetPanels = document.getElementById('btnResetPanels');
+const btnLockedLayout = document.getElementById('btnLockedLayout');
 const cadMain = document.getElementById('cadMain');
 const panelsContainer = document.getElementById('panelsContainer');
 const toast = document.getElementById('toast');
@@ -822,44 +836,55 @@ function createPanel(type, title) {
   panelsContainer.appendChild(panelEl);
   // make panels float over the map (absolute) to avoid affecting layout
   panelEl.style.pointerEvents = 'auto';
-  panelEl.style.position = 'absolute';
   panelEl.style.display = 'flex';
   panelEl.style.flexDirection = 'column';
-  panelEl.style.width = '420px';
-  panelEl.style.height = '400px';
-  panelEl.style.minWidth = '360px';
-  panelEl.style.minHeight = '280px';
-  panelEl.style.zIndex = '550';
+  if (cadLockedLayout) {
+    panelEl.style.position = 'relative';
+    panelEl.style.width = '100%';
+    panelEl.style.height = '100%';
+    panelEl.style.minWidth = '0';
+    panelEl.style.minHeight = '0';
+    panelEl.style.zIndex = '1';
+  } else {
+    panelEl.style.position = 'absolute';
+    panelEl.style.width = '420px';
+    panelEl.style.height = '400px';
+    panelEl.style.minWidth = '360px';
+    panelEl.style.minHeight = '280px';
+    panelEl.style.zIndex = '550';
+  }
 
   openPanels[panelId] = { id: panelId, type: type, title: title, element: panelEl };
 
-  // smart initial positioning
-  const panelCount = Object.keys(openPanels).length;
-  let posLeft, posTop;
-  if (type === 'jobs') { posLeft = 40; posTop = 120; }
-  else if (type === 'units') { posLeft = 480; posTop = 120; }
-  else if (type === 'messages') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
-  else if (type === 'kpi') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
-  else { posLeft = 40 + panelCount * 30; posTop = 120 + panelCount * 40; }
-  // prefer saved spawn position for this panel type
-  try {
-    const savedKey = 'cad_panel_state_' + type;
-    const saved = localStorage.getItem(savedKey);
-    if (saved) {
-      const s = JSON.parse(saved);
-      if (s.left) panelEl.style.left = s.left;
-      else panelEl.style.left = posLeft + 'px';
-      if (s.top) panelEl.style.top = s.top;
-      else panelEl.style.top = posTop + 'px';
-      if (s.width) panelEl.style.width = s.width;
-      if (s.height) panelEl.style.height = s.height;
-    } else {
+  // smart initial positioning (only needed for floating panels)
+  if (!cadLockedLayout) {
+    const panelCount = Object.keys(openPanels).length;
+    let posLeft, posTop;
+    if (type === 'jobs') { posLeft = 40; posTop = 120; }
+    else if (type === 'units') { posLeft = 480; posTop = 120; }
+    else if (type === 'messages') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
+    else if (type === 'kpi') { posLeft = 40 + (panelCount - 1) * 30; posTop = 120 + (panelCount - 1) * 40; }
+    else { posLeft = 40 + panelCount * 30; posTop = 120 + panelCount * 40; }
+    // prefer saved spawn position for this panel type
+    try {
+      const savedKey = 'cad_panel_state_' + type;
+      const saved = localStorage.getItem(savedKey);
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.left) panelEl.style.left = s.left;
+        else panelEl.style.left = posLeft + 'px';
+        if (s.top) panelEl.style.top = s.top;
+        else panelEl.style.top = posTop + 'px';
+        if (s.width) panelEl.style.width = s.width;
+        if (s.height) panelEl.style.height = s.height;
+      } else {
+        panelEl.style.left = posLeft + 'px';
+        panelEl.style.top = posTop + 'px';
+      }
+    } catch (e) {
       panelEl.style.left = posLeft + 'px';
       panelEl.style.top = posTop + 'px';
     }
-  } catch (e) {
-    panelEl.style.left = posLeft + 'px';
-    panelEl.style.top = posTop + 'px';
   }
 
   panelEl.querySelector('[data-action="popout"]').addEventListener('click', (e) => {
@@ -890,11 +915,13 @@ function createPanel(type, title) {
     closePanel(panelId);
   });
 
-  setupDragResize(panelId);
+  if (!cadLockedLayout) setupDragResize(panelId);
   loadPanelContent(panelId, type);
 
   // Clamp panel into viewport so it opens on-map
-  try { clampPanelToViewport(panelEl); } catch (e) {}
+  if (!cadLockedLayout) {
+    try { clampPanelToViewport(panelEl); } catch (e) {}
+  }
 
   return panelEl;
 }
@@ -1136,6 +1163,48 @@ function applyMapOnlyPopoutLayout() {
     cadMain.style.position = 'relative';
   }
   document.body.style.overflow = 'hidden';
+}
+
+function clearAllPanelsImmediate() {
+  try {
+    Object.values(openPanels).forEach((p) => {
+      try { p && p.element && p.element.remove(); } catch (e) {}
+    });
+  } catch (e) {}
+  openPanels = {};
+  try {
+    if (btnJobs) btnJobs.classList.remove('active');
+    if (btnUnits) btnUnits.classList.remove('active');
+    if (btnMsgs) btnMsgs.classList.remove('active');
+    if (btnPastJobs) btnPastJobs.classList.remove('active');
+    if (btnKPI) btnKPI.classList.remove('active');
+  } catch (e) {}
+}
+
+function applyLockedLayout() {
+  cadLockedLayout = true;
+  try { localStorage.setItem('cad_locked_layout', '1'); } catch (e) {}
+  try { document.querySelector('.cad-root')?.classList.add('locked-layout'); } catch (e) {}
+  try { btnLockedLayout?.classList.add('active'); } catch (e) {}
+  clearAllPanelsImmediate();
+  const toOpen = [
+    ['jobs', 'CAD Stack'],
+    ['units', 'Active Units'],
+    ['messages', 'Messages'],
+    ['past_jobs', 'Past / Cleared Jobs'],
+    ['kpi', 'Live KPI'],
+  ];
+  toOpen.forEach(([type, title]) => {
+    try { getOrCreatePanel(type, title); } catch (e) {}
+  });
+}
+
+function removeLockedLayout() {
+  cadLockedLayout = false;
+  try { localStorage.removeItem('cad_locked_layout'); } catch (e) {}
+  try { document.querySelector('.cad-root')?.classList.remove('locked-layout'); } catch (e) {}
+  try { btnLockedLayout?.classList.remove('active'); } catch (e) {}
+  clearAllPanelsImmediate();
 }
 
 function applySinglePanelPopoutLayout(panelType) {
@@ -1809,7 +1878,7 @@ function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
       ? String(eligibilityMap[job.cad].recommended.callsign)
       : '';
     html += `
-      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragenter="event.preventDefault();this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
+      <li class="panel-list-item drop-target-job" data-cad="${job.cad}" draggable="true" ondragstart="if(event.dataTransfer){event.dataTransfer.setData('application/x-ventus-job-cad', String(event.currentTarget.dataset.cad||''));event.dataTransfer.setData('text/plain','');event.dataTransfer.effectAllowed='copy';}" style="${job.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''}" onclick="loadJobDetail(${job.cad})" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragenter="event.preventDefault();this.classList.add('drag-over');var h=this.querySelector('.drop-target-job-hint');if(h){try{var c=event.dataTransfer.getData('text/plain');h.textContent=c?'Assign '+c+'?':'Drop to assign unit';}catch(e){h.textContent='Drop to assign unit';}}" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cs=event.dataTransfer.getData('text/plain');if(cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(parseInt(this.dataset.cad,10),cs);}">
         <span class="drop-target-job-hint">Drop to assign unit</span>
         <i class="bi bi-geo-alt" style="color:var(--accent);"></i>
         <span>
@@ -1942,7 +2011,7 @@ function renderUnitsList(units, contentEl) {
         `
       : '';
     html += `
-      <li class="panel-list-item draggable-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';">
+      <li class="panel-list-item draggable-unit drop-target-unit" data-callsign="${escapeHtml(callsign)}" draggable="true" style="${u.is_external ? 'opacity:0.62;border-left-color:#94a3b8;' : ''};cursor:pointer;" onclick='loadUnitDetail(${JSON.stringify(callsign)})' ondragstart="event.dataTransfer.setData('text/plain',event.currentTarget.dataset.callsign||'');event.dataTransfer.effectAllowed='copy';" ondragover="event.preventDefault();event.stopPropagation();if(event.dataTransfer){event.dataTransfer.dropEffect='copy';}this.classList.add('drag-over');" ondragenter="event.preventDefault();this.classList.add('drag-over');" ondragleave="event.preventDefault();if(!event.currentTarget.contains(event.relatedTarget)){event.currentTarget.classList.remove('drag-over');}" ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');var cadRaw=event.dataTransfer.getData('application/x-ventus-job-cad')||event.dataTransfer.getData('text/plain');var cad=parseInt(cadRaw,10);var cs=this.dataset.callsign||'';if(cad>0&&cs&&window.assignUnitToJobDirect){window.assignUnitToJobDirect(cad,cs);}">
         <i class="bi bi-truck-front" style="color:${statusColor};"></i>
         <span>
           <div style="font-weight:600;">${callsign}</div>
@@ -2075,8 +2144,30 @@ function loadMsgPanel(contentEl) {
       });
   });
   contentEl.querySelector('#clearConversationsBtn')?.addEventListener('click', () => {
-    if (msgConversationCount) setSectionCount(msgConversationCount, 0);
-    showNotification('success', 'Conversations', 'Count cleared');
+    const callsigns = dispatchMsgState.activeConversationCalls || [];
+    if (!callsigns.length) {
+      if (msgConversationCount) setSectionCount(msgConversationCount, 0);
+      showNotification('success', 'Conversations', 'Count cleared');
+      return;
+    }
+
+    Promise.allSettled(
+      callsigns.map((cs) =>
+        fetch(`/plugin/ventus_response_module/api/messages/${encodeURIComponent(cs)}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+        }).then((r) => (r.ok ? r.json() : Promise.reject(new Error('read failed')))).catch(() => null)
+      )
+    )
+      .then(() => {
+        showNotification('success', 'Conversations', 'Marked as read');
+        // Refresh counts; do not force a conversation reload if there are no new unread messages.
+        loadUnits();
+      })
+      .catch(() => {
+        showNotification('danger', 'Conversations', 'Unable to clear');
+      });
   });
   contentEl.querySelector('#clearAssistBtn')?.addEventListener('click', () => {
     if (msgAssistCount) setSectionCount(msgAssistCount, 0);
@@ -2203,8 +2294,9 @@ function loadMsgPanel(contentEl) {
       });
   };
 
-  const renderRecipientChips = (callsigns) => {
+  const renderRecipientChips = (callsigns, opts = {}) => {
     const list = Array.isArray(callsigns) ? callsigns : [];
+    const refreshConversation = !!opts.refreshConversation;
     if (!list.length) {
       recipientChips.innerHTML = '<span class="meta">No active units.</span>';
       dispatchMsgState.selectedUnit = '';
@@ -2212,8 +2304,10 @@ function loadMsgPanel(contentEl) {
       loadConversation('');
       return;
     }
+    let selectedChanged = false;
     if (!dispatchMsgState.selectedUnit || !list.includes(dispatchMsgState.selectedUnit)) {
       dispatchMsgState.selectedUnit = list[0];
+      selectedChanged = true;
     }
     recipientChips.innerHTML = list.map((cs) => {
       const active = cs === dispatchMsgState.selectedUnit;
@@ -2230,16 +2324,41 @@ function loadMsgPanel(contentEl) {
       });
     });
     msgReplyMeta.textContent = `Replying to ${dispatchMsgState.selectedUnit}`;
-    loadConversation(dispatchMsgState.selectedUnit);
+    if (selectedChanged || refreshConversation) {
+      loadConversation(dispatchMsgState.selectedUnit);
+    }
   };
 
   const loadUnits = () =>
     fetch(withDivision('/plugin/ventus_response_module/units'))
       .then(r => r.ok ? r.json() : [])
       .then((units) => {
-        const callsigns = (Array.isArray(units) ? units : []).map(u => String(u.callSign || '')).filter(Boolean);
-        setSectionCount(msgConversationCount, callsigns.length);
-        renderRecipientChips(callsigns);
+        const callsigns = (Array.isArray(units) ? units : [])
+          .map(u => String(u.callSign || ''))
+          .filter(Boolean);
+
+        dispatchMsgState.activeConversationCalls = callsigns;
+
+        // "Conversations" badge should represent unread messages, not number of active units.
+        return Promise.all(
+          callsigns.map((cs) =>
+            fetch(`/plugin/ventus_response_module/api/messages/${encodeURIComponent(cs)}/unread`, {
+              method: 'GET',
+              credentials: 'same-origin',
+            })
+              .then((r) => (r.ok ? r.json() : Promise.reject(new Error('unread failed'))))
+              .then((d) => [cs, Number(d && d.unread ? d.unread : 0)])
+              .catch(() => [cs, 0])
+          )
+        ).then((pairs) => {
+          const unreadByCalls = Object.fromEntries(pairs);
+          const unreadTotal = Object.values(unreadByCalls).reduce((a, b) => a + (Number(b) || 0), 0);
+
+          setSectionCount(msgConversationCount, unreadTotal);
+
+          const selectedUnread = dispatchMsgState.selectedUnit ? (Number(unreadByCalls[dispatchMsgState.selectedUnit]) || 0) : 0;
+          renderRecipientChips(callsigns, { refreshConversation: selectedUnread > 0 });
+        });
       })
       .catch(() => {
         setSectionCount(msgConversationCount, 0);
@@ -3546,6 +3665,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const urlParams = new URLSearchParams(window.location.search);
   const urlPanel = String(urlParams.get('panel') || '').trim().toLowerCase();
   const urlPopout = String(urlParams.get('popout') || '').trim().toLowerCase() === '1';
+  const mapOnlyPopout = urlPopout && urlPanel === 'map';
   if (urlPopout && urlPanel === 'map') {
     const div = urlParams.get('division');
     if (div) selectedDivision = String(div).trim() || selectedDivision;
@@ -3559,6 +3679,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', initAudioOnce, { passive: true });
   document.addEventListener('keydown', initAudioOnce);
 
+  if (cadLockedLayout && !mapOnlyPopout) {
+    applyLockedLayout();
+  }
+
   document.body.addEventListener('click', function(ev) {
     const btn = ev.target && ev.target.closest && ev.target.closest('.unit-open-detail-btn');
     if (btn && typeof window.loadUnitDetail === 'function') {
@@ -3567,43 +3691,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Optional deep-link / popout mode.
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const autoPanel = String(params.get('panel') || '').trim().toLowerCase();
-    const autoTitle = String(params.get('title') || '').trim();
-    isPopoutMode = String(params.get('popout') || '').trim().toLowerCase() === '1';
-    const autoCad = parseInt(params.get('cad') || '', 10);
-    const panelTitles = {
-      jobs: 'CAD Stack',
-      units: 'Active Units',
-      messages: 'Messages',
-      past_jobs: 'Past / Cleared Jobs',
-      kpi: 'Live KPI'
-    };
-    if (isPopoutMode && autoPanel && panelTitles[autoPanel]) {
-      setTimeout(() => {
-        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
-        applySinglePanelPopoutLayout(autoPanel);
-        if (Number.isInteger(autoCad) && autoCad > 0) {
-          setTimeout(() => {
-            try { loadJobDetail(autoCad); } catch (e) {}
-          }, 350);
-        }
-      }, 120);
-      return;
-    }
-    if (autoPanel && panelTitles[autoPanel]) {
-      setTimeout(() => {
-        togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
-        if (autoPanel === 'jobs' && Number.isInteger(autoCad) && autoCad > 0) {
-          setTimeout(() => {
-            try { loadJobDetail(autoCad); } catch (e) {}
-          }, 350);
-        }
-      }, 180);
-    }
-  } catch (e) {}
+  // Optional deep-link / popout mode (disabled for locked layout).
+  if (!cadLockedLayout) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const autoPanel = String(params.get('panel') || '').trim().toLowerCase();
+      const autoTitle = String(params.get('title') || '').trim();
+      isPopoutMode = String(params.get('popout') || '').trim().toLowerCase() === '1';
+      const autoCad = parseInt(params.get('cad') || '', 10);
+      const panelTitles = {
+        jobs: 'CAD Stack',
+        units: 'Active Units',
+        messages: 'Messages',
+        past_jobs: 'Past / Cleared Jobs',
+        kpi: 'Live KPI'
+      };
+      if (isPopoutMode && autoPanel && panelTitles[autoPanel]) {
+        setTimeout(() => {
+          togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
+          applySinglePanelPopoutLayout(autoPanel);
+          if (Number.isInteger(autoCad) && autoCad > 0) {
+            setTimeout(() => {
+              try { loadJobDetail(autoCad); } catch (e) {}
+            }, 350);
+          }
+        }, 120);
+        return;
+      }
+      if (autoPanel && panelTitles[autoPanel]) {
+        setTimeout(() => {
+          togglePanelByType(autoPanel, autoTitle || panelTitles[autoPanel], autoPanel === 'jobs' ? btnJobs : (autoPanel === 'units' ? btnUnits : (autoPanel === 'past_jobs' ? btnPastJobs : (autoPanel === 'kpi' ? btnKPI : btnMsgs))));
+          if (autoPanel === 'jobs' && Number.isInteger(autoCad) && autoCad > 0) {
+            setTimeout(() => {
+              try { loadJobDetail(autoCad); } catch (e) {}
+            }, 350);
+          }
+        }, 180);
+      }
+    } catch (e) {}
+  }
 
   btnJobs?.addEventListener('click', () => {
     togglePanelByType('jobs','CAD Stack', btnJobs);
@@ -3623,6 +3749,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnResetPanels?.addEventListener('click', () => {
     if (typeof window.resetPanelsToDefault === 'function') window.resetPanelsToDefault();
+  });
+
+  btnLockedLayout?.addEventListener('click', () => {
+    if (cadLockedLayout) removeLockedLayout();
+    else applyLockedLayout();
   });
 
   btnKPI?.addEventListener('click', () => {
@@ -3651,6 +3782,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function togglePanelByType(type, title, btn) {
   try {
+    if (cadLockedLayout) return;
     const existing = Object.values(openPanels).find(p => p.type === type);
     if (existing) {
       if (existing.poppedOut && existing.popoutWindow && !existing.popoutWindow.closed) {
