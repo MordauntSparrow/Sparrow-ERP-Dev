@@ -371,11 +371,59 @@ function renderIncidentDetails(triageRaw) {
   const answers = (take('form_answers') && typeof take('form_answers') === 'object') ? take('form_answers') : {};
   const answerRows = Object.entries(answers).map(([k, v]) => row(prettyFieldLabel(k), v)).filter(Boolean);
 
+  const riskFlags = (() => {
+    const out = [];
+    const pushRisk = (val) => {
+      const txt = normalizeToken(formatDisplayValue(val));
+      if (!txt) return;
+      if (!out.some((x) => x.toLowerCase() === txt.toLowerCase())) out.push(txt);
+    };
+    const pull = (key) => {
+      const raw = take(key);
+      if (raw == null || raw === '') return;
+      if (Array.isArray(raw)) {
+        raw.forEach((item) => {
+          if (item && typeof item === 'object') {
+            pushRisk(item.label || item.value || item.text || item.name || item.risk || '');
+          } else {
+            pushRisk(item);
+          }
+        });
+        return;
+      }
+      if (typeof raw === 'object') {
+        Object.values(raw).forEach(pushRisk);
+        return;
+      }
+      const s = String(raw).trim();
+      if (!s) return;
+      if ((s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item) => {
+              if (item && typeof item === 'object') {
+                pushRisk(item.label || item.value || item.text || item.name || item.risk || '');
+              } else {
+                pushRisk(item);
+              }
+            });
+            return;
+          }
+        } catch (e) {}
+      }
+      s.split(/[\n,;|]+/).forEach(pushRisk);
+    };
+    ['risk_flags', 'riskFlags', 'risk_flag', 'risk'].forEach(pull);
+    return out;
+  })();
+
   const hidden = new Set([
     'reason_for_call','additional_details','address','postcode','what3words',
     'caller_name','caller_phone','first_name','middle_name','last_name',
     'patient_dob','patient_age','age','patient_gender','phone_number','onset_datetime',
     'form_name','form_slug','form_answers','incident_updates',
+    'risk_flags','riskFlags','risk_flag','risk',
     'cad','call_priority','call_priority_label'
   ]);
   const rawRows = Object.entries(triage)
@@ -385,6 +433,13 @@ function renderIncidentDetails(triageRaw) {
 
   return `
     <div>
+      ${riskFlags.length ? `
+      <div style="margin-bottom:10px;padding:10px;border:1px solid rgba(239,68,68,0.55);border-radius:10px;background:rgba(127,29,29,0.25);">
+        <div style="font-weight:700;color:#fecaca;margin-bottom:6px;"><i class="bi bi-exclamation-triangle-fill"></i> Risk Flags - Crew Warning</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${riskFlags.map((r) => `<span class="status" style="background:rgba(239,68,68,0.25);color:#fecaca;border:1px solid rgba(248,113,113,0.6);">${escapeHtml(r)}</span>`).join('')}
+        </div>
+      </div>` : ''}
       <div style="font-weight:600;margin-bottom:6px;">Incident Summary</div>
       <div style="font-size:12px;color:var(--text-secondary);">${coreRows.join('') || '<i>No incident summary fields.</i>'}</div>
       <hr style="border:none;border-top:2px solid var(--border-light);margin:10px 0;">

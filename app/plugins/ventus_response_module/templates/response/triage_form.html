@@ -100,12 +100,12 @@
           <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn" type="button" id="unknownDemographicsBtn"><i class="bi bi-question-circle"></i> Unknown DOB/Gender/Phone</button>
           </div>
-          <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            <button class="btn" type="button" id="copyCallerToPatientBtn"><i class="bi bi-arrow-down-circle"></i> Copy Caller Name/Phone to Patient</button>
-          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
             <div><label class="muted">Caller Name</label><input id="callerNameInput" type="text" name="caller_name"></div>
             <div><label class="muted">Caller Phone</label><input id="callerPhoneInput" type="text" name="caller_phone"></div>
+          </div>
+          <div class="quick-action-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="copyPatientToCallerBtn"><i class="bi bi-arrow-down-circle"></i> Copy Patient Name/Phone to Caller</button>
           </div>
           <div class="muted" style="margin-top:8px;" id="selectedPatientMeta">No matched record selected.</div>
         </div>
@@ -274,7 +274,7 @@
   const callerPhoneInput = document.getElementById("callerPhoneInput");
   const unknownFullNameBtn = document.getElementById("unknownFullNameBtn");
   const unknownDemographicsBtn = document.getElementById("unknownDemographicsBtn");
-  const copyCallerToPatientBtn = document.getElementById("copyCallerToPatientBtn");
+  const copyPatientToCallerBtn = document.getElementById("copyPatientToCallerBtn");
   const incidentAddressInput = document.getElementById("incidentAddressInput");
   const incidentPostcodeInput = document.getElementById("incidentPostcodeInput");
   const accessReqInput = document.getElementById("accessReqInput");
@@ -469,30 +469,28 @@
     patientAgeDisplay.value = Number.isFinite(age) && age >= 0 ? String(age) : "";
   }
 
-  function copyCallerToPatient() {
-    const callerName = normalizeToken(callerNameInput?.value || "");
-    const callerPhone = normalizeToken(callerPhoneInput?.value || "");
-    if (callerName) {
-      const parts = callerName.split(" ").filter(Boolean);
-      if (firstNameInput) firstNameInput.value = parts[0] || "";
-      if (parts.length >= 3 && middleNameInput) {
-        middleNameInput.value = parts[1] || "";
-        if (lastNameInput) lastNameInput.value = parts.slice(2).join(" ");
-      } else if (parts.length === 2) {
-        if (middleNameInput) middleNameInput.value = "";
-        if (lastNameInput) lastNameInput.value = parts[1] || "";
-      } else {
-        if (middleNameInput) middleNameInput.value = "";
-        if (lastNameInput) lastNameInput.value = "";
-      }
-      [firstNameInput, middleNameInput, lastNameInput].forEach(function(el) {
-        if (el) el.classList.remove("unknown-marked");
-      });
-      if (unknownFullNameBtn && unknownFullNameBtn.dataset) unknownFullNameBtn.dataset.marked = "0";
-      if (unknownFullNameBtn) unknownFullNameBtn.innerHTML = '<i class="bi bi-person-x"></i> Mark Name Unknown';
+  function copyPatientToCaller() {
+    const pFirst = normalizeToken(firstNameInput?.value || "");
+    const pMiddle = normalizeToken(middleNameInput?.value || "");
+    const pLast = normalizeToken(lastNameInput?.value || "");
+    const patientNameParts = [pFirst, pMiddle, pLast].filter(Boolean);
+
+    // Only copy a patient name if the user has not marked the name as unknown.
+    const patientNameUnknown = unknownFullNameBtn && unknownFullNameBtn.dataset && String(unknownFullNameBtn.dataset.marked || "") === "1";
+    if (!patientNameUnknown && patientNameParts.length && callerNameInput) {
+      callerNameInput.value = patientNameParts.join(" ");
     }
-    if (callerPhone && patientPhoneInput && !normalizeToken(patientPhoneInput.value)) {
-      patientPhoneInput.value = callerPhone;
+
+    const pPhone = normalizeToken(patientPhoneInput?.value || "");
+    const callerPhoneNormalized = normalizeToken(callerPhoneInput?.value || "");
+
+    // If caller phone is empty/unknown, copy the patient phone (unless patient phone is also unknown).
+    const patientPhoneUnknown = !pPhone || pPhone.toLowerCase() === "unknown";
+    if (callerPhoneInput && !callerPhoneNormalized && pPhone && !patientPhoneUnknown) {
+      callerPhoneInput.value = pPhone;
+    }
+    if (callerPhoneInput && callerPhoneNormalized.toLowerCase() === "unknown" && pPhone && !patientPhoneUnknown) {
+      callerPhoneInput.value = pPhone;
     }
   }
 
@@ -596,7 +594,7 @@
   if (unknownDemographicsBtn) unknownDemographicsBtn.addEventListener("click", setUnknownDemographics);
   if (patientDobInput) patientDobInput.addEventListener("change", updatePatientAge);
   if (patientDobInput) patientDobInput.addEventListener("input", updatePatientAge);
-  if (copyCallerToPatientBtn) copyCallerToPatientBtn.addEventListener("click", copyCallerToPatient);
+  if (copyPatientToCallerBtn) copyPatientToCallerBtn.addEventListener("click", copyPatientToCaller);
   if (accessReqAddBtn) {
     accessReqAddBtn.addEventListener("click", () => addAccessRequirement(encodeURIComponent(accessReqInput?.value || "")));
   }
