@@ -10,12 +10,21 @@
 {% endif %}
 
 {% set _glance = summary_context|default({}) %}
-{% set _has_attention = (_glance.pending_policies|default(0) > 0) or (_glance.pending_training|default(0) > 0) or (_glance.pending_hr_requests|default(0) > 0) or (_glance.pending_todo_count|default(0) > 0) or (_glance.unread_messages|default(0) > 0) %}
+{% set _sched = _glance.scheduling_summary|default({}) if _glance else {} %}
+{% set _has_attention = (_glance.pending_policies|default(0) > 0) or (_glance.pending_training|default(0) > 0) or (_glance.pending_hr_requests|default(0) > 0) or (_glance.pending_todo_count|default(0) > 0) or (_glance.unread_messages|default(0) > 0) or (scheduling_enabled|default(False) and (_sched.shifts_this_week|default(0) > 0 or _sched.pending_shift_tasks|default(0) > 0)) %}
 <section class="mb-4" role="region" aria-label="At a glance">
   <div class="ep-card p-3">
     <h3 class="h6 text-secondary text-uppercase mb-2">At a glance</h3>
     {% if _has_attention %}
     <ul class="list-unstyled mb-0 small">
+      {% if scheduling_enabled|default(False) and _sched %}
+      {% if _sched.shifts_this_week|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-calendar-week text-primary me-2" aria-hidden="true"></i><a href="{{ url_for('public_scheduling.public_index') }}">{{ _sched.shifts_this_week }} shift(s) this week</a>{% if _sched.shifts_today|default(0) > 0 %} ({{ _sched.shifts_today }} today){% endif %}</li>
+      {% endif %}
+      {% if _sched.pending_shift_tasks|default(0) > 0 %}
+      <li class="mb-1"><i class="bi bi-list-task text-secondary me-2" aria-hidden="true"></i><a href="{{ url_for('public_employee_portal.dashboard', todo_filter='pending') }}">{{ _sched.pending_shift_tasks }} shift task(s) to complete</a></li>
+      {% endif %}
+      {% endif %}
       {% if _glance.pending_policies|default(0) > 0 %}
       <li class="mb-1"><i class="bi bi-shield-check text-warning me-2" aria-hidden="true"></i><a href="{{ url_for('public_compliance.public_index') }}">{{ _glance.pending_policies }} policy/policies to sign</a></li>
       {% endif %}
@@ -142,10 +151,16 @@
     {% endif %}
   </h3>
   <div class="d-flex flex-wrap gap-2 mb-2" role="tablist" aria-label="Filter todos">
-    <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='all') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'all' else 'btn-outline-light' }}">All</a>
     <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='pending') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'pending' else 'btn-outline-light' }}">Pending</a>
     <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='completed') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'completed' else 'btn-outline-light' }}">Completed</a>
+    <a href="{{ url_for('public_employee_portal.dashboard', todo_filter='all') }}" class="btn btn-sm {{ 'btn-primary' if todo_filter == 'all' else 'btn-outline-light' }}">All</a>
   </div>
+  {% if todo_filter == 'pending' %}
+  <p class="small text-secondary mb-2">Completed tasks are hidden here to keep your list short and fast on mobile. Use <strong>Completed</strong> or <strong>All</strong> when you need history.</p>
+  {% endif %}
+  {% if pending_todos_truncated|default(false) %}
+  <p class="small text-warning mb-2">Showing {{ todos|length }} of {{ pending_todo_count }} pending — oldest may be hidden to keep the page fast. Your organisation can archive or complete old tasks in admin.</p>
+  {% endif %}
   {% if todos %}
   <div class="d-flex flex-column gap-2">
     {% for t in todos %}

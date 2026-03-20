@@ -66,6 +66,7 @@
         <th>Type</th>
         <th>Start</th>
         <th>End</th>
+        <th>Time</th>
         <th>Reason</th>
         <th>Status</th>
         <th>Actions</th>
@@ -78,23 +79,19 @@
         <td><span class="badge {% if r.type == 'sickness' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ r.type }}</span></td>
         <td>{{ r.start_date|string if r.start_date else '—' }}</td>
         <td>{{ r.end_date|string if r.end_date else '—' }}</td>
+        <td>{% if r.start_time_display and r.end_time_display %}{{ r.start_time_display }}–{{ r.end_time_display }}{% else %}<span class="text-muted">All day</span>{% endif %}</td>
         <td>{{ r.reason or '—' }}</td>
         <td>
           <span class="badge {% if r.status == 'approved' %}bg-success{% elif r.status == 'rejected' %}bg-danger{% elif r.status == 'requested' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ r.status }}</span>
         </td>
         <td>
           {% if r.status == 'requested' %}
-          <div class="d-flex flex-wrap align-items-center gap-1">
-            <form id="approve-form-{{ r.id }}" method="post" action="{{ url_for('internal_scheduling.admin_time_off_approve', tid=r.id) }}" class="d-inline">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <input type="text" name="admin_notes" class="form-control form-control-sm d-inline-block me-1" style="width: 110px;" placeholder="Note (optional)">
-              <button type="submit" class="btn btn-success btn-sm">Approve</button>
-            </form>
-            <form method="post" action="{{ url_for('internal_scheduling.admin_time_off_reject', tid=r.id) }}" class="d-inline">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-danger btn-sm">Reject</button>
-            </form>
-          </div>
+          <form method="post" action="{{ url_for('internal_scheduling.admin_time_off_approve', tid=r.id) }}" class="d-inline" id="time-off-form-{{ r.id }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="admin_notes" class="form-control form-control-sm d-inline-block me-1" style="width: 110px;" placeholder="Note (optional)" aria-label="Admin note (optional)">
+            <button type="submit" class="btn btn-success btn-sm" formaction="{{ url_for('internal_scheduling.admin_time_off_approve', tid=r.id) }}">Approve</button>
+            <button type="submit" class="btn btn-danger btn-sm" formaction="{{ url_for('internal_scheduling.admin_time_off_reject', tid=r.id) }}">Reject</button>
+          </form>
           {% else %}
           {% if r.admin_notes %}<span class="small text-muted" title="{{ r.admin_notes }}">Note</span>{% endif %}
           {% endif %}

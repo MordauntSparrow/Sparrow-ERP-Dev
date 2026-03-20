@@ -52,6 +52,17 @@ Timesheet – Week {{ data.week.week_id }}
     </div>
   </div>
 
+  <!-- Totals by job type -->
+  <div class="card mb-3" id="jobTypeBreakdownCard" style="display:none;">
+    <div class="card-header py-2">
+      <strong>Totals by job type</strong>
+      <span class="text-muted small"> (wage × hours)</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="list-group list-group-flush" id="jobTypeBreakdownList"></div>
+    </div>
+  </div>
+
   <!-- Toolbar -->
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
     <div class="d-flex flex-wrap gap-2">
@@ -232,6 +243,10 @@ Timesheet – Week {{ data.week.week_id }}
   const statusEl    = document.getElementById("ts-status");
   const updatedEl   = document.getElementById("ts-updated");
 
+  // Server-side UI policy (scheduler source entries)
+  const SCHEDULER_SOURCE_SCHEDULED_EDIT_ALLOWED =
+    {{ 'true' if data.scheduler_source_scheduled_edit_allowed else 'false' }};
+
   // Modal refs
   const modalEl   = document.getElementById("ts-modal");
   const modal     = new bootstrap.Modal(modalEl);
@@ -352,6 +367,7 @@ Timesheet – Week {{ data.week.week_id }}
     renderDesktop(d.entries || []);
     renderMobile(d.entries || []);
     setTotals(d.totals || { hours: 0, pay: 0, travel: 0 });
+    renderJobTypeBreakdown(d.summaries_by_job_type || []);
     statusEl.textContent   = d.week.status;
     weekUpdatedAt          = d.week.updated_at;
     updatedEl.textContent  = weekUpdatedAt || "—";
@@ -400,6 +416,8 @@ Timesheet – Week {{ data.week.week_id }}
   async function refreshHeaderOnly() {
     const d = await fetchJSON(`/time-billing/api/weeks/${weekId}`);
     statusEl.textContent   = d.week.status;
+    setTotals(d.totals || { hours: 0, pay: 0, travel: 0 });
+    renderJobTypeBreakdown(d.summaries_by_job_type || []);
     weekUpdatedAt          = d.week.updated_at;
     updatedEl.textContent  = weekUpdatedAt || "—";
   }
@@ -462,6 +480,42 @@ Timesheet – Week {{ data.week.week_id }}
     totTravelEl.textContent = "£" + money(t.travel);
   }
 
+  function renderJobTypeBreakdown(summaries) {
+    const card = document.getElementById("jobTypeBreakdownCard");
+    const list = document.getElementById("jobTypeBreakdownList");
+    if (!card || !list) return;
+
+    const safe = Array.isArray(summaries) ? summaries : [];
+    if (!safe.length) {
+      card.style.display = "none";
+      list.innerHTML = "";
+      return;
+    }
+
+    card.style.display = "block";
+    list.innerHTML = safe
+      .map((s) => {
+        const colour = s.job_type_colour_hex || "#6c757d";
+        const name = (s.job_type_name || s.job_type_id || "").toString();
+        const hours = Number(s.total_hours || 0).toFixed(2);
+        const pay = money(s.total_pay || 0);
+        const count = s.entry_count || 0;
+        return `
+          <div class="list-group-item d-flex justify-content-between align-items-start gap-3">
+            <div class="d-flex flex-column">
+              <span class="badge me-1" style="background-color:${colour}; color:#fff">${name}</span>
+              <span class="text-muted small mt-1">Entries: ${count}</span>
+            </div>
+            <div class="text-end">
+              <div class="text-muted small">${hours} h</div>
+              <div class="fw-semibold">£${pay}</div>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
   // ============================
   // Renderers
   // ============================
@@ -479,13 +533,18 @@ Timesheet – Week {{ data.week.week_id }}
       const clientTxt   = (e.client_name || "").trim();
       const siteTxt     = (e.site_name || "").trim();
       const locationTxt = clientTxt && siteTxt ? `${clientTxt} — ${siteTxt}` : (clientTxt || siteTxt || "");
+      const jtColour    = e.job_type_colour_hex || "#6c757d";
+      const jtName      = (e.job_type_name || e.job_type_id || "").toString();
+      const jtSafeName  = jtName.replace(/</g, "&lt;");
 
       const tr = document.createElement("tr");
       tr.dataset.id = e.id;
       tr.innerHTML = `
         <td class="text-nowrap">${e.work_date || ""}</td>
         <td>${locationTxt}</td>
-        <td class="text-nowrap">${e.job_type_name || ""}</td>
+        <td class="text-nowrap">
+          <span class="badge me-1" style="background-color:${jtColour}; color:#fff">${jtSafeName}</span>
+        </td>
         <td class="text-nowrap">
           <span class="text-muted">Scheduled</span> ${(e.scheduled_start || "").slice(0,5)}–${(e.scheduled_end || "").slice(0,5)}
           <span class="text-muted">/ Actual</span> ${(e.actual_start || "").slice(0,5)}–${(e.actual_end || "").slice(0,5)}
@@ -518,6 +577,9 @@ Timesheet – Week {{ data.week.week_id }}
       const clientTxt   = (e.client_name || "").trim();
       const siteTxt     = (e.site_name || "").trim();
       const locationTxt = clientTxt && siteTxt ? `${clientTxt} — ${siteTxt}` : (clientTxt || siteTxt || "");
+      const jtColour    = e.job_type_colour_hex || "#6c757d";
+      const jtName      = (e.job_type_name || e.job_type_id || "").toString();
+      const jtSafeName  = jtName.replace(/</g, "&lt;");
 
       const card = document.createElement("div");
       card.className = "card mb-2";
@@ -527,7 +589,9 @@ Timesheet – Week {{ data.week.week_id }}
           <div class="d-flex justify-content-between">
             <div>
               <div class="fw-bold">${e.work_date || ""}</div>
-              <div class="text-muted small">${e.job_type_name || ""}</div>
+              <div class="text-muted small">
+                <span class="badge" style="background-color:${jtColour}; color:#fff">${jtSafeName}</span>
+              </div>
             </div>
             <div class="text-end small">
               <div>${(e.scheduled_start || "").slice(0, 5)}–${(e.scheduled_end || "").slice(0, 5)}</div>
@@ -560,6 +624,19 @@ Timesheet – Week {{ data.week.week_id }}
   // ============================
   function openModal(entry) {
     titleEl.textContent = entry && entry.id ? "Edit Shift" : "Add Shift";
+
+    const isSchedulerSource = !!(entry && entry.source === "scheduler");
+    const lockJobClientFields = !!(entry && entry.lock_job_client && (entry.source === "scheduler" || entry.source === "runsheet"));
+    const scheduledLocked = isSchedulerSource && !SCHEDULER_SOURCE_SCHEDULED_EDIT_ALLOWED;
+
+    // Lock fields when entries were prefilled/generated from schedule_shifts.
+    // Staff can always override actual times; scheduled times are configurable.
+    fClientName.disabled = lockJobClientFields;
+    fSiteName.disabled = lockJobClientFields;
+    fJob.disabled = lockJobClientFields;
+    fSchedStart.disabled = scheduledLocked;
+    fSchedEnd.disabled = scheduledLocked;
+
     fId.value = entry?.id || "";
     fDate.value = entry?.work_date || "";
     fJob.value = entry?.job_type_id || (jobTypes[0]?.id || "");

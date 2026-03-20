@@ -209,6 +209,36 @@ def create_app():
     def load_user(user_id):
         return User.get_user_by_id(user_id)
 
+    # Portal theme: light (default), dark, or auto (by time). Per-user in DB. Resolved theme used for CSS.
+    @app.context_processor
+    def inject_portal_theme():
+        from flask import session, request
+        from app.plugins.employee_portal_module.services import get_contractor_theme, resolve_theme_by_time
+        preference = session.get("portal_theme")
+        if not preference or preference not in ("light", "dark", "auto"):
+            # Cookie fallback when session is missing (e.g. after redirect from set-theme on another path)
+            cookie_theme = (request.cookies.get("portal_theme") or "").strip().lower()
+            if cookie_theme in ("light", "dark", "auto"):
+                preference = cookie_theme
+                session["portal_theme"] = preference
+                session.modified = True
+        if not preference or preference not in ("light", "dark", "auto"):
+            cid = (session.get("tb_user") or {}).get("id")
+            if cid:
+                try:
+                    stored = get_contractor_theme(int(cid))
+                    if stored in ("light", "dark", "auto"):
+                        preference = stored
+                        session["portal_theme"] = preference
+                except Exception:
+                    pass
+            if not preference or preference not in ("light", "dark", "auto"):
+                preference = request.cookies.get("portal_theme", "light").strip().lower()
+                if preference not in ("light", "dark", "auto"):
+                    preference = "light"
+        resolved = resolve_theme_by_time() if preference == "auto" else preference
+        return {"portal_theme": resolved, "portal_theme_preference": preference}
+
     # Register blueprints
     from app.routes import routes, api_bp
     app.register_blueprint(routes)
@@ -217,6 +247,8 @@ def create_app():
     # Plugins
     plugin_manager = PluginManager(plugins_dir=plugins_dir)
     plugin_manager.register_admin_routes(app)
+    # Public plugin blueprints (e.g. recruitment /vacancies, employee portal paths) — required for url_for from admin templates
+    plugin_manager.register_public_routes(app)
 
     # CORS (allow Authorization header for Bearer token from Lovable / other origins)
     CORS(

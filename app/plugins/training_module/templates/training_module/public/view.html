@@ -27,7 +27,7 @@
   <form method="post" action="{{ url_for('public_training.complete_item', assignment_id=assignment.id) }}" class="card card-module p-3">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label class="form-label small">Notes (optional)</label>
-    <textarea name="notes" class="form-control form-control-dark bg-dark text-light mb-2" rows="2" placeholder="e.g. Completed offline"></textarea>
+    <textarea name="notes" class="form-control mb-2" rows="2" placeholder="e.g. Completed offline"></textarea>
     <button type="submit" class="btn btn-success">Mark complete</button>
   </form>
 {% else %}
@@ -35,5 +35,5 @@
     <i class="bi bi-check-circle me-2"></i>Completed{% if assignment.completed_at %} {{ assignment.completed_at.strftime('%d %b %Y') if assignment.completed_at else '' }}{% endif %}
   </div>
 {% endif %}
-<a href="{{ url_for('public_training.public_index') }}" class="btn btn-outline-light btn-sm mt-3">Back to My training</a>
+<a href="{{ url_for('public_training.public_index') }}" class="btn btn-outline-secondary btn-sm mt-3">Back to My training</a>
 {% endblock %}

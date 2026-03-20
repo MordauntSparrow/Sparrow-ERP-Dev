@@ -6,5 +6,17 @@
     "icon": "icon.png",
     "enabled": true,
     "installed": true,
-    "update_available": false
+    "update_available": false,
+    "settings": {
+        "scheduler_week_prefill_enabled": {
+            "value": "true",
+            "editable": true,
+            "tooltip": "If enabled, the weekly timesheet is prefilled from schedule_shifts (scheduled times + clock data when present)."
+        },
+        "scheduler_source_scheduled_edit_allowed": {
+            "value": "false",
+            "editable": true,
+            "tooltip": "If false, staff cannot edit scheduled_start/end on scheduler-prefilled entries (they can still override actual times)."
+        }
+    }
 }

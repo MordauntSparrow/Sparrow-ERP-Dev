@@ -1,32 +1,45 @@
 import os
-import re
 import uuid
 from functools import wraps
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for, send_file
+from typing import Optional
+
+from flask import (
+    Blueprint,
+    abort,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 from flask_login import current_user, login_required
+from werkzeug.utils import secure_filename
+
 from app.objects import PluginManager
-from . import services as compliance_services
+
+from . import services as comp_svc
 
 _plugin_manager = PluginManager(os.path.abspath("app/plugins"))
 _core_manifest = _plugin_manager.get_core_manifest() or {}
 
+_template = os.path.join(os.path.dirname(__file__), "templates")
 
-def _get_website_settings():
-    """Return website_settings for templates (website_public_base.html). From website_module or safe default."""
-    try:
-        from app.plugins.website_module.routes import get_website_settings
-        return get_website_settings()
-    except Exception:
-        pass
-    _keys = (
-        "favicon_path", "default_og_image", "schema_json", "cookie_bar_colors", "cookie_bar_text",
-        "cookie_bar_accept_text", "cookie_bar_decline_text", "cookie_policy", "analytics_code",
-        "facebook_url", "instagram_url", "linkedin_url", "twitter_url", "youtube_url", "tiktok_url",
-        "pinterest_url", "whatsapp_url", "threads_url", "reddit_url", "snapchat_url", "telegram_url",
-        "discord_url", "tumblr_url", "github_url", "medium_url", "vimeo_url", "dribbble_url",
-        "behance_url", "soundcloud_url", "slack_url", "mastodon_url",
-    )
-    return {k: None for k in _keys}
+internal_bp = Blueprint(
+    "internal_compliance",
+    __name__,
+    url_prefix="/plugin/compliance_module",
+    template_folder=_template,
+)
+public_bp = Blueprint(
+    "public_compliance",
+    __name__,
+    url_prefix="/compliance",
+    template_folder=_template,
+)
+
+ALLOWED_POLICY_EXT = {".pdf", ".doc", ".docx"}
 
 
 def _staff_required(view):
@@ -35,6 +48,7 @@ def _staff_required(view):
         if not session.get("tb_user"):
             return redirect("/employee-portal/login?next=" + request.path)
         return view(*args, **kwargs)
+
     return wrapped
 
 
@@ -43,22 +57,7 @@ def _contractor_id():
     return int(u["id"]) if u and u.get("id") is not None else None
 
 
-_template = os.path.join(os.path.dirname(__file__), "templates")
-_uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
-internal_bp = Blueprint("internal_compliance", __name__, url_prefix="/plugin/compliance_module", template_folder=_template)
-public_bp = Blueprint("public_compliance", __name__, url_prefix="/compliance", template_folder=_template)
-
-
-def _safe_filename(name: str) -> str:
-    if not name or not name.strip():
-        return "attachment"
-    base = os.path.basename(name).strip()
-    base = re.sub(r"[^\w.\-]", "_", base)
-    return base[:200] or "attachment"
-
-
-def _admin_required_compliance(view):
-    """For admin app: require core user with role admin/superuser (Flask-Login)."""
+def _admin_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -68,253 +67,210 @@ def _admin_required_compliance(view):
             flash("Admin access required.", "error")
             return redirect(url_for("routes.dashboard"))
         return view(*args, **kwargs)
+
     return wrapped
 
 
-def _slugify(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    return s.strip("-") or "policy"
+def _app_static_dir() -> str:
+    app_pkg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(app_pkg_dir, "static")
 
 
-@internal_bp.get("/")
-@login_required
-@_admin_required_compliance
-def admin_index():
-    return render_template(
-        "admin/index.html",
-        module_name="Compliance & Policies",
-        module_description="Manage policies and view acknowledgements. Staff view and sign from the Employee Portal.",
-        plugin_system_name="compliance_module",
-        config=_core_manifest,
-    )
+def _save_policy_file(file_storage) -> Optional[str]:
+    if not file_storage or not file_storage.filename:
+        return None
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in ALLOWED_POLICY_EXT:
+        return None
+    upload_dir = os.path.join(_app_static_dir(), "uploads", "compliance_policies")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    rel = os.path.join("uploads", "compliance_policies", safe_name).replace("\\", "/")
+    file_storage.save(os.path.join(_app_static_dir(), rel.replace("/", os.sep)))
+    return rel
 
 
-# ---------- Admin: Policies ----------
-
-
-@internal_bp.get("/policies")
-@login_required
-@_admin_required_compliance
-def admin_policies():
-    active_only = request.args.get("active") == "1"
-    policies = compliance_services.list_policies_admin(active_only=active_only)
-    return render_template(
-        "admin/policies.html",
-        policies=policies,
-        active_only=active_only,
-        config=_core_manifest,
-    )
-
-
-@internal_bp.get("/policies/new")
-@login_required
-@_admin_required_compliance
-def admin_policy_new():
-    return render_template(
-        "admin/policy_form.html",
-        policy=None,
-        config=_core_manifest,
-    )
-
-
-@internal_bp.post("/policies/new")
-@login_required
-@_admin_required_compliance
-def admin_policy_create():
-    from datetime import date
-    title = (request.form.get("title") or "").strip()
-    slug = (request.form.get("slug") or "").strip() or _slugify(title)
-    summary = (request.form.get("summary") or "").strip() or None
-    body = (request.form.get("body") or "").strip() or None
-    try:
-        version = int(request.form.get("version") or 1)
-    except ValueError:
-        version = 1
-    effective_from_s = (request.form.get("effective_from") or "").strip()
-    effective_to_s = (request.form.get("effective_to") or "").strip()
-    effective_from = date.fromisoformat(effective_from_s) if effective_from_s else date.today()
-    effective_to = date.fromisoformat(effective_to_s) if effective_to_s else None
-    required_ack = request.form.get("required_acknowledgement") == "1"
-    active = request.form.get("active") == "1"
-    if not title:
-        flash("Title required.", "error")
-        return redirect(url_for("internal_compliance.admin_policy_new"))
-    try:
-        policy_id = compliance_services.create_policy(
-            title=title, slug=slug, summary=summary, body=body,
-            version=version, effective_from=effective_from, effective_to=effective_to,
-            required_acknowledgement=required_ack, active=active,
-        )
-        f = request.files.get("file")
-        if f and f.filename:
-            os.makedirs(os.path.join(_uploads_dir, str(policy_id)), exist_ok=True)
-            safe = _safe_filename(f.filename)
-            unique = f"{uuid.uuid4().hex[:8]}_{safe}"
-            path = os.path.join(_uploads_dir, str(policy_id), unique)
-            f.save(path)
-            compliance_services.update_policy(
-                policy_id, file_path=f"{policy_id}/{unique}", file_name=f.filename.strip()[:255]
-            )
-        flash("Policy created.", "success")
-    except Exception as e:
-        flash(str(e), "error")
-        return redirect(url_for("internal_compliance.admin_policy_new"))
-    return redirect(url_for("internal_compliance.admin_policies"))
-
-
-@internal_bp.get("/policies/<int:policy_id>/edit")
-@login_required
-@_admin_required_compliance
-def admin_policy_edit(policy_id):
-    policy = compliance_services.get_policy_by_id(policy_id)
-    if not policy:
-        flash("Policy not found.", "error")
-        return redirect(url_for("internal_compliance.admin_policies"))
-    return render_template(
-        "admin/policy_form.html",
-        policy=policy,
-        config=_core_manifest,
-    )
-
-
-@internal_bp.post("/policies/<int:policy_id>/edit")
-@login_required
-@_admin_required_compliance
-def admin_policy_update(policy_id):
-    from datetime import date
-    policy = compliance_services.get_policy_by_id(policy_id)
-    if not policy:
-        flash("Policy not found.", "error")
-        return redirect(url_for("internal_compliance.admin_policies"))
-    title = (request.form.get("title") or "").strip()
-    slug = (request.form.get("slug") or "").strip()
-    summary = (request.form.get("summary") or "").strip() or None
-    body = (request.form.get("body") or "").strip() or None
-    try:
-        version = int(request.form.get("version") or 1)
-    except ValueError:
-        version = policy.get("version") or 1
-    effective_from_s = (request.form.get("effective_from") or "").strip()
-    effective_to_s = (request.form.get("effective_to") or "").strip()
-    effective_from = date.fromisoformat(effective_from_s) if effective_from_s else None
-    effective_to = date.fromisoformat(effective_to_s) if effective_to_s else None
-    required_ack = request.form.get("required_acknowledgement") == "1" if "required_acknowledgement" in request.form else None
-    active = request.form.get("active") == "1" if "active" in request.form else None
-    if title:
-        compliance_services.update_policy(
-            policy_id,
-            title=title, slug=slug or None, summary=summary, body=body,
-            version=version, effective_from=effective_from, effective_to=effective_to,
-            required_acknowledgement=required_ack, active=active,
-        )
-    if request.form.get("remove_file") == "1":
-        compliance_services.update_policy(policy_id, file_path="", file_name="")
-    f = request.files.get("file")
-    if f and f.filename:
-        os.makedirs(os.path.join(_uploads_dir, str(policy_id)), exist_ok=True)
-        safe = _safe_filename(f.filename)
-        unique = f"{uuid.uuid4().hex[:8]}_{safe}"
-        path = os.path.join(_uploads_dir, str(policy_id), unique)
-        f.save(path)
-        compliance_services.update_policy(
-            policy_id, file_path=f"{policy_id}/{unique}", file_name=f.filename.strip()[:255]
-        )
-    if title or request.form.get("remove_file") == "1" or (f and f.filename):
-        flash("Policy updated.", "success")
-    return redirect(url_for("internal_compliance.admin_policies"))
-
-
-# ---------- Admin: Acknowledgements ----------
-
-
-@internal_bp.get("/acknowledgements")
-@login_required
-@_admin_required_compliance
-def admin_acknowledgements():
-    policy_id = request.args.get("policy_id", type=int)
-    contractor_id = request.args.get("contractor_id", type=int)
-    rows = compliance_services.list_acknowledgements(policy_id=policy_id, contractor_id=contractor_id)
-    policies = compliance_services.list_policies_admin(active_only=False)
-    contractors = compliance_services.list_contractors_for_select()
-    return render_template(
-        "admin/acknowledgements.html",
-        rows=rows,
-        policies=policies,
-        contractors=contractors,
-        policy_id=policy_id,
-        contractor_id=contractor_id,
-        config=_core_manifest,
-    )
+# =============================================================================
+# Public (contractor / employee portal session)
+# =============================================================================
 
 
 @public_bp.get("/")
 @_staff_required
 def public_index():
     cid = _contractor_id()
-    policies = compliance_services.list_policies_for_staff(cid) if cid else []
+    pending = comp_svc.list_pending_policies_for_contractor(cid) if cid else []
+    library = (
+        comp_svc.list_acknowledged_mandatory_for_contractor(cid) if cid else []
+    )
+    published_other = comp_svc.list_optional_published_policies()
     return render_template(
         "compliance_module/public/index.html",
-        module_name="Compliance & Policies",
-        module_description="View and sign company policies.",
-        policies=policies,
+        pending=pending,
+        acknowledged_library=library,
+        optional_policies=published_other,
+        pending_count=len(pending),
         config=_core_manifest,
-        website_settings=_get_website_settings(),
     )
 
 
-@public_bp.get("/policy/<slug>")
+@public_bp.get("/policy/<int:policy_id>")
 @_staff_required
-def view_policy(slug):
-    policy = compliance_services.get_policy(slug)
-    if not policy:
-        return redirect(url_for("public_compliance.public_index"))
+def public_policy_view(policy_id):
     cid = _contractor_id()
-    acknowledged = compliance_services.is_acknowledged(policy["id"], cid) if cid else False
+    row = comp_svc.get_published_policy(policy_id)
+    if not row:
+        flash("Policy not found.", "error")
+        return redirect(url_for("public_compliance.public_index"))
+    ver = int(row["version"])
+    acked = comp_svc.contractor_has_acknowledged(cid, policy_id, ver) if cid else False
+    ack_at = (
+        comp_svc.contractor_acknowledgement_at(cid, policy_id, ver) if cid and acked else None
+    )
     return render_template(
-        "compliance_module/public/policy.html",
-        policy=policy,
-        acknowledged=acknowledged,
+        "compliance_module/public/policy_view.html",
+        policy=row,
+        acknowledged=acked,
+        acknowledged_at=ack_at,
+        category_label=comp_svc.human_category(row.get("category")),
         config=_core_manifest,
-        website_settings=_get_website_settings(),
     )
 
 
-@public_bp.get("/file/<int:policy_id>")
+@public_bp.post("/policy/<int:policy_id>/acknowledge")
 @_staff_required
-def public_policy_file(policy_id):
-    policy = compliance_services.get_policy_by_id(policy_id)
-    if not policy or not policy.get("file_path") or not policy.get("file_name"):
-        flash("File not found.", "error")
-        return redirect(url_for("public_compliance.public_index"))
-    full_path = os.path.join(_uploads_dir, policy["file_path"])
-    if not os.path.isfile(full_path):
-        flash("File not found.", "error")
-        return redirect(url_for("public_compliance.public_index"))
-    return send_file(
-        full_path,
-        as_attachment=True,
-        download_name=policy["file_name"],
-        mimetype="application/octet-stream",
-    )
-
-
-@public_bp.post("/policy/<slug>/acknowledge")
-@_staff_required
-def acknowledge(slug):
-    policy = compliance_services.get_policy(slug)
-    if not policy or not policy.get("required_acknowledgement"):
-        return redirect(url_for("public_compliance.public_index"))
+def public_policy_acknowledge(policy_id):
     cid = _contractor_id()
     if not cid:
-        return redirect("/employee-portal/login")
-    compliance_services.acknowledge_policy(
-        policy["id"],
+        return redirect(url_for("public_compliance.public_index"))
+    if not request.form.get("confirm") == "1":
+        flash("You must tick the box to confirm you have read and agree to abide by this policy.", "error")
+        return redirect(url_for("public_compliance.public_policy_view", policy_id=policy_id))
+    ok, msg = comp_svc.acknowledge_policy(
         cid,
-        ip_address=request.remote_addr,
+        policy_id,
+        remote_addr=request.remote_addr,
         user_agent=request.headers.get("User-Agent"),
     )
-    return redirect(url_for("public_compliance.view_policy", slug=slug))
+    flash("Your acknowledgement has been recorded. Thank you." if ok else msg, "success" if ok else "error")
+    return redirect(url_for("public_compliance.public_index"))
+
+
+@public_bp.get("/policy/<int:policy_id>/file")
+@_staff_required
+def public_policy_file(policy_id):
+    row = comp_svc.get_published_policy(policy_id)
+    if not row or not row.get("file_path"):
+        abort(404)
+    rel = str(row["file_path"]).replace("\\", "/").lstrip("/")
+    if ".." in rel.split("/"):
+        abort(404)
+    full = os.path.abspath(os.path.join(_app_static_dir(), *rel.split("/")))
+    root = os.path.abspath(_app_static_dir())
+    if not full.startswith(root) or not os.path.isfile(full):
+        abort(404)
+    return send_file(full, as_attachment=False)
+
+
+# =============================================================================
+# Admin
+# =============================================================================
+
+
+@internal_bp.get("/")
+@login_required
+@_admin_required
+def admin_index():
+    rows = comp_svc.admin_list_policies()
+    return render_template(
+        "compliance_module/admin/index.html",
+        policies=rows,
+        categories=comp_svc.POLICY_CATEGORIES,
+        category_labels=comp_svc.CATEGORY_LABELS,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.route("/policies/new", methods=["GET", "POST"])
+@login_required
+@_admin_required
+def admin_policy_new():
+    if request.method == "POST":
+        ok, msg, pid = comp_svc.admin_save_policy(
+            None,
+            request.form.get("title"),
+            request.form.get("category") or "other",
+            request.form.get("summary"),
+            request.form.get("body_text"),
+            request.form.get("mandatory") == "1",
+            request.form.get("slug") or None,
+            request.form.get("next_review_date") or None,
+            request.form.get("last_reviewed_date") or None,
+        )
+        if ok and pid:
+            f = request.files.get("file")
+            rel = _save_policy_file(f)
+            if rel:
+                comp_svc.admin_set_policy_file(pid, rel)
+            flash("Policy saved. Use “Issue to all staff” when ready to publish.", "success")
+            return redirect(url_for("internal_compliance.admin_policy_edit", policy_id=pid))
+        flash(msg, "error")
+    return render_template(
+        "compliance_module/admin/policy_form.html",
+        policy=None,
+        categories=comp_svc.POLICY_CATEGORIES,
+        category_labels=comp_svc.CATEGORY_LABELS,
+        config=_core_manifest,
+    )
+
+
+@internal_bp.route("/policies/<int:policy_id>/edit", methods=["GET", "POST"])
+@login_required
+@_admin_required
+def admin_policy_edit(policy_id):
+    row = comp_svc.admin_get_policy(policy_id)
+    if not row:
+        flash("Policy not found.", "error")
+        return redirect(url_for("internal_compliance.admin_index"))
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "issue":
+            ok, msg, meta = comp_svc.admin_issue_policy_to_staff(policy_id)
+            flash(msg, "success" if ok else "error")
+            return redirect(url_for("internal_compliance.admin_policy_edit", policy_id=policy_id))
+        if action == "unpublish":
+            ok, msg = comp_svc.admin_unpublish_policy(policy_id)
+            flash(msg, "success" if ok else "error")
+            return redirect(url_for("internal_compliance.admin_policy_edit", policy_id=policy_id))
+        ok, msg, _ = comp_svc.admin_save_policy(
+            policy_id,
+            request.form.get("title"),
+            request.form.get("category") or "other",
+            request.form.get("summary"),
+            request.form.get("body_text"),
+            request.form.get("mandatory") == "1",
+            request.form.get("slug") or None,
+            request.form.get("next_review_date") or None,
+            request.form.get("last_reviewed_date") or None,
+        )
+        if ok:
+            f = request.files.get("file")
+            rel = _save_policy_file(f)
+            if rel:
+                comp_svc.admin_set_policy_file(policy_id, rel)
+            flash("Saved.", "success")
+        else:
+            flash(msg, "error")
+        return redirect(url_for("internal_compliance.admin_policy_edit", policy_id=policy_id))
+    acks = comp_svc.admin_list_acknowledgements_for_policy(policy_id)
+    return render_template(
+        "compliance_module/admin/policy_form.html",
+        policy=row,
+        acknowledgements=acks,
+        categories=comp_svc.POLICY_CATEGORIES,
+        category_labels=comp_svc.CATEGORY_LABELS,
+        config=_core_manifest,
+    )
 
 
 def get_blueprint():

@@ -44,7 +44,7 @@
   <p class="text-muted small mb-4">No messages.</p>
   {% endif %}
 
-  <h6 class="text-uppercase text-muted mb-2">To-do ({{ todos|length }})</h6>
+  <h6 class="text-uppercase text-muted mb-2">To-do — pending ({{ todos|length }} shown, {{ pending_todo_count }} total pending)</h6>
   {% if todos %}
   <ul class="list-group mb-4">
     {% for t in todos %}

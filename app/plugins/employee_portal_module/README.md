@@ -16,7 +16,7 @@ Central hub for staff (contractors): sign in once, then access Time & Billing, H
 ## Flow
 
 - Staff go to **/employee-portal/login** (or are redirected from /time-billing/login when the portal is enabled).
-- After login, they see the dashboard: profile picture/initials, name, module links, messages, and todos.
+- After login, they see the dashboard: profile picture/initials, name, module links, messages, and todos. The to-do list defaults to **pending only** (completed are under **Completed** / **All**) with capped row counts so mobile loads stay fast.
 - Session uses `tb_user` (same as time_billing), so they are logged in to Time & Billing when they open it from the portal.
 
 ## Adding messages and todos from other modules

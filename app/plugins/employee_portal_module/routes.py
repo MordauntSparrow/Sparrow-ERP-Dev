@@ -11,6 +11,7 @@ from app.objects import get_db_connection, AuthManager, PluginManager
 from .services import (
     get_messages,
     get_todos,
+    count_pending_todos,
     get_module_links,
     get_pending_counts,
     get_pending_training_count,
@@ -19,6 +20,8 @@ from .services import (
     safe_profile_picture_path,
     get_ep_setting,
     set_ep_setting,
+    get_contractor_theme,
+    set_contractor_theme,
     admin_search_contractors,
     admin_list_contractors_for_select,
     admin_list_messages,
@@ -131,6 +134,36 @@ def login_page():
     )
 
 
+@public_bp.post("/set-theme")
+def set_theme():
+    """Set user theme preference: light, dark, or auto (by time). Stored in session, cookie, and per-user in DB."""
+    raw = (request.form.get("theme") or "").strip().lower()
+    preference = "dark" if raw == "dark" else ("auto" if raw == "auto" else "light")
+    session["portal_theme"] = preference
+    session.modified = True
+    cid = (session.get("tb_user") or {}).get("id")
+    if cid:
+        set_contractor_theme(int(cid), preference)
+    target = request.referrer or url_for("public_employee_portal.dashboard")
+    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+    parsed = urlparse(target)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    qs.pop("theme", None)
+    new_query = urlencode(qs, doseq=True)
+    new_target = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+    resp = redirect(new_target, code=303)
+    # Cookie fallback so theme persists even if session isn't sent on next request (e.g. redirect, path)
+    resp.set_cookie(
+        "portal_theme",
+        preference,
+        max_age=60 * 60 * 24 * 365,
+        path="/",
+        samesite="Lax",
+        secure=request.is_secure,
+    )
+    return resp
+
+
 @public_bp.post("/login")
 def login_submit():
     email = (request.form.get("email") or "").strip().lower()
@@ -186,6 +219,11 @@ def login_submit():
             "profile_picture_path": safe_avatar,
             "role": role,
         }
+        saved_theme = get_contractor_theme(int(u["id"]))
+        if saved_theme in ("light", "dark", "auto"):
+            session["portal_theme"] = saved_theme
+        elif saved_theme == "system":
+            session["portal_theme"] = "auto"
         session.modified = True  # Ensure session is persisted so time_billing and other modules see tb_user
 
         default_next = url_for("public_employee_portal.dashboard")
@@ -257,7 +295,8 @@ def dashboard():
     user = dict(user)
     user["profile_picture_path"] = safe_profile_picture_path(user.get("profile_picture_path"))
 
-    todo_filter = request.args.get("todo_filter") or "all"
+    # Default pending-only: faster query, shorter list on mobile (completed via Completed / All)
+    todo_filter = request.args.get("todo_filter") or "pending"
     filter_completed = None
     if todo_filter == "pending":
         filter_completed = False
@@ -266,9 +305,8 @@ def dashboard():
     messages = get_messages(uid)
     todos = get_todos(uid, filter_completed=filter_completed)
     unread_message_count = sum(1 for m in messages if not m.get("read_at"))
-    # Badge shows total pending; when viewing filtered list we need a separate count
-    pending_todos_for_count = get_todos(uid, filter_completed=False)
-    pending_todo_count = len(pending_todos_for_count)
+    pending_todo_count = count_pending_todos(uid)
+    pending_todos_truncated = filter_completed is False and pending_todo_count > len(todos)
     pending_policies, pending_hr_requests = get_pending_counts(uid)
     pending_training = get_pending_training_count(uid)
     try:
@@ -299,6 +337,7 @@ def dashboard():
         messages=messages,
         todos=todos,
         todo_filter=todo_filter,
+        pending_todos_truncated=pending_todos_truncated,
         unread_message_count=unread_message_count,
         pending_todo_count=pending_todo_count,
         welcome_message=welcome_message,

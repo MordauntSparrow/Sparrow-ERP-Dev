@@ -9,6 +9,6 @@
   "dependencies": ["website_module", "employee_portal_module", "time_billing_module"],
   "repository": "official",
   "download_url": "",
-  "changelog": "Sling-level scheduling: shifts, locations, availability, swap requests, labour visibility.",
+  "changelog": "Sling-level scheduling: shifts, open shifts, templates, labour cost, audit, time clock & geofencing, timesheet export, announcements, shift tasks. See README and INTEGRATION.md.",
   "repository_token": ""
 }

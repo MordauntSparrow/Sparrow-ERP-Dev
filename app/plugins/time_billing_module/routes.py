@@ -515,6 +515,19 @@ def api_issue_timesheet():
             VALUES (%s, %s, 'draft', 0, 0)
         """, (user_id, week_id))
         conn.commit()
+
+        # Training: auto-assign by role change (v1).
+        try:
+            if role_id is not None:
+                from app.plugins.training_module.services import TrainingService
+
+                TrainingService.apply_role_assignment_rules(
+                    contractor_id=int(user_id),
+                    role_id=int(role_id),
+                    assigned_by_user_id=getattr(current_user, "id", None),
+                )
+        except Exception:
+            pass
         return jsonify({"ok": True})
     finally:
         cur.close()
@@ -1535,7 +1548,7 @@ def api_public_delete_entry(week_id, entry_id):
 
         # Check ownership and week match
         cur.execute(
-            "SELECT id, user_id, week_id FROM tb_timesheet_entries WHERE id=%s",
+            "SELECT id, user_id, week_id, source, runsheet_id FROM tb_timesheet_entries WHERE id=%s",
             (entry_id,),
         )
         row = cur.fetchone()
@@ -1543,6 +1556,20 @@ def api_public_delete_entry(week_id, entry_id):
             return jsonify({"ok": False, "message": "not_found"}), 404
         if row["user_id"] != uid or row["week_id"] != wk["id"]:
             return jsonify({"ok": False, "message": "not_owner"}), 403
+
+        # If this was a scheduler-prefilled entry, record the removal so
+        # auto-prefill won't re-create it the next time the week is opened.
+        if (row.get("source") or "").lower() == "scheduler" and row.get("runsheet_id"):
+            cur.execute("SHOW TABLES LIKE 'tb_scheduler_shift_removals'")
+            if cur.fetchone():
+                cur.execute(
+                    """
+                    INSERT INTO tb_scheduler_shift_removals (user_id, schedule_shift_id)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE created_at=CURRENT_TIMESTAMP
+                    """,
+                    (uid, int(row["runsheet_id"])),
+                )
 
         # Delete the entry
         cur.execute("DELETE FROM tb_timesheet_entries WHERE id=%s", (entry_id,))

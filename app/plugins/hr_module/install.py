@@ -18,7 +18,7 @@ for p in (str(PROJECT_ROOT), str(APP_ROOT), str(PLUGIN_DIR)):
 from app.objects import get_db_connection  # noqa: E402
 
 MIGRATIONS_TABLE = "hr_migrations"
-MODULE_TABLES = [MIGRATIONS_TABLE, "hr_staff_details", "hr_document_requests", "hr_document_uploads"]
+MODULE_TABLES = [MIGRATIONS_TABLE, "hr_staff_details", "hr_employee_documents", "hr_document_requests", "hr_document_uploads"]
 
 SQL_CREATE_MIGRATIONS = """
 CREATE TABLE IF NOT EXISTS hr_migrations (
@@ -37,8 +37,26 @@ CREATE TABLE IF NOT EXISTS hr_staff_details (
   postcode VARCHAR(32) DEFAULT NULL,
   emergency_contact_name VARCHAR(255) DEFAULT NULL,
   emergency_contact_phone VARCHAR(64) DEFAULT NULL,
+  date_of_birth DATE DEFAULT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_hrsd_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+SQL_CREATE_HR_EMPLOYEE_DOCUMENTS = """
+CREATE TABLE IF NOT EXISTS hr_employee_documents (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  contractor_id INT NOT NULL,
+  category VARCHAR(64) NOT NULL DEFAULT 'general',
+  title VARCHAR(255) NOT NULL,
+  file_path VARCHAR(512) NOT NULL,
+  file_name VARCHAR(255) DEFAULT NULL,
+  notes TEXT,
+  uploaded_by_user_id CHAR(36) DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_hed_contractor (contractor_id),
+  KEY idx_hed_category (contractor_id, category),
+  CONSTRAINT fk_hed_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
@@ -72,6 +90,7 @@ CREATE TABLE IF NOT EXISTS hr_document_uploads (
 CREATES = [
     SQL_CREATE_MIGRATIONS,
     SQL_CREATE_HR_STAFF_DETAILS,
+    SQL_CREATE_HR_EMPLOYEE_DOCUMENTS,
     SQL_CREATE_HR_DOCUMENT_REQUESTS,
     SQL_CREATE_HR_DOCUMENT_UPLOADS,
 ]
@@ -100,9 +119,13 @@ def _ensure_hr_columns(conn):
     """Add PLAN columns: staff_details (licence, right to work, DBS, contract); requests (request_type, approve/reject); uploads (document_type)."""
     cur = conn.cursor()
     try:
+        if not _column_exists(conn, "hr_staff_details", "date_of_birth"):
+            cur.execute(
+                "ALTER TABLE hr_staff_details ADD COLUMN date_of_birth DATE DEFAULT NULL AFTER emergency_contact_phone"
+            )
         # hr_staff_details: driving licence
         for col, defn in [
-            ("driving_licence_number", "VARCHAR(64) DEFAULT NULL AFTER emergency_contact_phone"),
+            ("driving_licence_number", "VARCHAR(64) DEFAULT NULL AFTER date_of_birth"),
             ("driving_licence_expiry", "DATE DEFAULT NULL AFTER driving_licence_number"),
             ("driving_licence_document_path", "VARCHAR(512) DEFAULT NULL AFTER driving_licence_expiry"),
         ]:
@@ -134,13 +157,21 @@ def _ensure_hr_columns(conn):
         ]:
             if not _column_exists(conn, "hr_staff_details", col):
                 cur.execute("ALTER TABLE hr_staff_details ADD COLUMN {} {}".format(col, defn))
+        # Role / organisation (admin-editable)
+        for col, defn in [
+            ("job_title", "VARCHAR(128) DEFAULT NULL AFTER contract_document_path"),
+            ("department", "VARCHAR(128) DEFAULT NULL AFTER job_title"),
+            ("manager_contractor_id", "INT DEFAULT NULL AFTER department"),
+        ]:
+            if not _column_exists(conn, "hr_staff_details", col):
+                cur.execute("ALTER TABLE hr_staff_details ADD COLUMN {} {}".format(col, defn))
         # hr_document_requests: request_type, approve/reject
         for col, defn in [
             ("request_type", "VARCHAR(32) DEFAULT 'other' AFTER status"),
             ("approved_at", "DATETIME DEFAULT NULL AFTER request_type"),
-            ("approved_by_user_id", "INT DEFAULT NULL AFTER approved_at"),
+            ("approved_by_user_id", "CHAR(36) DEFAULT NULL AFTER approved_at"),
             ("rejected_at", "DATETIME DEFAULT NULL AFTER approved_by_user_id"),
-            ("rejected_by_user_id", "INT DEFAULT NULL AFTER rejected_at"),
+            ("rejected_by_user_id", "CHAR(36) DEFAULT NULL AFTER rejected_at"),
             ("admin_notes", "TEXT DEFAULT NULL AFTER rejected_by_user_id"),
         ]:
             if not _column_exists(conn, "hr_document_requests", col):
@@ -161,10 +192,98 @@ def _ensure_hr_columns(conn):
         cur.close()
 
 
+def _ensure_hr_staff_manager_fk(conn):
+    """FK: manager must reference an existing contractor; ON DELETE SET NULL."""
+    cur = conn.cursor()
+    try:
+        if not _column_exists(conn, "hr_staff_details", "manager_contractor_id"):
+            return
+        cur.execute(
+            """
+            SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'hr_staff_details'
+              AND CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_NAME = 'fk_hrsd_manager'
+            """
+        )
+        if cur.fetchone():
+            return
+        cur.execute(
+            "ALTER TABLE hr_staff_details ADD CONSTRAINT fk_hrsd_manager "
+            "FOREIGN KEY (manager_contractor_id) REFERENCES tb_contractors(id) ON DELETE SET NULL"
+        )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        cur.close()
+
+
+def _migrate_user_id_columns_to_char36(conn):
+    """
+    Core users.id is CHAR(36) (UUID). Older HR installs used INT for *_user_id — fix type.
+    """
+    pairs = [
+        ("hr_document_requests", "approved_by_user_id"),
+        ("hr_document_requests", "rejected_by_user_id"),
+        ("hr_employee_documents", "uploaded_by_user_id"),
+    ]
+    cur = conn.cursor()
+    try:
+        for table, col in pairs:
+            if not _column_exists(conn, table, col):
+                continue
+            cur.execute(
+                """
+                SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                """,
+                (table, col),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+            dt = (row[0] or "").lower()
+            if dt in ("int", "bigint", "smallint", "mediumint", "tinyint"):
+                cur.execute(
+                    "ALTER TABLE `{}` MODIFY COLUMN `{}` CHAR(36) DEFAULT NULL".format(table, col)
+                )
+        conn.commit()
+    finally:
+        cur.close()
+
+
+def _backfill_hr_staff_shell_rows(conn):
+    """Ensure each tb_contractors row has an hr_staff_details shell (same person, extended HR fields)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO hr_staff_details (contractor_id)
+            SELECT c.id FROM tb_contractors c
+            LEFT JOIN hr_staff_details h ON h.contractor_id = c.id
+            WHERE h.contractor_id IS NULL
+            """
+        )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        cur.close()
+
+
 def ensure_tables(conn):
     for sql in CREATES:
         _run_sql(conn, sql)
     _ensure_hr_columns(conn)
+    _ensure_hr_staff_manager_fk(conn)
+    _migrate_user_id_columns_to_char36(conn)
+    _backfill_hr_staff_shell_rows(conn)
 
 
 def install():

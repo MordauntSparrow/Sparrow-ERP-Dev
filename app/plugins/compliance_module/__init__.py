@@ -1,1 +1,1 @@
-# Compliance module: view and sign policies.
+# Compliance & organisational policies: admin library, acknowledgements, portal todos.

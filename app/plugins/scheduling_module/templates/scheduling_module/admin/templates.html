@@ -9,7 +9,7 @@
     <thead class="table-light">
       <tr>
         <th>Name</th>
-        <th>Client</th>
+        <th>{{ assignment_label|default('Client') }}</th>
         <th>Site</th>
         <th>Job type</th>
         <th>Slots</th>
@@ -27,6 +27,10 @@
         <td>
           <a href="{{ url_for('internal_scheduling.admin_template_edit', template_id=t.id) }}" class="btn btn-outline-primary btn-sm">Edit</a>
           <a href="{{ url_for('internal_scheduling.admin_template_apply_form', template_id=t.id) }}" class="btn btn-outline-success btn-sm">Apply</a>
+          <form method="post" action="{{ url_for('internal_scheduling.admin_template_clone', template_id=t.id) }}" class="d-inline">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Clone</button>
+          </form>
         </td>
       </tr>
       {% else %}

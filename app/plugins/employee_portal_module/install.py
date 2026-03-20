@@ -63,9 +63,12 @@ CREATE TABLE IF NOT EXISTS ep_todos (
   link_url VARCHAR(512) DEFAULT NULL,
   due_date DATE DEFAULT NULL,
   completed_at DATETIME DEFAULT NULL,
+  reference_type VARCHAR(64) DEFAULT NULL,
+  reference_id VARCHAR(128) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_ep_todos_contractor (contractor_id),
   KEY idx_ep_todos_pending (contractor_id, completed_at),
+  KEY idx_ep_todos_reference (source_module, reference_type, reference_id),
   CONSTRAINT fk_ep_todos_contractor FOREIGN KEY (contractor_id)
     REFERENCES tb_contractors(id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -116,6 +119,14 @@ def _ensure_audit_columns(conn):
         if not _column_exists(conn, "ep_messages", "deleted_at"):
             cur.execute(
                 "ALTER TABLE ep_messages ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL AFTER updated_at"
+            )
+        if not _column_exists(conn, "ep_todos", "reference_type"):
+            cur.execute(
+                "ALTER TABLE ep_todos ADD COLUMN reference_type VARCHAR(64) NULL DEFAULT NULL AFTER completed_at"
+            )
+        if not _column_exists(conn, "ep_todos", "reference_id"):
+            cur.execute(
+                "ALTER TABLE ep_todos ADD COLUMN reference_id VARCHAR(128) NULL DEFAULT NULL AFTER reference_type"
             )
         conn.commit()
     finally:

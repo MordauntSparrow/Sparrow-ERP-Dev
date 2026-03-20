@@ -2268,24 +2268,29 @@ def recent_job_comms():
             if r and r.get('cleared_at'):
                 cleared_at = r.get('cleared_at')
 
-        cur.execute("""
-            SELECT c.id, c.cad, c.message_type, c.sender_role, c.sender_user, c.message_text, c.created_at
-            FROM mdt_job_comms c
-            INNER JOIN mdt_jobs j ON j.cad = c.cad
-            WHERE LOWER(TRIM(COALESCE(j.status, ''))) NOT IN ('cleared', 'stood_down')
-            ORDER BY c.id DESC
-            LIMIT %s
-        """, (limit,))
+        if cleared_at is not None:
+            # Only show inbox items created after the user last cleared their inbox
+            cur.execute("""
+                SELECT c.id, c.cad, c.message_type, c.sender_role, c.sender_user, c.message_text, c.created_at
+                FROM mdt_job_comms c
+                INNER JOIN mdt_jobs j ON j.cad = c.cad
+                WHERE LOWER(TRIM(COALESCE(j.status, ''))) NOT IN ('cleared', 'stood_down')
+                  AND c.created_at > %s
+                ORDER BY c.id DESC
+                LIMIT %s
+            """, (cleared_at, limit))
+        else:
+            cur.execute("""
+                SELECT c.id, c.cad, c.message_type, c.sender_role, c.sender_user, c.message_text, c.created_at
+                FROM mdt_job_comms c
+                INNER JOIN mdt_jobs j ON j.cad = c.cad
+                WHERE LOWER(TRIM(COALESCE(j.status, ''))) NOT IN ('cleared', 'stood_down')
+                ORDER BY c.id DESC
+                LIMIT %s
+            """, (limit,))
         rows = cur.fetchall() or []
         rows.reverse()
-
-        if cleared_at is not None:
-            try:
-                unread_count = sum(1 for row in rows if (row.get('created_at') or datetime.min) > cleared_at)
-            except (TypeError, ValueError):
-                unread_count = len(rows)
-        else:
-            unread_count = len(rows)
+        unread_count = len(rows)
 
         return jsonify({"items": rows, "unread_count": unread_count})
     finally:

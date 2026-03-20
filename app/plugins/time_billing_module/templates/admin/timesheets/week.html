@@ -205,9 +205,30 @@
 
                 <!-- Notes -->
                 <td>
-                  <input class="form-control form-control-sm js-edit"
-                         data-field="notes"
-                         value="{{ e.notes or '' }}">
+                  <div class="d-flex flex-column">
+                    <input class="form-control form-control-sm js-edit"
+                           data-field="notes"
+                           value="{{ e.notes or '' }}">
+                    {% if e.edited_by %}
+                      <small class="text-warning mt-1" title="{{ (e.edit_reason or '')|e }}">
+                        Adjusted
+                      </small>
+                      {% if e.actual_start and e.scheduled_start %}
+                        <small class="text-warning mt-0" title="Start vs scheduled">
+                          Start: {% if e.actual_start < e.scheduled_start %}early{% elif e.actual_start > e.scheduled_start %}late{% else %}on time{% endif %}
+                        </small>
+                      {% endif %}
+                      {% if e.actual_end and e.scheduled_end %}
+                        <small class="text-warning mt-0" title="End vs scheduled">
+                          End: {% if e.actual_end < e.scheduled_end %}early{% elif e.actual_end > e.scheduled_end %}late{% else %}on time{% endif %}
+                        </small>
+                      {% endif %}
+                    {% elif e.edit_reason %}
+                      <small class="text-muted mt-1" title="{{ (e.edit_reason or '')|e }}">
+                        Auto-prefilled
+                      </small>
+                    {% endif %}
+                  </div>
                 </td>
 
                 <!-- Policy

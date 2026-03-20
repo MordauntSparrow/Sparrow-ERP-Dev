@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS hr_staff_details (
   postcode VARCHAR(32) DEFAULT NULL,
   emergency_contact_name VARCHAR(255) DEFAULT NULL,
   emergency_contact_phone VARCHAR(64) DEFAULT NULL,
+  date_of_birth DATE DEFAULT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_hrsd_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

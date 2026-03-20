@@ -11,19 +11,20 @@
         <div>
           <a href="{{ url_for('public_training.view_item', assignment_id=a.id) }}" class="text-decoration-none fw-medium">{{ a.title }}</a>
           {% if a.summary %}<p class="small text-muted mb-0 mt-1">{{ a.summary[:120] }}{% if a.summary|length > 120 %}…{% endif %}</p>{% endif %}
+          {% if a.delivery_type %}<p class="small text-secondary mb-0 mt-1">Type: {{ a.delivery_type }}</p>{% endif %}
           {% if a.due_date %}<p class="small text-warning mb-0 mt-1">Due: {{ a.due_date.isoformat() if a.due_date else '' }}</p>{% endif %}
         </div>
-        <div>
+        <div class="text-end">
           {% if a.completed %}
           <span class="badge bg-success">Complete</span>
           {% else %}
-          <span class="badge bg-warning text-dark">To do</span>
-          {% if a.mandatory %}<span class="badge bg-danger">Mandatory</span>{% endif %}
+          <span class="badge bg-secondary">{{ a.status|replace('_',' ')|title if a.status else 'To do' }}</span>
+          {% if a.mandatory %}<span class="badge bg-danger ms-1">Mandatory</span>{% endif %}
           {% endif %}
         </div>
       </div>
       <a href="{{ url_for('public_training.view_item', assignment_id=a.id) }}" class="btn btn-primary btn-sm mt-2">
-        {% if a.completed %}View{% else %}View & complete{% endif %} <i class="bi bi-chevron-right"></i>
+        {% if a.completed %}View{% else %}Continue{% endif %} <i class="bi bi-chevron-right"></i>
       </a>
     </div>
     {% endfor %}
@@ -34,5 +35,5 @@
     <p class="text-muted mb-0 mt-2">No training assigned to you right now.</p>
   </div>
 {% endif %}
-<a href="/employee-portal/" class="btn btn-outline-light btn-sm mt-3">Back to Portal</a>
+<a href="{{ url_for('public_employee_portal.dashboard') }}" class="btn btn-outline-secondary btn-sm mt-3">Back to Portal</a>
 {% endblock %}

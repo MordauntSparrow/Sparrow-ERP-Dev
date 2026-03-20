@@ -2,6 +2,7 @@ from datetime import datetime, date, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any, Optional, Tuple
 import json
+import os
 import csv
 import io
 import re
@@ -398,6 +399,335 @@ class TimesheetService:
     - Staff/admin API payloads
     """
 
+    # ----------------- Module settings -----------------
+
+    @staticmethod
+    def _load_module_settings() -> dict:
+        """
+        Load module settings from the local plugin manifest.
+
+        Note: settings are stored in the plugin's `manifest.json` (not DB),
+        updated via the generic plugin settings page.
+        """
+        try:
+            manifest_path = os.path.join(
+                os.path.dirname(__file__), "manifest.json")
+            if not os.path.exists(manifest_path):
+                return {}
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f) or {}
+            return manifest.get("settings") or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _get_setting_value(key: str, default: Any = None) -> Any:
+        settings = TimesheetService._load_module_settings()
+        item = settings.get(key) or {}
+        return item.get("value", default)
+
+    @staticmethod
+    def _get_bool_setting(key: str, default: bool = False) -> bool:
+        v = TimesheetService._get_setting_value(key, default)
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return default
+        s = str(v).strip().lower()
+        return s in ("1", "true", "yes", "y", "on")
+
+    @staticmethod
+    def _scheduler_week_prefill_enabled() -> bool:
+        # When true, scheduler shifts (clock in/out optional) are used to
+        # prefill weekly timesheet entries for staff.
+        return TimesheetService._get_bool_setting(
+            "scheduler_week_prefill_enabled", default=True
+        )
+
+    @staticmethod
+    def _scheduler_source_scheduled_edit_allowed() -> bool:
+        # When false, scheduled_start/end are treated as "from scheduler"
+        # and cannot be changed by staff (even if submitted).
+        return TimesheetService._get_bool_setting(
+            "scheduler_source_scheduled_edit_allowed", default=False
+        )
+
+    @staticmethod
+    def _prefill_from_schedule_shifts(user_id: int, wk_pk: int, week_ending: date) -> None:
+        """
+        Prefill `tb_timesheet_entries` for the contractor from `schedule_shifts`
+        for the relevant ISO week.
+
+        - Uses schedule `scheduled_start/end` as scheduled times.
+        - Uses `actual_start/end` when clock-in/out exists; otherwise defaults
+          actual to scheduled (so clocking is optional).
+        - Stores the schedule shift id into `tb_timesheet_entries.runsheet_id`
+          for `source='scheduler'` entries to keep mapping stable.
+        - Respects staff deletions via `tb_scheduler_shift_removals`.
+        - Does not overwrite entries that staff/admin already edited
+          (`edited_by` is non-null).
+        """
+        # Ensure schedule module is installed / tables exist.
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("SHOW TABLES LIKE 'schedule_shifts'")
+            if not cur.fetchone():
+                return
+
+            date_from = week_ending - timedelta(days=6)
+            date_to = week_ending
+
+            # Optional existence check (new table / older DBs).
+            cur.execute(
+                "SHOW TABLES LIKE 'tb_scheduler_shift_removals'")
+            removals_exists = bool(cur.fetchone())
+
+            contractor = TimesheetService._get_contractor(user_id)
+            if not contractor:
+                return
+
+            # Pull shifts; only those not yet linked to a runsheet.
+            # (If runsheet_id is set, the normal runsheet->timesheet path
+            # should be used instead.)
+            cur.execute(
+                """
+                SELECT
+                    ss.id,
+                    ss.work_date,
+                    ss.scheduled_start,
+                    ss.scheduled_end,
+                    ss.actual_start,
+                    ss.actual_end,
+                    ss.break_mins,
+                    ss.notes,
+                    ss.client_id,
+                    ss.site_id,
+                    ss.job_type_id,
+                    c.name AS client_name,
+                    s.name AS site_name
+                FROM schedule_shifts ss
+                LEFT JOIN clients c ON c.id = ss.client_id
+                LEFT JOIN sites s   ON s.id = ss.site_id
+                WHERE ss.contractor_id = %s
+                  AND ss.work_date BETWEEN %s AND %s
+                  AND (ss.status IS NULL OR LOWER(ss.status) <> 'cancelled')
+                  AND ss.runsheet_id IS NULL
+                ORDER BY ss.work_date ASC, ss.scheduled_start ASC
+                """,
+                (user_id, date_from, date_to),
+            )
+            shifts = cur.fetchall() or []
+            if not shifts:
+                return
+
+            updated = 0
+            created = 0
+
+            for sh in shifts:
+                schedule_shift_id = int(sh["id"])
+
+                if removals_exists:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM tb_scheduler_shift_removals
+                        WHERE user_id=%s AND schedule_shift_id=%s
+                        LIMIT 1
+                        """,
+                        (user_id, schedule_shift_id),
+                    )
+                    if cur.fetchone():
+                        continue
+
+                actual_start = sh.get("actual_start") or sh.get(
+                    "scheduled_start")
+                actual_end = sh.get("actual_end") or sh.get(
+                    "scheduled_end")
+
+                # If no clock data was recorded, we still prefill actuals
+                # with scheduled so the week is editable/submittable.
+                clock_missing = (
+                    sh.get("actual_start") is None or sh.get("actual_end") is None
+                )
+                auto_reason = "Clock not recorded; defaulted actual to scheduled" if clock_missing else None
+
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        edited_by,
+                        client_name,
+                        site_name,
+                        job_type_id,
+                        scheduled_start,
+                        scheduled_end,
+                        actual_start,
+                        actual_end,
+                        break_mins,
+                        notes,
+                        travel_parking,
+                        edit_reason
+                    FROM tb_timesheet_entries
+                    WHERE user_id=%s
+                      AND week_id=%s
+                      AND source='scheduler'
+                      AND runsheet_id=%s
+                    LIMIT 1
+                    """,
+                    (user_id, wk_pk, schedule_shift_id),
+                )
+                row = cur.fetchone()
+
+                payload = {
+                    "client_name": sh.get("client_name"),
+                    "site_name": sh.get("site_name"),
+                    "job_type_id": int(sh["job_type_id"]),
+                    "work_date": sh["work_date"],
+                    "scheduled_start": sh.get("scheduled_start"),
+                    "scheduled_end": sh.get("scheduled_end"),
+                    "actual_start": actual_start,
+                    "actual_end": actual_end,
+                    "break_mins": int(sh.get("break_mins") or 0),
+                    "travel_parking": 0.0,
+                    "notes": sh.get("notes"),
+                    "source": "scheduler",
+                    "runsheet_id": schedule_shift_id,
+                    "lock_job_client": 1,
+                }
+
+                computed = TimesheetService._compute_and_fill(
+                    payload.copy(), contractor
+                )
+
+                if row:
+                    # Do not overwrite if staff/admin already edited.
+                    if row.get("edited_by") is not None:
+                        continue
+
+                    cur.execute(
+                        """
+                        UPDATE tb_timesheet_entries
+                        SET
+                            client_name=%s,
+                            site_name=%s,
+                            job_type_id=%s,
+                            work_date=%s,
+                            scheduled_start=%s,
+                            scheduled_end=%s,
+                            actual_start=%s,
+                            actual_end=%s,
+                            break_mins=%s,
+                            notes=%s,
+                            source='scheduler',
+                            lock_job_client=1,
+                            scheduled_hours=%s,
+                            actual_hours=%s,
+                            labour_hours=%s,
+                            wage_rate_used=%s,
+                            pay=%s,
+                            lateness_mins=%s,
+                            overrun_mins=%s,
+                            variance_mins=%s,
+                            policy_applied=%s,
+                            policy_source=%s,
+                            edited_by=NULL,
+                            edited_at=NULL,
+                            edit_reason=%s
+                        WHERE id=%s
+                        """,
+                        (
+                            payload["client_name"],
+                            payload["site_name"],
+                            payload["job_type_id"],
+                            payload["work_date"],
+                            payload["scheduled_start"],
+                            payload["scheduled_end"],
+                            payload["actual_start"],
+                            payload["actual_end"],
+                            payload["break_mins"],
+                            payload["notes"],
+                            computed["scheduled_hours"],
+                            computed["actual_hours"],
+                            computed["labour_hours"],
+                            computed["wage_rate_used"],
+                            computed["pay"],
+                            computed["lateness_mins"],
+                            computed["overrun_mins"],
+                            computed["variance_mins"],
+                            computed["policy_applied"],
+                            computed["policy_source"],
+                            auto_reason,
+                            row["id"],
+                        ),
+                    )
+                    updated += 1
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO tb_timesheet_entries (
+                            week_id, user_id,
+                            client_name, site_name, job_type_id,
+                            work_date, scheduled_start, scheduled_end,
+                            actual_start, actual_end, break_mins,
+                            travel_parking, notes,
+                            source, runsheet_id, lock_job_client,
+                            scheduled_hours, actual_hours, labour_hours,
+                            wage_rate_used, pay,
+                            lateness_mins, overrun_mins, variance_mins,
+                            policy_applied, policy_source,
+                            rate_overridden,
+                            edited_by, edited_at, edit_reason
+                        ) VALUES (
+                            %s,%s,
+                            %s,%s,%s,
+                            %s,%s,%s,
+                            %s,%s,%s,
+                            %s,%s,
+                            'scheduler',%s,1,
+                            %s,%s,%s,
+                            %s,%s,
+                            %s,%s,%s,
+                            %s,%s,
+                            0,
+                            NULL,NULL,%s
+                        )
+                        """,
+                        (
+                            wk_pk,
+                            user_id,
+                            payload["client_name"],
+                            payload["site_name"],
+                            payload["job_type_id"],
+                            payload["work_date"],
+                            payload["scheduled_start"],
+                            payload["scheduled_end"],
+                            payload["actual_start"],
+                            payload["actual_end"],
+                            payload["break_mins"],
+                            0.0,
+                            payload["notes"],
+                            payload["runsheet_id"],
+                            computed["scheduled_hours"],
+                            computed["actual_hours"],
+                            computed["labour_hours"],
+                            computed["wage_rate_used"],
+                            computed["pay"],
+                            computed["lateness_mins"],
+                            computed["overrun_mins"],
+                            computed["variance_mins"],
+                            computed["policy_applied"],
+                            computed["policy_source"],
+                            auto_reason,
+                        ),
+                    )
+                    created += 1
+
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
     # ---------- internal helpers ----------
 
     @staticmethod
@@ -625,6 +955,19 @@ class TimesheetService:
         MVP: uses free-text client_name/site_name (no joins on IDs).
         """
         wk = TimesheetService._ensure_week(user_id, week_id)
+
+        # Pre-fill weekly entries from scheduler shifts (optional clocking).
+        if TimesheetService._scheduler_week_prefill_enabled() and (wk.get("status") or "draft").lower() in ("draft", "rejected"):
+            try:
+                TimesheetService._prefill_from_schedule_shifts(
+                    user_id=user_id,
+                    wk_pk=wk["id"],
+                    week_ending=wk["week_ending"],
+                )
+            except Exception:
+                # Prefill is best-effort; don't break timesheet rendering.
+                pass
+
         conn = get_db_connection()
         cur = conn.cursor(dictionary=True)
 
@@ -794,6 +1137,9 @@ class TimesheetService:
                 "invoice_prompt_resend": prompt_resend,
                 "invoice_draft_pending": invoice_draft_pending,
                 "invoice_info": invoice_info,
+                # UI policies
+                "scheduler_week_prefill_enabled": TimesheetService._scheduler_week_prefill_enabled(),
+                "scheduler_source_scheduled_edit_allowed": TimesheetService._scheduler_source_scheduled_edit_allowed(),
             }
 
         finally:
@@ -874,10 +1220,30 @@ class TimesheetService:
                 entry_id = e.get("id")
 
                 # ----- Existing entry checks -----
+                edited_by_value = None
+                edited_at_value = None
+                edit_reason_value = None
                 if entry_id:
                     cur.execute(
                         """
-                        SELECT user_id, source, lock_job_client
+                        SELECT
+                            user_id,
+                            source,
+                            runsheet_id,
+                            lock_job_client,
+                            client_name,
+                            site_name,
+                            job_type_id,
+                            scheduled_start,
+                            scheduled_end,
+                            actual_start,
+                            actual_end,
+                            break_mins,
+                            travel_parking,
+                            notes,
+                            edited_by,
+                            edited_at,
+                            edit_reason
                         FROM tb_timesheet_entries
                         WHERE id=%s
                         """,
@@ -890,17 +1256,65 @@ class TimesheetService:
                         )
                         continue
 
-                    # Lock handling: prevent changes on generated entries
-                    if existing["source"] in ("runsheet", "scheduler") and existing.get(
-                        "lock_job_client"
-                    ):
-                        for locked in (
-                            "job_type_id",
-                            "client_name",
-                            "site_name",
-                        ):
-                            if locked in e:
-                                del e[locked]
+                    # Preserve source/run linkage on updates.
+                    # The public staff UI doesn't send these fields back, but we
+                    # need them stable for scheduler-prefilled entries.
+                    e["source"] = existing.get("source")
+                    e["runsheet_id"] = existing.get("runsheet_id")
+                    e["lock_job_client"] = existing.get("lock_job_client")
+
+                    # Lock handling: prevent changes on generated entries.
+                    # (Override payload with existing values instead of deleting
+                    # fields, so compute-and-fill still works.)
+                    if existing["source"] in ("runsheet", "scheduler") and existing.get("lock_job_client"):
+                        e["job_type_id"] = existing.get("job_type_id")
+                        e["client_name"] = existing.get("client_name")
+                        e["site_name"] = existing.get("site_name")
+
+                    # Optional: scheduled time editing rules for scheduler-generated entries.
+                    if existing.get("source") == "scheduler" and not TimesheetService._scheduler_source_scheduled_edit_allowed():
+                        e["scheduled_start"] = existing.get("scheduled_start")
+                        e["scheduled_end"] = existing.get("scheduled_end")
+
+                    # Detect if staff/admin actually changed anything that should be tracked.
+                    # We track edits by setting edited_by/edit_reason (so admin can show "adjusted").
+                    incoming_actual_start = _to_time(e.get("actual_start"))
+                    incoming_actual_end = _to_time(e.get("actual_end"))
+                    incoming_break_mins = int(e.get("break_mins") or 0)
+                    incoming_travel = float(_dec(e.get("travel_parking") or 0))
+                    incoming_notes = e.get("notes")
+
+                    existing_actual_start = existing.get("actual_start")
+                    existing_actual_end = existing.get("actual_end")
+                    existing_break_mins = int(existing.get("break_mins") or 0)
+                    existing_travel = float(_dec(existing.get("travel_parking") or 0))
+                    existing_notes = existing.get("notes")
+
+                    did_adjust = (
+                        existing_actual_start != incoming_actual_start
+                        or existing_actual_end != incoming_actual_end
+                        or existing_break_mins != incoming_break_mins
+                        or existing_travel != incoming_travel
+                        or (existing_notes or "") != (incoming_notes or "")
+                    )
+
+                    edited_by_value = existing.get("edited_by")
+                    edited_at_value = existing.get("edited_at")
+                    edit_reason_value = existing.get("edit_reason")
+
+                    if did_adjust:
+                        edited_by_value = user_id
+                        edited_at_value = datetime.utcnow()
+                        parts: List[str] = []
+                        if existing_actual_start != incoming_actual_start or existing_actual_end != incoming_actual_end:
+                            parts.append("Adjusted actual times (clock-in/out override)")
+                        if existing_notes != incoming_notes:
+                            parts.append("Updated notes")
+                        if existing_break_mins != incoming_break_mins:
+                            parts.append("Updated break time")
+                        if existing_travel != incoming_travel:
+                            parts.append("Updated travel/parking")
+                        edit_reason_value = "; ".join(parts)[:255]
 
                 # Compute derived fields
                 computed = TimesheetService._compute_and_fill(e, contractor)
@@ -969,9 +1383,9 @@ class TimesheetService:
                     "policy_applied": computed["policy_applied"],
                     "policy_source": computed["policy_source"],
                     "rate_overridden": 0,
-                    "edited_by": None,
-                    "edited_at": None,
-                    "edit_reason": None,
+                    "edited_by": edited_by_value,
+                    "edited_at": edited_at_value,
+                    "edit_reason": edit_reason_value,
                 }
 
                 if entry_id:

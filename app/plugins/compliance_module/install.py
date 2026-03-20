@@ -1,70 +1,65 @@
 """
-Compliance module install/upgrade: all table definitions and logic in this file.
-Ensures compliance_migrations, compliance_policies, compliance_acknowledgements. No external db/*.sql.
-Run from repo root: python app/plugins/compliance_module/install.py install
-Or from plugin dir: python install.py install
+Compliance module — policies and acknowledgements.
+python app/plugins/compliance_module/install.py install
 """
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve()
-PLUGIN_DIR = HERE.parent
-PLUGINS_DIR = PLUGIN_DIR.parent
-APP_ROOT = PLUGINS_DIR.parent
-PROJECT_ROOT = APP_ROOT.parent
-for p in (str(PROJECT_ROOT), str(APP_ROOT), str(PLUGIN_DIR)):
+HERE = Path(__file__).resolve().parent
+for p in (str(HERE.parent.parent.parent), str(HERE)):
     if p not in sys.path:
         sys.path.insert(0, p)
 from app.objects import get_db_connection  # noqa: E402
 
-MIGRATIONS_TABLE = "compliance_migrations"
-MODULE_TABLES = [MIGRATIONS_TABLE, "compliance_policies", "compliance_acknowledgements"]
+MIGRATIONS_TABLE = "comp_migrations"
+MODULE_TABLES = [MIGRATIONS_TABLE, "comp_policy_acknowledgements", "comp_policies"]
 
 SQL_CREATE_MIGRATIONS = """
-CREATE TABLE IF NOT EXISTS compliance_migrations (
+CREATE TABLE IF NOT EXISTS comp_migrations (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   filename VARCHAR(255) NOT NULL UNIQUE,
   applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-SQL_CREATE_COMPLIANCE_POLICIES = """
-CREATE TABLE IF NOT EXISTS compliance_policies (
+SQL_CREATE_POLICIES = """
+CREATE TABLE IF NOT EXISTS comp_policies (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
-  slug VARCHAR(120) NOT NULL,
+  slug VARCHAR(191) NOT NULL,
+  category VARCHAR(64) NOT NULL DEFAULT 'other',
   summary TEXT,
-  body LONGTEXT,
+  body_text TEXT,
   file_path VARCHAR(512) DEFAULT NULL,
-  file_name VARCHAR(255) DEFAULT NULL,
   version INT NOT NULL DEFAULT 1,
-  effective_from DATE NOT NULL,
-  effective_to DATE DEFAULT NULL,
-  required_acknowledgement TINYINT(1) NOT NULL DEFAULT 1,
-  active TINYINT(1) NOT NULL DEFAULT 1,
+  published TINYINT(1) NOT NULL DEFAULT 0,
+  mandatory TINYINT(1) NOT NULL DEFAULT 1,
+  published_at DATETIME DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_slug (slug),
-  KEY idx_effective (effective_from, effective_to, active)
+  UNIQUE KEY uq_comp_policy_slug (slug),
+  KEY idx_comp_published (published, mandatory),
+  KEY idx_comp_category (category)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-SQL_CREATE_COMPLIANCE_ACKNOWLEDGEMENTS = """
-CREATE TABLE IF NOT EXISTS compliance_acknowledgements (
+SQL_CREATE_ACKS = """
+CREATE TABLE IF NOT EXISTS comp_policy_acknowledgements (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   policy_id INT NOT NULL,
   contractor_id INT NOT NULL,
-  acknowledged_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ip_address VARCHAR(64) DEFAULT NULL,
-  user_agent VARCHAR(255) DEFAULT NULL,
-  UNIQUE KEY uq_policy_contractor (policy_id, contractor_id),
-  KEY idx_contractor (contractor_id),
-  CONSTRAINT fk_ca_policy FOREIGN KEY (policy_id) REFERENCES compliance_policies(id) ON DELETE CASCADE,
-  CONSTRAINT fk_ca_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
+  version INT NOT NULL,
+  acknowledged_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ip_address VARCHAR(45) DEFAULT NULL,
+  user_agent VARCHAR(512) DEFAULT NULL,
+  UNIQUE KEY uq_comp_ack (policy_id, contractor_id, version),
+  KEY idx_comp_ack_contractor (contractor_id),
+  CONSTRAINT fk_comp_ack_policy FOREIGN KEY (policy_id) REFERENCES comp_policies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_comp_ack_contractor FOREIGN KEY (contractor_id) REFERENCES tb_contractors(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-CREATES = [SQL_CREATE_MIGRATIONS, SQL_CREATE_COMPLIANCE_POLICIES, SQL_CREATE_COMPLIANCE_ACKNOWLEDGEMENTS]
+CREATES = [SQL_CREATE_MIGRATIONS, SQL_CREATE_POLICIES, SQL_CREATE_ACKS]
 
 
 def _run_sql(conn, sql):
@@ -82,40 +77,43 @@ def ensure_tables(conn):
         _run_sql(conn, sql)
 
 
-def _add_policy_file_columns_if_missing(conn):
-    """Add file_path, file_name to compliance_policies for existing installs."""
+def _column_exists(conn, table: str, column: str) -> bool:
     cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT COUNT(*) FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'compliance_policies' AND COLUMN_NAME = 'file_path'
-        """)
-        if cur.fetchone()[0] == 0:
-            cur.execute("ALTER TABLE compliance_policies ADD COLUMN file_path VARCHAR(512) DEFAULT NULL AFTER body")
-            cur.execute("ALTER TABLE compliance_policies ADD COLUMN file_name VARCHAR(255) DEFAULT NULL AFTER file_path")
-            conn.commit()
+        cur.execute("SHOW COLUMNS FROM `{}` LIKE %s".format(table), (column,))
+        return bool(cur.fetchone())
+    finally:
+        cur.close()
+
+
+def _ensure_comp_policy_review_columns(conn):
+    """Admin-set review schedule + acknowledgement library metadata."""
+    cur = conn.cursor()
+    try:
+        if not _column_exists(conn, "comp_policies", "next_review_date"):
+            cur.execute(
+                "ALTER TABLE comp_policies ADD COLUMN next_review_date DATE DEFAULT NULL AFTER published_at"
+            )
+        if not _column_exists(conn, "comp_policies", "last_reviewed_date"):
+            cur.execute(
+                "ALTER TABLE comp_policies ADD COLUMN last_reviewed_date DATE DEFAULT NULL AFTER next_review_date"
+            )
+        conn.commit()
     finally:
         cur.close()
 
 
 def install():
-    """Ensure all MODULE_TABLES exist (idempotent). Add policy file columns if missing."""
     conn = get_db_connection()
     try:
         ensure_tables(conn)
-        _add_policy_file_columns_if_missing(conn)
+        _ensure_comp_policy_review_columns(conn)
     finally:
         conn.close()
 
 
 def upgrade():
-    """Ensure all MODULE_TABLES exist and policy file columns present (idempotent)."""
-    conn = get_db_connection()
-    try:
-        ensure_tables(conn)
-        _add_policy_file_columns_if_missing(conn)
-    finally:
-        conn.close()
+    install()
 
 
 def uninstall(drop_data: bool = False):
@@ -136,13 +134,13 @@ def uninstall(drop_data: bool = False):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Compliance Module Installer")
-    parser.add_argument("command", choices=["install", "upgrade", "uninstall"])
-    parser.add_argument("--drop-data", action="store_true")
-    args = parser.parse_args()
-    if args.command == "install":
+    p = argparse.ArgumentParser()
+    p.add_argument("command", choices=["install", "upgrade", "uninstall"])
+    p.add_argument("--drop-data", action="store_true")
+    a = p.parse_args()
+    if a.command == "install":
         install()
-    elif args.command == "upgrade":
+    elif a.command == "upgrade":
         upgrade()
     else:
-        uninstall(drop_data=args.drop_data)
+        uninstall(drop_data=a.drop_data)

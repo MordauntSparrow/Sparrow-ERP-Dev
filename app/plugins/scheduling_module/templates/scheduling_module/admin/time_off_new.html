@@ -41,6 +41,23 @@
     </div>
   </div>
   <div class="mb-3">
+    <label class="form-label">Duration</label>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <label class="form-check form-check-inline"><input type="radio" name="whole_day" value="1" class="form-check-input" checked> Whole day(s)</label>
+      <label class="form-check form-check-inline"><input type="radio" name="whole_day" value="0" class="form-check-input" id="admin-whole-day-no"> Specific times</label>
+    </div>
+    <div id="admin-time-fields" class="row g-2 d-none">
+      <div class="col-6">
+        <label class="form-label small mb-0">Start time</label>
+        <input type="time" name="start_time" class="form-control" value="09:00">
+      </div>
+      <div class="col-6">
+        <label class="form-label small mb-0">End time</label>
+        <input type="time" name="end_time" class="form-control" value="17:00">
+      </div>
+    </div>
+  </div>
+  <div class="mb-3">
     <label class="form-label">Reason (optional)</label>
     <input type="text" name="reason" class="form-control" placeholder="e.g. Recorded sickness call">
   </div>
@@ -49,4 +66,12 @@
     <a href="{{ url_for('internal_scheduling.admin_time_off') }}" class="btn btn-outline-secondary">Cancel</a>
   </div>
 </form>
+<script>
+document.querySelectorAll('input[name="whole_day"]').forEach(function(radio) {
+  radio.addEventListener('change', function() {
+    var el = document.getElementById('admin-time-fields');
+    if (this.value === '0') el.classList.remove('d-none'); else el.classList.add('d-none');
+  });
+});
+</script>
 {% endblock %}

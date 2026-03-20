@@ -45,7 +45,21 @@
         </div>
         <div>
           <h2 class="h5 card-title mb-1">Shifts list</h2>
-          <p class="card-text small text-muted mb-0">Filter by date, contractor, client. Bulk actions.</p>
+          <p class="card-text small text-muted mb-0">Filter by date, contractor, {{ assignment_label|default('client')|lower }}. Bulk actions.</p>
+        </div>
+        <i class="bi bi-chevron-right ms-auto text-muted"></i>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-6 col-lg-4">
+    <a href="{{ url_for('internal_scheduling.admin_open_shift_claims') }}" class="card text-decoration-none text-dark h-100 border-warning shadow-sm">
+      <div class="card-body d-flex align-items-center">
+        <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
+          <i class="bi bi-person-check fs-3 text-warning"></i>
+        </div>
+        <div>
+          <h2 class="h5 card-title mb-1">Open shift claims {% if pending_open_shift_claims and pending_open_shift_claims > 0 %}<span class="badge bg-danger ms-1">{{ pending_open_shift_claims }}</span>{% endif %}</h2>
+          <p class="card-text small text-muted mb-0">Approve or reject staff claims.</p>
         </div>
         <i class="bi bi-chevron-right ms-auto text-muted"></i>
       </div>

@@ -10,7 +10,7 @@
   </div>
   <div class="row g-2">
     <div class="col-md-4">
-      <label class="form-label">Client</label>
+      <label class="form-label">{{ assignment_label|default('Client') }}</label>
       <select name="client_id" class="form-select">
         <option value="">—</option>
         {% for c in clients %}

@@ -94,7 +94,7 @@ def _admin_required_work(view):
 @_admin_required_work
 def admin_index():
     return render_template(
-        "admin/index.html",
+        "work_module/admin/index.html",
         module_name="Work",
         module_description="Recorded stops, gaps, photos, and reporting.",
         plugin_system_name="work_module",

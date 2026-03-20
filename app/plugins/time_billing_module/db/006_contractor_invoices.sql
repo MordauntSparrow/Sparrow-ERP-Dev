@@ -4,7 +4,7 @@
 -- Contractor employment type: PAYE (timesheet only) vs self-employed (timesheet + invoice)
 ALTER TABLE tb_contractors
   ADD COLUMN employment_type ENUM('paye','self_employed') NOT NULL DEFAULT 'paye'
-  COMMENT 'paye = timesheet only; self_employed = can create invoice after approval'
+  COMMENT 'paye = timesheet only, self_employed = can create invoice after approval'
   AFTER status;
 
 -- Invoices created by self-employed contractors for an approved week

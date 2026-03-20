@@ -1,14 +1,14 @@
 {
   "system_name": "hr_module",
   "name": "HR",
-  "description": "Employee details, document uploads, and HR requests.",
-  "version": "0.0.1",
+  "description": "Employee store: profiles, DBS, driving licence, right to work, contract metadata, document library, and portal requests.",
+  "version": "0.1.0",
   "icon": "icon.png",
   "settings": {},
   "enabled": true,
   "dependencies": ["website_module", "employee_portal_module", "time_billing_module"],
   "repository": "official",
   "download_url": "",
-  "changelog": "Initial stub.",
+  "changelog": "Employee directory, document library, date of birth, richer admin dashboard.",
   "repository_token": ""
 }

@@ -12,9 +12,12 @@ from app.objects import get_db_connection
 
 logger = logging.getLogger(__name__)
 
-# Limits for dashboard lists (avoid unbounded queries)
+# Limits for dashboard lists (avoid unbounded queries; mobile-friendly)
 LIMIT_MESSAGES = 50
-LIMIT_TODOS = 100
+# Pending = default dashboard view (hide completed unless user opens Completed / All)
+LIMIT_TODOS_PENDING = 40
+LIMIT_TODOS_COMPLETED = 25
+LIMIT_TODOS_ALL = 35
 
 # Single source of truth for portal module links (name, url, icon, plugin system_name)
 # use_launch=True: dashboard link goes via /employee-portal/go/<slug> so auth is passed by token (avoids session/cookie issues)
@@ -85,9 +88,54 @@ def get_messages(contractor_id):
         return []
 
 
-def get_todos(contractor_id, filter_completed=None):
-    """Load todos for the dashboard. filter_completed: None=all, True=completed only, False=pending only. Returns list."""
+def count_pending_todos(contractor_id) -> int:
+    """Cheap COUNT for badge and summaries (does not load row bodies)."""
+    if not contractor_id:
+        return 0
     try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM ep_todos
+                WHERE contractor_id = %s AND completed_at IS NULL
+                """,
+                (int(contractor_id),),
+            )
+            row = cur.fetchone()
+            return int(row[0] if row else 0)
+        finally:
+            cur.close()
+            conn.close()
+    except Exception as e:
+        logger.warning(
+            "Employee portal: pending todo count unavailable for contractor %s: %s",
+            contractor_id,
+            e,
+        )
+        return 0
+
+
+def get_todos(contractor_id, filter_completed=None, limit=None):
+    """
+    Load todos for the dashboard.
+    filter_completed: None=all (pending first, then recent completed), True=completed only, False=pending only.
+    limit: override max rows (default depends on filter).
+    """
+    try:
+        if filter_completed is True:
+            cap = int(limit) if limit is not None else LIMIT_TODOS_COMPLETED
+            order_sql = "ORDER BY completed_at DESC, created_at DESC"
+        elif filter_completed is False:
+            cap = int(limit) if limit is not None else LIMIT_TODOS_PENDING
+            order_sql = "ORDER BY due_date IS NULL ASC, due_date ASC, created_at DESC"
+        else:
+            cap = int(limit) if limit is not None else LIMIT_TODOS_ALL
+            order_sql = (
+                "ORDER BY completed_at IS NULL DESC, due_date IS NULL ASC, "
+                "due_date ASC, created_at DESC"
+            )
         conn = get_db_connection()
         cur = conn.cursor(dictionary=True)
         try:
@@ -97,13 +145,16 @@ def get_todos(contractor_id, filter_completed=None):
                 where += " AND completed_at IS NOT NULL"
             elif filter_completed is False:
                 where += " AND completed_at IS NULL"
-            cur.execute(f"""
+            cur.execute(
+                f"""
                 SELECT id, source_module, title, link_url, due_date, completed_at, created_at
                 FROM ep_todos
                 WHERE {where}
-                ORDER BY completed_at IS NULL DESC, due_date IS NULL ASC, due_date ASC, created_at DESC
+                {order_sql}
                 LIMIT %s
-            """, tuple(params) + (LIMIT_TODOS,))
+                """,
+                tuple(params) + (cap,),
+            )
             return cur.fetchall() or []
         finally:
             cur.close()
@@ -152,8 +203,8 @@ def get_pending_training_count(contractor_id):
         return 0
     try:
         from app.plugins.training_module.services import TrainingService
-        assignments = TrainingService.list_assignments(contractor_id=contractor_id, include_completed=False)
-        return len(assignments)
+
+        return int(TrainingService.count_pending_for_contractor(int(contractor_id)))
     except Exception as e:
         logger.debug("Employee portal: training pending count unavailable: %s", e)
         return 0
@@ -165,16 +216,23 @@ def get_dashboard_summary_context(contractor_id: int) -> Dict[str, Any]:
     pending_training = get_pending_training_count(contractor_id)
     messages = get_messages(contractor_id)
     unread = sum(1 for m in messages if not m.get("read_at"))
-    pending_todos = get_todos(contractor_id, filter_completed=False)
-    todo_titles = [t.get("title") or "" for t in (pending_todos or [])[:10] if t.get("title")]
-    return {
+    pending_todo_count = count_pending_todos(contractor_id)
+    pending_todos = get_todos(contractor_id, filter_completed=False, limit=10)
+    todo_titles = [t.get("title") or "" for t in (pending_todos or []) if t.get("title")]
+    out = {
         "pending_policies": pending_policies,
         "pending_hr_requests": pending_hr_requests,
         "pending_training": pending_training,
         "unread_messages": unread,
-        "pending_todo_count": len(pending_todos or []),
+        "pending_todo_count": pending_todo_count,
         "todo_titles": todo_titles,
     }
+    try:
+        from app.plugins.scheduling_module.services import ScheduleService
+        out["scheduling_summary"] = ScheduleService.get_contractor_portal_summary(contractor_id)
+    except Exception:
+        out["scheduling_summary"] = None
+    return out
 
 
 def is_scheduling_enabled(plugin_manager):
@@ -441,22 +499,117 @@ def admin_create_todo(
     due_date: Optional[date] = None,
     source_module: str = "employee_portal_module",
     created_by_user_id: Optional[int] = None,
+    reference_type: Optional[str] = None,
+    reference_id: Optional[str] = None,
 ) -> int:
-    """Insert one todo per contractor_id. Returns count inserted."""
+    """Insert one todo per contractor_id. Returns count inserted. Optional reference_type/reference_id for linking (e.g. schedule_shift_task)."""
     if not contractor_ids or not title.strip():
         return 0
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         count = 0
+        ref_type = (reference_type or "")[:64] or None
+        ref_id = (reference_id or "")[:128] or None
         for cid in contractor_ids:
             cur.execute("""
-                INSERT INTO ep_todos (contractor_id, source_module, title, link_url, due_date, created_by_user_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (cid, source_module, (title or "").strip()[:255], (link_url or "")[:512] or None, due_date, created_by_user_id))
+                INSERT INTO ep_todos (contractor_id, source_module, title, link_url, due_date, created_by_user_id, reference_type, reference_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (cid, source_module, (title or "").strip()[:255], (link_url or "")[:512] or None, due_date, created_by_user_id, ref_type, ref_id))
             count += cur.rowcount
         conn.commit()
         return count
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_todo_by_reference(
+    source_module: str,
+    reference_type: str,
+    reference_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Return first matching todo (any contractor) with given reference, or None."""
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT id, contractor_id, source_module, title, completed_at
+            FROM ep_todos
+            WHERE source_module = %s AND reference_type = %s AND reference_id = %s
+            LIMIT 1
+        """, (source_module, (reference_type or "")[:64], (reference_id or "")[:128]))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def complete_todo_by_reference(
+    source_module: str,
+    reference_type: str,
+    reference_id: str,
+) -> bool:
+    """Mark todo(s) matching reference as completed. Returns True if any row updated."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE ep_todos
+            SET completed_at = NOW()
+            WHERE source_module = %s AND reference_type = %s AND reference_id = %s AND completed_at IS NULL
+        """, (source_module, (reference_type or "")[:64], (reference_id or "")[:128]))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        cur.close()
+        conn.close()
+
+
+def upsert_pending_todo_for_reference(
+    contractor_id: int,
+    source_module: str,
+    reference_type: str,
+    reference_id: str,
+    title: str,
+    link_url: Optional[str] = None,
+    due_date: Optional[date] = None,
+) -> None:
+    """
+    If a pending todo exists for this contractor + reference, refresh title/link/due_date.
+    Otherwise insert a new pending todo. Used by HR document requests (reject / new request).
+    """
+    if not title or not str(title).strip():
+        return
+    ttl = str(title).strip()[:255]
+    link = (link_url or "")[:512] or None
+    ref_type = (reference_type or "")[:64] or None
+    ref_id = (reference_id or "")[:128] or None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE ep_todos
+            SET title = %s, link_url = %s, due_date = %s
+            WHERE contractor_id = %s AND source_module = %s
+              AND reference_type <=> %s AND reference_id <=> %s
+              AND completed_at IS NULL
+            """,
+            (ttl, link, due_date, contractor_id, source_module, ref_type, ref_id),
+        )
+        if cur.rowcount == 0:
+            cur.execute(
+                """
+                INSERT INTO ep_todos (
+                    contractor_id, source_module, title, link_url, due_date,
+                    created_by_user_id, reference_type, reference_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (contractor_id, source_module, ttl, link, due_date, None, ref_type, ref_id),
+            )
+        conn.commit()
     finally:
         cur.close()
         conn.close()
@@ -644,6 +797,32 @@ def set_ep_setting(key: str, value: Optional[str]) -> bool:
         return False
 
 
+def get_contractor_theme(contractor_id: int) -> Optional[str]:
+    """Get stored portal theme for a contractor. Returns 'light', 'dark', 'auto', or None if not set."""
+    if not contractor_id:
+        return None
+    key = f"portal_theme:{contractor_id}"
+    val = get_ep_setting(key)
+    if val and val.lower() in ("light", "dark", "auto", "system"):
+        return val.lower() if val.lower() != "system" else "auto"
+    return None
+
+
+def set_contractor_theme(contractor_id: int, theme: str) -> bool:
+    """Store portal theme for a contractor. theme should be 'light', 'dark', or 'auto'."""
+    if not contractor_id:
+        return False
+    key = f"portal_theme:{contractor_id}"
+    return set_ep_setting(key, theme)
+
+
+def resolve_theme_by_time() -> str:
+    """Resolve 'auto' theme to 'light' or 'dark' by time of day (UTC). 06:00–22:00 = light, else dark. Consistent across cluster."""
+    from datetime import datetime
+    hour = datetime.utcnow().hour
+    return "light" if 6 <= hour < 22 else "dark"
+
+
 # -----------------------------------------------------------------------------
 # Admin: portal preview (dashboard data for a contractor)
 # -----------------------------------------------------------------------------
@@ -671,9 +850,9 @@ def get_dashboard_data_for_contractor(
     user["profile_picture_path"] = safe_profile_picture_path(user.get("profile_picture_path"))
     user["id"] = int(user["id"])
     messages = get_messages(contractor_id)
-    todos = get_todos(contractor_id)
+    todos = get_todos(contractor_id, filter_completed=False)
     unread_message_count = sum(1 for m in messages if not m.get("read_at"))
-    pending_todo_count = sum(1 for t in todos if not t.get("completed_at"))
+    pending_todo_count = count_pending_todos(contractor_id)
     pending_policies, pending_hr_requests = get_pending_counts(contractor_id)
     pending_training = get_pending_training_count(contractor_id)
     module_links = get_module_links(plugin_manager)

@@ -17,7 +17,7 @@
       <input type="text" name="name" class="form-control" value="{{ template.name }}">
     </div>
     <div class="col-md-3">
-      <label class="form-label">Client</label>
+      <label class="form-label">{{ assignment_label|default('Client') }}</label>
       <select name="client_id" class="form-select">
         <option value="">—</option>
         {% for c in clients %}
@@ -90,6 +90,10 @@
 </ul>
 <div class="mt-3">
   <a href="{{ url_for('internal_scheduling.admin_template_apply_form', template_id=template.id) }}" class="btn btn-success btn-sm">Apply to week</a>
+  <form method="post" action="{{ url_for('internal_scheduling.admin_template_clone', template_id=template.id) }}" class="d-inline">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-info btn-sm">Clone template</button>
+  </form>
   <a href="{{ url_for('internal_scheduling.admin_templates') }}" class="btn btn-outline-secondary btn-sm">Back to templates</a>
 </div>
 {% endblock %}
