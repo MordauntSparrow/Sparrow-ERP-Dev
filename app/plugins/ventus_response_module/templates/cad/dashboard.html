@@ -132,6 +132,7 @@ let unitsSnapshot = new Set();
 let unitsSnapshotInitialized = false;
 let panelZCounter = 560;
 let pendingDivisionRecenter = false;
+let lastAlertScopeKey = '';
 // Optional sounds disabled by default to avoid CDN/autoplay errors in console.
 let soundNewJob = null;
 let soundUrgent = null;
@@ -1932,18 +1933,6 @@ function refreshMap() {
   fetch(withDivision('/plugin/ventus_response_module/jobs')).then(r => r.json()).then(jobs => {
     jobsLayer.clearLayers();
     jobsData = jobs;
-    if (jobs.length > lastJobsCount) {
-      const newest = jobs[0] || {};
-      const newestCad = parseInt(newest.cad, 10);
-      showNotification('info', 'New Job', `CAD #${newest.cad || '??'}`, Number.isInteger(newestCad) && newestCad > 0 ? { cad: newestCad } : null);
-      playChime('new_job');
-      try {
-        if (soundNewJob && typeof soundNewJob.play === 'function') {
-          const p = soundNewJob.play();
-          if (p && typeof p.catch === 'function') p.catch(() => {});
-        }
-      } catch (e) { }
-    }
     lastJobsCount = jobs.length;
     jobCoordByCad = new Map();
     jobs.forEach(job => {
@@ -2034,7 +2023,10 @@ setInterval(refreshMap, 15000);
 
 function pollDispatcherAlerts() {
   fetch(withDivision('/plugin/ventus_response_module/jobs'))
-    .then(r => (r.ok ? r.json() : []))
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
     .then((jobs) => {
       const activeJobs = (Array.isArray(jobs) ? jobs : []).filter(j => normalizeStatus(j.status) !== 'cleared');
       const next = new Map();
@@ -2048,6 +2040,13 @@ function pollDispatcherAlerts() {
         ].join('|');
         next.set(Number(j.cad), sig);
       });
+      const scopeKey = `${String(selectedDivision || 'general')}|${showExternalDivisions ? '1' : '0'}`;
+      if (lastAlertScopeKey !== scopeKey) {
+        lastAlertScopeKey = scopeKey;
+        jobSnapshot = next;
+        jobSnapshotInitialized = true;
+        return;
+      }
 
       if (jobSnapshotInitialized) {
         next.forEach((sig, cad) => {
@@ -2511,6 +2510,12 @@ function patchListByKey(listEl, rows, emptyHtml = '') {
     listEl.innerHTML = emptyHtml;
     return;
   }
+  Array.from(listEl.children || []).forEach((el) => {
+    const key = el && el.getAttribute ? el.getAttribute('data-row-key') : '';
+    if (!key) {
+      try { el.remove(); } catch (e) {}
+    }
+  });
   const existing = new Map();
   Array.from(listEl.children || []).forEach((el) => {
     const key = el && el.getAttribute ? el.getAttribute('data-row-key') : '';
@@ -4472,7 +4477,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnResetPanels?.addEventListener('click', () => {
-    if (cadLockedLayout) return;
     if (typeof window.resetPanelsToDefault === 'function') window.resetPanelsToDefault();
   });
 
