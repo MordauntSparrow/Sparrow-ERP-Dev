@@ -914,12 +914,54 @@ function savePanelState(panelEl) {
 
 function getDefaultPanelPosition(type, typeIndex) {
   const w = 420, h = 400;
+  if (type === 'map') return { left: 24, top: 84, width: 360, height: 240 };
   if (type === 'jobs') return { left: 40, top: 120, width: w, height: h };
   if (type === 'units') return { left: 480, top: 120, width: w, height: h };
   if (type === 'messages') return { left: 40 + 2 * 30, top: 120 + 2 * 40, width: w, height: h };
   if (type === 'past_jobs') return { left: 40 + 3 * 30, top: 120 + 3 * 40, width: w, height: h };
   if (type === 'kpi') return { left: 40 + 4 * 30, top: 120 + 4 * 40, width: 520, height: 180 };
   return { left: 40 + typeIndex * 30, top: 120 + typeIndex * 40, width: w, height: h };
+}
+
+function getLockedPanelDefaults(type) {
+  const hostW = (panelsContainer && panelsContainer.clientWidth) ? panelsContainer.clientWidth : window.innerWidth;
+  const hostH = (panelsContainer && panelsContainer.clientHeight) ? panelsContainer.clientHeight : window.innerHeight;
+  if (type === 'map') return { left: 12, top: 12, width: Math.max(300, Math.floor(hostW * 0.24)), height: Math.max(210, Math.floor(hostH * 0.26)) };
+  if (type === 'jobs') return { left: Math.floor(hostW * 0.25) + 20, top: 12, width: Math.max(380, Math.floor(hostW * 0.34)), height: Math.max(260, Math.floor(hostH * 0.34)) };
+  if (type === 'units') return { left: Math.floor(hostW * 0.60) + 20, top: 12, width: Math.max(320, Math.floor(hostW * 0.38) - 26), height: Math.max(260, Math.floor(hostH * 0.34)) };
+  if (type === 'messages') return { left: 12, top: Math.max(220, Math.floor(hostH * 0.32)) + 20, width: Math.max(760, hostW - 24), height: Math.max(320, Math.floor(hostH * 0.43)) };
+  if (type === 'past_jobs') return { left: 12, top: Math.max(560, Math.floor(hostH * 0.78)), width: Math.max(460, Math.floor(hostW * 0.48)), height: Math.max(190, hostH - Math.max(560, Math.floor(hostH * 0.78)) - 16) };
+  if (type === 'kpi') return { left: Math.floor(hostW * 0.50), top: Math.max(560, Math.floor(hostH * 0.78)), width: Math.max(420, Math.floor(hostW * 0.48) - 12), height: Math.max(190, hostH - Math.max(560, Math.floor(hostH * 0.78)) - 16) };
+  return getDefaultPanelPosition(type, 1);
+}
+
+function moveMapIntoPanel(contentEl) {
+  const mapWrap = document.querySelector('.map-wrap');
+  if (!mapWrap || !contentEl) return;
+  contentEl.innerHTML = '';
+  contentEl.style.padding = '0';
+  contentEl.style.position = 'relative';
+  contentEl.appendChild(mapWrap);
+  mapWrap.style.display = 'block';
+  mapWrap.style.position = 'absolute';
+  mapWrap.style.inset = '0';
+  mapWrap.style.width = '100%';
+  mapWrap.style.height = '100%';
+  mapWrap.style.zIndex = '1';
+  try { if (window.map && typeof window.map.invalidateSize === 'function') window.map.invalidateSize(true); } catch (e) {}
+}
+
+function restoreMapHome(showMap = true) {
+  const mapWrap = document.querySelector('.map-wrap');
+  if (!mapWrap || !cadMain) return;
+  cadMain.appendChild(mapWrap);
+  mapWrap.style.display = showMap ? 'block' : 'none';
+  mapWrap.style.position = '';
+  mapWrap.style.inset = '';
+  mapWrap.style.width = '';
+  mapWrap.style.height = '';
+  mapWrap.style.zIndex = '';
+  try { if (window.map && typeof window.map.invalidateSize === 'function') window.map.invalidateSize(true); } catch (e) {}
 }
 
 const LOCKED_SLOT_ORDER = ['tl', 'tr', 'mid', 'bl', 'br'];
@@ -1027,15 +1069,17 @@ function normalizeLockedSlots() {
 }
 
 window.resetPanelsToDefault = function() {
-  ['jobs', 'units', 'messages', 'past_jobs', 'kpi'].forEach((type) => {
+  ['map', 'jobs', 'units', 'messages', 'past_jobs', 'kpi'].forEach((type) => {
     cadLsRemove(`panel_state_${type}`, `cad_panel_state_${type}`);
   });
-  const typeOrder = ['jobs', 'units', 'messages', 'past_jobs', 'kpi'];
+  const typeOrder = cadLockedLayout
+    ? ['map', 'jobs', 'units', 'messages', 'past_jobs', 'kpi']
+    : ['jobs', 'units', 'messages', 'past_jobs', 'kpi'];
   let typeIndex = 0;
   for (const type of typeOrder) {
     const entry = Object.values(openPanels).find(p => p.type === type);
     if (entry && entry.element) {
-      const def = getDefaultPanelPosition(type, typeIndex);
+      const def = cadLockedLayout ? getLockedPanelDefaults(type) : getDefaultPanelPosition(type, typeIndex);
       entry.element.style.left = def.left + 'px';
       entry.element.style.top = def.top + 'px';
       entry.element.style.width = def.width + 'px';
@@ -1083,77 +1127,34 @@ function createPanel(type, title) {
   panelEl.style.pointerEvents = 'auto';
   panelEl.style.display = 'flex';
   panelEl.style.flexDirection = 'column';
-  if (cadLockedLayout) {
-    panelEl.style.position = 'relative';
-    panelEl.style.width = '100%';
-    panelEl.style.height = '100%';
-    panelEl.style.minWidth = '0';
-    panelEl.style.minHeight = '0';
-    panelEl.style.zIndex = '1';
-  } else {
-    panelEl.style.position = 'absolute';
-    panelEl.style.width = '420px';
-    panelEl.style.height = '400px';
-    panelEl.style.minWidth = '360px';
-    panelEl.style.minHeight = '280px';
-    panelEl.style.zIndex = '550';
-  }
+  panelEl.style.position = 'absolute';
+  panelEl.style.width = cadLockedLayout ? '460px' : '420px';
+  panelEl.style.height = cadLockedLayout ? '320px' : '400px';
+  panelEl.style.minWidth = '300px';
+  panelEl.style.minHeight = '220px';
+  panelEl.style.zIndex = '550';
 
   openPanels[panelId] = { id: panelId, type: type, title: title, element: panelEl };
 
   if (cadLockedLayout) {
-    const savedSlots = getSavedLockedSlots();
-    const preferredSlot = savedSlots[type] && LOCKED_SLOT_ORDER.includes(savedSlots[type])
-      ? savedSlots[type]
-      : (lockedDefaultSlotForType(type) || LOCKED_SLOT_ORDER[0]);
-    applyLockedSlot(panelEl, preferredSlot, true);
-    panelEl.setAttribute('draggable', 'true');
-    panelEl.addEventListener('dragstart', (ev) => {
-      try {
-        ev.dataTransfer.setData('application/x-ventus-panel-id', panelId);
-        ev.dataTransfer.effectAllowed = 'move';
-      } catch (e) {}
-      panelEl.classList.add('dragging');
-      showLockedSnapOverlay(panelEl.dataset.lockedSlot || null);
-    });
-    panelEl.addEventListener('dragend', () => {
-      panelEl.classList.remove('dragging');
-      Array.from(panelsContainer.querySelectorAll('.cad-panel')).forEach((el) => {
-        el.classList.remove('drop-target-before', 'drop-target-after');
-      });
-      hideLockedSnapOverlay();
-    });
-    panelEl.addEventListener('dragover', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const draggingId = (() => {
-        try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
-      })();
-      if (!draggingId || draggingId === panelId) return;
-      const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
-      showLockedSnapOverlay(slot);
-    });
-    panelEl.addEventListener('dragleave', () => {
-      panelEl.classList.remove('drop-target-before', 'drop-target-after');
-    });
-    panelEl.addEventListener('drop', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const draggingId = (() => {
-        try { return ev.dataTransfer.getData('application/x-ventus-panel-id'); } catch (e) { return ''; }
-      })();
-      if (!draggingId || draggingId === panelId) return;
-      const draggingEl = document.getElementById(draggingId);
-      if (!draggingEl || draggingEl === panelEl) return;
-      const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
-      applyLockedSlot(draggingEl, slot, true);
-      panelEl.classList.remove('drop-target-before', 'drop-target-after');
-      showLockedSnapOverlay(slot);
-    });
-  }
-
-  // smart initial positioning (only needed for floating panels)
-  if (!cadLockedLayout) {
+    try {
+      const saved = cadLsGet(`panel_state_${type}`, `cad_panel_state_${type}`);
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.left) panelEl.style.left = s.left;
+        if (s.top) panelEl.style.top = s.top;
+        if (s.width) panelEl.style.width = s.width;
+        if (s.height) panelEl.style.height = s.height;
+      }
+      if (!panelEl.style.left || !panelEl.style.top) {
+        const def = getLockedPanelDefaults(type);
+        panelEl.style.left = def.left + 'px';
+        panelEl.style.top = def.top + 'px';
+        panelEl.style.width = def.width + 'px';
+        panelEl.style.height = def.height + 'px';
+      }
+    } catch (e) {}
+  } else {
     const panelCount = Object.keys(openPanels).length;
     let posLeft, posTop;
     if (type === 'jobs') { posLeft = 40; posTop = 120; }
@@ -1210,13 +1211,11 @@ function createPanel(type, title) {
     closePanel(panelId);
   });
 
-  if (!cadLockedLayout) setupDragResize(panelId);
+  setupDragResize(panelId);
   loadPanelContent(panelId, type);
 
   // Clamp panel into viewport so it opens on-map
-  if (!cadLockedLayout) {
-    try { clampPanelToViewport(panelEl); } catch (e) {}
-  }
+  try { clampPanelToViewport(panelEl); } catch (e) {}
 
   return panelEl;
 }
@@ -1340,6 +1339,7 @@ function loadPanelContent(panelId, type) {
     loadJobsPanel(contentEl);
   }
   else if (type === 'units') loadUnitsPanel(contentEl);
+  else if (type === 'map') moveMapIntoPanel(contentEl);
   else if (type === 'messages') loadMsgPanel(contentEl);
   else if (type === 'past_jobs') loadPastJobsPanel(contentEl);
   else if (type === 'kpi') loadKPIPanel(contentEl);
@@ -1381,9 +1381,23 @@ function refreshOpenPanels(types = null) {
   }, 120);
 }
 
+function syncPanelButtonStates() {
+  try {
+    const openTypes = new Set(Object.values(openPanels || {}).map((p) => p && p.type).filter(Boolean));
+    if (btnJobs) btnJobs.classList.toggle('active', openTypes.has('jobs'));
+    if (btnUnits) btnUnits.classList.toggle('active', openTypes.has('units'));
+    if (btnMsgs) btnMsgs.classList.toggle('active', openTypes.has('messages'));
+    if (btnPastJobs) btnPastJobs.classList.toggle('active', openTypes.has('past_jobs'));
+    if (btnKPI) btnKPI.classList.toggle('active', openTypes.has('kpi'));
+  } catch (e) {}
+}
+
 function closePanel(panelId) {
   const panel = openPanels[panelId];
   if (!panel) return;
+  if (panel.type === 'map') {
+    try { restoreMapHome(!cadLockedLayout); } catch (e) {}
+  }
   try {
     const sizeOverlay = document.getElementById('panel-size-overlay');
     if (sizeOverlay) sizeOverlay.remove();
@@ -1406,9 +1420,7 @@ function closePanel(panelId) {
       }
     } catch (e) {}
     delete openPanels[panelId];
-    if (cadLockedLayout) {
-      try { normalizeLockedSlots(); } catch (e) {}
-    }
+    if (cadLockedLayout) {}
     if (isPopoutMode && Object.keys(openPanels).length === 0) {
       try { window.close(); } catch (e) {}
     }
@@ -1466,6 +1478,9 @@ function applyMapOnlyPopoutLayout() {
 function clearAllPanelsImmediate() {
   try {
     Object.values(openPanels).forEach((p) => {
+      if (p && p.type === 'map') {
+        try { restoreMapHome(false); } catch (e) {}
+      }
       try { p && p.element && p.element.remove(); } catch (e) {}
     });
   } catch (e) {}
@@ -1481,24 +1496,25 @@ function clearAllPanelsImmediate() {
 }
 
 function applyLockedLayout() {
+  const currentlyOpenTypes = Object.values(openPanels || {})
+    .map((p) => (p && p.type) ? String(p.type) : '')
+    .filter((t) => ['jobs', 'units', 'messages', 'past_jobs', 'kpi'].includes(t));
   cadLockedLayout = true;
   cadLsSet('locked_layout', '1');
   try { document.querySelector('.cad-root')?.classList.add('locked-layout'); } catch (e) {}
   try { btnLockedLayout?.classList.add('active'); } catch (e) {}
   clearAllPanelsImmediate();
-  ensureLockedSnapOverlay();
-  const toOpen = [
-    ['jobs', 'CAD Stack'],
-    ['units', 'Active Units'],
-    ['messages', 'Messages'],
-    ['past_jobs', 'Past / Cleared Jobs'],
-    ['kpi', 'Live KPI'],
-  ];
-  toOpen.forEach(([type, title]) => {
-    try { getOrCreatePanel(type, title); } catch (e) {}
+  const titleByType = {
+    jobs: 'CAD Stack',
+    units: 'Active Units',
+    messages: 'Messages',
+    past_jobs: 'Past / Cleared Jobs',
+    kpi: 'Live KPI',
+  };
+  currentlyOpenTypes.forEach((type) => {
+    try { getOrCreatePanel(type, titleByType[type] || type); } catch (e) {}
   });
-  panelsContainer?.addEventListener('dragover', handleLockedPanelsDragOver);
-  panelsContainer?.addEventListener('drop', handleLockedPanelsDrop);
+  syncPanelButtonStates();
 }
 
 function removeLockedLayout() {
@@ -1507,12 +1523,8 @@ function removeLockedLayout() {
   try { document.querySelector('.cad-root')?.classList.remove('locked-layout'); } catch (e) {}
   try { btnLockedLayout?.classList.remove('active'); } catch (e) {}
   clearAllPanelsImmediate();
-  panelsContainer?.removeEventListener('dragover', handleLockedPanelsDragOver);
-  panelsContainer?.removeEventListener('drop', handleLockedPanelsDrop);
-  if (lockedSnapOverlayEl) {
-    try { lockedSnapOverlayEl.remove(); } catch (e) {}
-    lockedSnapOverlayEl = null;
-  }
+  restoreMapHome(true);
+  syncPanelButtonStates();
 }
 
 function handleLockedPanelsDragOver(ev) {
@@ -4082,6 +4094,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnResetPanels?.addEventListener('click', () => {
+    if (cadLockedLayout) return;
     if (typeof window.resetPanelsToDefault === 'function') window.resetPanelsToDefault();
   });
 
@@ -4097,6 +4110,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnPopoutMap = document.getElementById('btnPopoutMap');
   if (btnPopoutMap) {
     btnPopoutMap.addEventListener('click', () => {
+      if (cadLockedLayout) {
+        return;
+      }
       const scope = getDivisionParams().toString();
       const url = `/plugin/ventus_response_module/cad?panel=map&title=Map&popout=1${scope ? `&${scope}` : ''}`;
       const w = window.open(url, 'ventus-map-popout', 'width=900,height=700');
