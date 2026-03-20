@@ -628,19 +628,20 @@
 
     .cad-panel .resize-handle {
       position: absolute;
-      right: 10px;
-      bottom: 10px;
       width: 18px;
       height: 18px;
       border-radius: 4px;
       background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(0,0,0,0.05));
-      cursor: se-resize;
       display: flex;
       align-items: center;
       justify-content: center;
       pointer-events: auto;
       opacity: 0.9;
     }
+    .cad-panel .resize-handle.resize-br { right: 10px; bottom: 10px; cursor: se-resize; }
+    .cad-panel .resize-handle.resize-bl { left: 10px; bottom: 10px; cursor: sw-resize; }
+    .cad-panel .resize-handle.resize-tr { right: 10px; top: 10px; cursor: ne-resize; }
+    .cad-panel .resize-handle.resize-tl { left: 10px; top: 10px; cursor: nw-resize; }
     .cad-panel .resize-handle::after {
       content: '';
       width: 10px;
@@ -650,6 +651,23 @@
       transform: rotate(45deg);
       display: block;
       opacity: 0.9;
+    }
+    .cad-panel .resize-handle.resize-bl::after {
+      border-right: 0;
+      border-left: 2px solid rgba(255,255,255,0.18);
+      transform: rotate(-45deg);
+    }
+    .cad-panel .resize-handle.resize-tr::after {
+      border-bottom: 0;
+      border-top: 2px solid rgba(255,255,255,0.18);
+      transform: rotate(-45deg);
+    }
+    .cad-panel .resize-handle.resize-tl::after {
+      border-right: 0;
+      border-bottom: 0;
+      border-left: 2px solid rgba(255,255,255,0.18);
+      border-top: 2px solid rgba(255,255,255,0.18);
+      transform: rotate(45deg);
     }
 
     #kpiStatsPanel .resize-handle {

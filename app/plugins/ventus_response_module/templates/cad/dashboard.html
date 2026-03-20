@@ -971,6 +971,7 @@ let lockedSnapOverlayEl = null;
 function lockedDefaultSlotForType(type) {
   if (type === 'jobs') return 'tl';
   if (type === 'units') return 'tr';
+  if (type === 'map') return 'bl';
   if (type === 'messages') return 'mid';
   if (type === 'past_jobs') return 'bl';
   if (type === 'kpi') return 'br';
@@ -1043,6 +1044,42 @@ function getLockedSlotFromPoint(clientX, clientY) {
   return rx < 0.5 ? 'bl' : 'br';
 }
 
+function getLockedSlotRect(slot) {
+  const rect = panelsContainer && panelsContainer.getBoundingClientRect ? panelsContainer.getBoundingClientRect() : null;
+  if (!rect || rect.width <= 0 || rect.height <= 0) return { left: 8, top: 8, width: 420, height: 320 };
+  const gap = 10;
+  const innerW = Math.max(200, rect.width - (gap * 2));
+  const innerH = Math.max(220, rect.height - (gap * 2));
+  const colW = Math.max(220, Math.floor((innerW - gap) / 2));
+  const rowTop = Math.max(150, Math.floor(innerH * 0.23));
+  const rowMid = Math.max(240, Math.floor(innerH * 0.50));
+  const rowBot = Math.max(140, innerH - rowTop - rowMid - (gap * 2));
+  const leftX = gap;
+  const rightX = gap + colW + gap;
+  const topY = gap;
+  const midY = gap + rowTop + gap;
+  const botY = gap + rowTop + gap + rowMid + gap;
+  if (slot === 'tl') return { left: leftX, top: topY, width: colW, height: rowTop };
+  if (slot === 'tr') return { left: rightX, top: topY, width: colW, height: rowTop };
+  if (slot === 'mid') return { left: leftX, top: midY, width: (colW * 2) + gap, height: rowMid };
+  if (slot === 'bl') return { left: leftX, top: botY, width: colW, height: rowBot };
+  if (slot === 'br') return { left: rightX, top: botY, width: colW, height: rowBot };
+  return { left: leftX, top: midY, width: (colW * 2) + gap, height: rowMid };
+}
+
+function layoutLockedPanels() {
+  if (!cadLockedLayout) return;
+  Object.values(openPanels || {}).forEach((p) => {
+    if (!p || !p.element) return;
+    const slot = (p.element.dataset && p.element.dataset.lockedSlot) || lockedDefaultSlotForType(p.type) || 'mid';
+    const r = getLockedSlotRect(slot);
+    p.element.style.left = `${Math.round(r.left)}px`;
+    p.element.style.top = `${Math.round(r.top)}px`;
+    p.element.style.width = `${Math.round(r.width)}px`;
+    p.element.style.height = `${Math.round(r.height)}px`;
+  });
+}
+
 function findPanelByLockedSlot(slot) {
   return Object.values(openPanels || {}).find((p) => p && p.element && p.element.dataset && p.element.dataset.lockedSlot === slot) || null;
 }
@@ -1057,6 +1094,7 @@ function applyLockedSlot(panelEl, slot, allowSwap = true) {
   }
   panelEl.dataset.lockedSlot = slot;
   saveLockedSlots();
+  layoutLockedPanels();
 }
 
 function normalizeLockedSlots() {
@@ -1067,6 +1105,7 @@ function normalizeLockedSlots() {
     el.dataset.lockedSlot = target;
   });
   saveLockedSlots();
+  layoutLockedPanels();
 }
 
 window.resetPanelsToDefault = function() {
@@ -1120,7 +1159,10 @@ function createPanel(type, title) {
         Loading...
       </div>
     </div>
-    <div class="resize-handle" title="Resize"></div>
+    <div class="resize-handle resize-br" data-dir="br" title="Resize"></div>
+    <div class="resize-handle resize-bl" data-dir="bl" title="Resize"></div>
+    <div class="resize-handle resize-tr" data-dir="tr" title="Resize"></div>
+    <div class="resize-handle resize-tl" data-dir="tl" title="Resize"></div>
   `;
 
   panelsContainer.appendChild(panelEl);
@@ -1139,6 +1181,11 @@ function createPanel(type, title) {
 
   if (cadLockedLayout) {
     try {
+      const savedSlots = getSavedLockedSlots();
+      const preferredSlot = savedSlots[type] && LOCKED_SLOT_ORDER.includes(savedSlots[type])
+        ? savedSlots[type]
+        : (lockedDefaultSlotForType(type) || LOCKED_SLOT_ORDER[0]);
+      panelEl.dataset.lockedSlot = preferredSlot;
       const saved = cadLsGet(`panel_state_${type}`, `cad_panel_state_${type}`);
       if (saved) {
         const s = JSON.parse(saved);
@@ -1154,6 +1201,7 @@ function createPanel(type, title) {
         panelEl.style.width = def.width + 'px';
         panelEl.style.height = def.height + 'px';
       }
+      normalizeLockedSlots();
     } catch (e) {}
   } else {
     const panelCount = Object.keys(openPanels).length;
@@ -1242,6 +1290,11 @@ function setupDragResize(panelId) {
     const baseTop = parseInt(panelEl.style.top, 10) || 8;
 
     const onMove = (ev) => {
+      if (cadLockedLayout) {
+        const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+        showLockedSnapOverlay(slot);
+        return;
+      }
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
       panelEl.style.left = (baseLeft + dx) + 'px';
@@ -1254,6 +1307,11 @@ function setupDragResize(panelId) {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       panelEl.style.opacity = '1';
+      if (cadLockedLayout) {
+        const slot = getLockedSlotFromPoint(ev.clientX, ev.clientY);
+        applyLockedSlot(panelEl, slot, true);
+        hideLockedSnapOverlay();
+      }
       savePanelState(panelEl);
     };
 
@@ -1261,10 +1319,11 @@ function setupDragResize(panelId) {
     document.addEventListener('pointerup', onUp);
   });
 
-  // Add resize handle behavior (bottom-right)
+  // Add resize handle behavior (all corners)
   try {
-    const resizeHandle = panelEl.querySelector('.resize-handle');
-    if (resizeHandle) {
+    const resizeHandles = Array.from(panelEl.querySelectorAll('.resize-handle[data-dir]'));
+    resizeHandles.forEach((resizeHandle) => {
+      const dir = String(resizeHandle.getAttribute('data-dir') || 'br').toLowerCase();
       resizeHandle.style.touchAction = 'none';
       resizeHandle.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
@@ -1283,8 +1342,19 @@ function setupDragResize(panelId) {
         const maxH = Math.max(minH, hostH - startTop - 8);
         const onMove = (ev) => {
           const dx = ev.clientX - startX, dy = ev.clientY - startY;
-          const nw = Math.min(maxW, Math.max(minW, startW + dx));
-          const nh = Math.min(maxH, Math.max(minH, startH + dy));
+          let nw = startW, nh = startH, nl = startLeft, nt = startTop;
+          if (dir.includes('r')) nw = Math.min(maxW, Math.max(minW, startW + dx));
+          if (dir.includes('l')) {
+            nw = Math.min(maxW, Math.max(minW, startW - dx));
+            nl = startLeft + (startW - nw);
+          }
+          if (dir.includes('b')) nh = Math.min(maxH, Math.max(minH, startH + dy));
+          if (dir.includes('t')) {
+            nh = Math.min(maxH, Math.max(minH, startH - dy));
+            nt = startTop + (startH - nh);
+          }
+          panelEl.style.left = nl + 'px';
+          panelEl.style.top = nt + 'px';
           panelEl.style.width = nw + 'px';
           panelEl.style.height = nh + 'px';
           clampPanelToViewport(panelEl);
@@ -1321,7 +1391,7 @@ function setupDragResize(panelId) {
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
       });
-    }
+    });
   } catch (e) {}
 }
 
@@ -1369,6 +1439,10 @@ function refreshOpenPanels(types = null) {
   if (panelRefreshTimer) clearTimeout(panelRefreshTimer);
   panelRefreshTimer = setTimeout(() => {
     Object.values(openPanels).forEach((p) => {
+      if (p.type === 'messages' || p.type === 'units' || p.type === 'jobs') {
+        // Self-polling panels update in place; avoid full content rebuild flicker.
+        return;
+      }
       if (p.type === 'messages' && isMessageComposerActive()) return;
       if (p.type === 'jobs') {
         const view = String((p.element && p.element.dataset && p.element.dataset.jobsView) || '').toLowerCase();
@@ -1518,7 +1592,10 @@ function applyLockedLayout() {
       }
     } catch (e) {}
   }
-  if (!currentlyOpenTypes.length) currentlyOpenTypes = ['jobs', 'units', 'messages', 'map'];
+  if (!currentlyOpenTypes.length) currentlyOpenTypes = ['jobs', 'units', 'messages'];
+  if (!currentlyOpenTypes.includes('map')) currentlyOpenTypes.push('map');
+  const preferredOrder = ['jobs', 'units', 'messages', 'map', 'past_jobs', 'kpi'];
+  currentlyOpenTypes = preferredOrder.filter((t) => currentlyOpenTypes.includes(t)).slice(0, LOCKED_SLOT_ORDER.length);
   cadLockedLayout = true;
   cadLsSet('locked_layout', '1');
   try { document.querySelector('.cad-root')?.classList.add('locked-layout'); } catch (e) {}
@@ -1535,6 +1612,7 @@ function applyLockedLayout() {
   currentlyOpenTypes.forEach((type) => {
     try { getOrCreatePanel(type, titleByType[type] || type); } catch (e) {}
   });
+  normalizeLockedSlots();
   syncPanelButtonStates();
 }
 
@@ -2054,7 +2132,7 @@ if (showExternalToggle) {
     cadLsSet('show_external_divisions', showExternalDivisions ? '1' : '0');
     refreshKPIs();
     refreshMap();
-    Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+    refreshOpenPanels(['past_jobs', 'kpi']);
   });
 }
 
@@ -2073,7 +2151,7 @@ if (divisionSelect) {
     cadLsSet('division_focus', selectedDivision);
     refreshKPIs();
     refreshMap();
-    Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+    refreshOpenPanels(['past_jobs', 'kpi']);
   });
 }
 
@@ -2201,29 +2279,46 @@ function loadJobsPanel(contentEl) {
     <ul id="jobsList" style="list-style:none;padding:0;margin:0;"></ul>
   `;
 
-  fetch(withDivision('/plugin/ventus_response_module/jobs'))
-    .then(res => res.json())
-    .then(jobs => {
-      jobsData = jobs;
-      Promise.all([
-        fetchJobsTimings(jobs.map(j => j.cad)),
-        fetchJobsEligibility(jobs.map(j => j.cad))
-      ]).then(([timingsMap, eligibilityMap]) => {
-        renderJobsList(jobs, contentEl, timingsMap, eligibilityMap);
-        const filter = contentEl.querySelector('.job-filter');
-        if (filter) {
-          filter.oninput = function() {
-            const val = this.value.toLowerCase();
-            renderJobsList(jobs.filter(j =>
-              ("" + j.cad).includes(val) ||
-              normalizeStatus(j.status).includes(val) ||
-              (j.reason_for_call || '').toLowerCase().includes(val)
-            ), contentEl, timingsMap, eligibilityMap);
-          };
-        }
+  const filter = contentEl.querySelector('.job-filter');
+  const renderFiltered = (jobs, timingsMap = {}, eligibilityMap = {}) => {
+    const val = String(filter?.value || '').toLowerCase();
+    const list = Array.isArray(jobs) ? jobs : [];
+    const filtered = !val ? list : list.filter(j =>
+      ("" + j.cad).includes(val) ||
+      normalizeStatus(j.status).includes(val) ||
+      (j.reason_for_call || '').toLowerCase().includes(val)
+    );
+    renderJobsList(filtered, contentEl, timingsMap, eligibilityMap);
+  };
+
+  const refreshJobs = () =>
+    fetch(withDivision('/plugin/ventus_response_module/jobs'))
+      .then(res => res.json())
+      .then(jobs => {
+        const list = Array.isArray(jobs) ? jobs : [];
+        jobsData = list;
+        return Promise.all([
+          fetchJobsTimings(list.map(j => j.cad)),
+          fetchJobsEligibility(list.map(j => j.cad))
+        ]).then(([timingsMap, eligibilityMap]) => {
+          renderFiltered(list, timingsMap, eligibilityMap);
+        });
       });
-    })
+
+  if (filter) {
+    filter.oninput = function() {
+      refreshJobs().catch(() => {});
+    };
+  }
+
+  refreshJobs()
     .catch(() => { contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load jobs.</div>'; });
+
+  const jobsPoll = setInterval(() => {
+    if (!document.body.contains(contentEl)) { clearInterval(jobsPoll); return; }
+    if (isJobDetailEditorActive()) return;
+    refreshJobs().catch(() => {});
+  }, 5000);
 }
 
 function renderJobsList(jobs, contentEl, timingsMap = {}, eligibilityMap = {}) {
@@ -2891,7 +2986,7 @@ window.transferUnitToMyDivision = function(callsign) {
       if (!ok) throw new Error((d && d.error) || 'Transfer failed');
       showNotification('success', 'Unit Transferred', `${callsign} -> ${selectedDivision}`);
       setTimeout(refreshMap, 300);
-      Object.values(openPanels).forEach(p => loadPanelContent(p.id, p.type));
+      refreshOpenPanels(['past_jobs', 'kpi']);
     })
     .catch((e) => showNotification('danger', 'Transfer Failed', e.message || 'Unable to transfer unit'));
 };
@@ -4169,6 +4264,13 @@ function togglePanelByType(type, title, btn) {
       }
       return;
     }
+    if (cadLockedLayout) {
+      const openCount = Object.keys(openPanels || {}).length;
+      if (openCount >= LOCKED_SLOT_ORDER.length) {
+        showNotification('warning', 'Fixed layout', 'Maximum 5 panels in fixed view. Close one panel first.');
+        return;
+      }
+    }
     const panel = getOrCreatePanel(type, title);
     if (btn) btn.classList.add('active');
     if (type === 'messages') clearMessageBadge();
@@ -4177,6 +4279,10 @@ function togglePanelByType(type, title, btn) {
 }
 
 window.addEventListener('resize', () => {
+  if (cadLockedLayout) {
+    try { layoutLockedPanels(); } catch (e) {}
+    return;
+  }
   Object.values(openPanels).forEach((p) => {
     try { clampPanelToViewport(p.element); } catch (e) {}
   });
