@@ -4018,13 +4018,24 @@ window.loadJobDetail = function(cad, opts) {
   const contentEl = panel.querySelector('.cad-panel-body');
   contentEl.innerHTML = '<div style="text-align:center;padding:20px;">Loading...</div>';
 
-  Promise.all([
+  Promise.allSettled([
     fetch(withDivision(`/plugin/ventus_response_module/job/${cad}`)).then(res => res.json()),
     fetchJobsTimings([cad]),
     fetch(withDivision(`/plugin/ventus_response_module/job/${cad}/comms`)).then(res => (res.ok ? res.json() : [])),
     fetch(withDivision(`/plugin/ventus_response_module/job/${cad}/system-log`)).then(res => (res.ok ? res.json() : { events: [] }))
   ])
-    .then(([job, timingsMap, comms, systemLog]) => {
+    .then((settled) => {
+      const read = (idx, fallback) => {
+        const item = settled[idx];
+        return (item && item.status === 'fulfilled') ? item.value : fallback;
+      };
+      const job = read(0, null);
+      const timingsMap = read(1, {});
+      const comms = read(2, []);
+      const systemLog = read(3, { events: [] });
+      if (!job || typeof job !== 'object' || job.error || !job.cad) {
+        throw new Error((job && job.error) ? String(job.error) : 'Job details unavailable');
+      }
       let triage = job.triage_data || {};
       let incidentDetailsHtml = renderIncidentDetails(triage);
       const statusTimesTable = formatStatusTimesTable(job, timingsMap[cad]);
@@ -4150,8 +4161,8 @@ window.loadJobDetail = function(cad, opts) {
         });
       }
     })
-    .catch(() => {
-      contentEl.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Failed to load details.</div>';
+    .catch((e) => {
+      contentEl.innerHTML = `<div style="color:var(--text-muted);padding:16px;">Failed to load details.${e && e.message ? ` ${escapeHtml(String(e.message))}` : ''}</div>`;
     });
 };
 

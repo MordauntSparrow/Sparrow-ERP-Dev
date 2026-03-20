@@ -3604,6 +3604,7 @@ def jobs_eligibility():
                    LOWER(TRIM(COALESCE(status, ''))) AS status,
                    lastLat,
                    lastLon,
+                   lastSeenAt,
                    crew,
                    signOnTime,
                    mealBreakStartedAt,
@@ -3643,6 +3644,16 @@ def jobs_eligibility():
                     continue
                 status = (unit.get('status') or '').strip().lower()
                 is_available = status in avail_states
+                # Keep recommendations aligned with live signed-on crews only.
+                if not is_available:
+                    continue
+                last_seen = unit.get('lastSeenAt') or unit.get('signOnTime')
+                if isinstance(last_seen, datetime):
+                    try:
+                        if (datetime.utcnow() - last_seen).total_seconds() > 20 * 60:
+                            continue
+                    except Exception:
+                        pass
                 unit_division = _normalize_division(unit.get('division'), fallback='general')
                 is_external = bool(job_division and unit_division != job_division)
                 if selected_division and not include_external and unit_division != selected_division:
